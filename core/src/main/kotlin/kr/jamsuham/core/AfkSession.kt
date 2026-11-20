@@ -257,6 +257,10 @@ class AfkSession(
             if (generation == gen) listener.onMenu(menu)
         }
 
+        override fun onInventory(inventory: Inventory) {
+            if (generation == gen) listener.onInventory(inventory)
+        }
+
         override fun onClosed(reason: CloseReason) = submit { handleClosed(reason) }
     }
 
@@ -278,6 +282,7 @@ class AfkSession(
         connection = null
         listener.onPlayers(PlayerList.EMPTY)
         listener.onMenu(null)
+        listener.onInventory(Inventory.EMPTY)
         onlineSince?.let { totalOnlineMs += System.currentTimeMillis() - it }
         onlineSince = null
         lastReason = reason

@@ -7,6 +7,7 @@ import android.util.Log
 import kr.jamsuham.core.AfkSession
 import kr.jamsuham.core.CoreLog
 import kr.jamsuham.core.CredentialsProvider
+import kr.jamsuham.core.Inventory
 import kr.jamsuham.core.LogLine
 import kr.jamsuham.core.Menu
 import kr.jamsuham.core.PlayerList
@@ -29,6 +30,7 @@ object SessionHub {
         fun onLine(serverId: String, line: LogLine) {}
         fun onPlayers(serverId: String, list: PlayerList) {}
         fun onMenu(serverId: String, menu: Menu?) {}
+        fun onInventory(serverId: String, inventory: Inventory) {}
     }
 
     private class Entry {
@@ -38,6 +40,8 @@ object SessionHub {
         val lines = ArrayDeque<LogLine>()
         var players: PlayerList = PlayerList.EMPTY
         var menu: Menu? = null
+        var inventory: Inventory = Inventory.EMPTY
+        var notifiedMenuWindow = -1
     }
 
     private const val MAX_LINES = 500
@@ -52,6 +56,8 @@ object SessionHub {
             else -> Log.e("Jamsuham", message, error)
         }
     }
+
+    private lateinit var appContext: Context
 
     private fun entry(id: String) = entries.getOrPut(id) { Entry() }
 
@@ -75,6 +81,8 @@ object SessionHub {
         entries[serverId]?.session?.closeMenu()
     }
 
+    fun inventory(serverId: String): Inventory = entries[serverId]?.inventory ?: Inventory.EMPTY
+
     fun players(serverId: String): PlayerList = entries[serverId]?.players ?: PlayerList.EMPTY
 
     fun isActive(serverId: String): Boolean = status(serverId).state.isActive()
@@ -85,6 +93,7 @@ object SessionHub {
 
     /** 서비스에서만 부른다 */
     fun start(context: Context, serverId: String, config: SessionConfig, credentials: CredentialsProvider) {
+        appContext = context.applicationContext
         val e = entry(serverId)
         val myToken = Any()
         e.token = myToken
@@ -104,6 +113,25 @@ object SessionHub {
                     if (e.token === myToken) {
                         e.menu = menu
                         for (o in observers.toList()) o.onMenu(serverId, menu)
+                        // 앱을 안 보고 있을 때 자동 클릭 규칙에 안 걸리는 메뉴가 열리면 알림으로 알려 준다 (보상 받기 등)
+                        if (menu == null) {
+                            e.notifiedMenuWindow = -1
+                            MenuNotifier.cancel(appContext, serverId)
+                        } else if (menu.windowId != e.notifiedMenuWindow && !JamsuApp.inForeground &&
+                            config.autoClickRules.none { it.matches(menu) != null }
+                        ) {
+                            e.notifiedMenuWindow = menu.windowId
+                            MenuNotifier.show(appContext, serverId, menu.title.plain)
+                        }
+                    }
+                }
+            }
+
+            override fun onInventory(inventory: Inventory) {
+                main.post {
+                    if (e.token === myToken) {
+                        e.inventory = inventory
+                        for (o in observers.toList()) o.onInventory(serverId, inventory)
                     }
                 }
             }
@@ -142,6 +170,8 @@ object SessionHub {
             e.session = null
             e.players = PlayerList.EMPTY
             e.menu = null
+            e.inventory = Inventory.EMPTY
+            if (::appContext.isInitialized) MenuNotifier.cancel(appContext, id)
             if (e.status.state.isActive()) publishStatus(id, e.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
         }
     }

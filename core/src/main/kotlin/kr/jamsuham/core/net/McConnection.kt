@@ -21,6 +21,7 @@ import kr.jamsuham.core.CloseReason
 import kr.jamsuham.core.CoreLog
 import kr.jamsuham.core.AutoClickRule
 import kr.jamsuham.core.JoinCredentials
+import kr.jamsuham.core.Inventory
 import kr.jamsuham.core.Menu
 import kr.jamsuham.core.MenuItem
 import kr.jamsuham.core.PlayerInfo
@@ -53,6 +54,7 @@ interface ConnectionEvents {
     fun onClosed(reason: CloseReason)
     fun onPlayers(list: PlayerList) {}
     fun onMenu(menu: Menu?) {}
+    fun onInventory(inventory: Inventory) {}
 }
 
 /**
@@ -99,6 +101,11 @@ class McConnection(
     private var menuSlots: Array<MenuItem?> = emptyArray()
     private var menuAutoClicked = false
     private var menuFlushPending = false
+
+    /** 내 인벤토리 (창 0번, 46칸) */
+    private val invSlots = arrayOfNulls<MenuItem>(46)
+    private var heldSlot = 0
+    private var invFlushPending = false
 
     /** 주변 블록과 다른 플레이어 위치 (이동·미니맵용) */
     val world = World()
@@ -538,6 +545,13 @@ class McConnection(
                     val n = buf.readVarInt()
                     menuSlots = Array(n) { i -> readMenuItem(buf, i) }
                     scheduleMenuFlush()
+                } else if (wid == 0) {
+                    val n = buf.readVarInt()
+                    for (i in 0 until n) {
+                        val item = readMenuItem(buf, i)
+                        if (i < invSlots.size) invSlots[i] = item
+                    }
+                    scheduleInventoryFlush()
                 }
             }
             PlayIn.CONTAINER_SET_SLOT -> {
@@ -548,7 +562,29 @@ class McConnection(
                     menuStateId = stateId
                     menuSlots[slot] = readMenuItem(buf, slot)
                     scheduleMenuFlush()
+                } else if (wid == 0 && slot in invSlots.indices) {
+                    invSlots[slot] = readMenuItem(buf, slot)
+                    scheduleInventoryFlush()
                 }
+            }
+            PlayIn.SET_PLAYER_INVENTORY -> {
+                // 인벤토리 번호(0~8 핫바, 9~35 가방, 36~39 발·다리·몸통·머리, 40 왼손) → 창 칸 번호
+                val idx = buf.readVarInt()
+                val slot = when (idx) {
+                    in 0..8 -> 36 + idx
+                    in 9..35 -> idx
+                    in 36..39 -> 44 - idx
+                    40 -> 45
+                    else -> -1
+                }
+                if (slot >= 0) {
+                    invSlots[slot] = readMenuItem(buf, slot)
+                    scheduleInventoryFlush()
+                }
+            }
+            PlayIn.SET_HELD_SLOT -> {
+                heldSlot = buf.readVarInt().coerceIn(0, 8)
+                scheduleInventoryFlush()
             }
             PlayIn.CONTAINER_CLOSE -> {
                 val wid = buf.readVarInt()
@@ -668,11 +704,10 @@ class McConnection(
         val itemName = data.get(com.viaversion.viaversion.api.minecraft.data.StructuredDataKey.ITEM_NAME)
         val lore = data.get(com.viaversion.viaversion.api.minecraft.data.StructuredDataKey.LORE)?.map { ChatText.fromTag(it) } ?: emptyList()
         val id = itemIdentifier(item.identifier())
-        val name = when {
-            custom != null -> ChatText.fromTag(custom)
-            itemName != null -> ChatText.fromTag(itemName)
-            else -> ChatText.of(id.removePrefix("minecraft:"))
-        }
+        // 리소스팩 전용 글꼴로만 된 이름은 앱에서 안 보이므로 기본 아이템 이름(한국어)으로 대신한다
+        val name = custom?.let { ChatText.fromTag(it) }?.takeIf { it.plain.isNotBlank() }
+            ?: itemName?.let { ChatText.fromTag(it) }?.takeIf { it.plain.isNotBlank() }
+            ?: ChatText.of(kr.jamsuham.core.text.ItemNames.name(id))
         return MenuItem(slot, id, item.amount(), name, lore)
     }
 
@@ -699,6 +734,16 @@ class McConnection(
         menuId = -1
         menuSlots = emptyArray()
         events.onMenu(null)
+    }
+
+    private fun scheduleInventoryFlush() {
+        if (invFlushPending) return
+        val ch = channel ?: return
+        invFlushPending = true
+        ch.eventLoop().schedule({
+            invFlushPending = false
+            events.onInventory(Inventory(invSlots.filterNotNull(), heldSlot))
+        }, 300, TimeUnit.MILLISECONDS)
     }
 
     private fun scheduleMenuFlush() {
@@ -1183,6 +1228,8 @@ internal object PlayIn {
     const val RESOURCE_PACK_PUSH = 0x4B
     const val RESPAWN = 0x4C
     const val SET_HEALTH = 0x62
+    const val SET_HELD_SLOT = 0x63
+    const val SET_PLAYER_INVENTORY = 0x66
     const val START_CONFIGURATION = 0x70
     const val SYSTEM_CHAT = 0x73
     const val TRANSFER = 0x7A

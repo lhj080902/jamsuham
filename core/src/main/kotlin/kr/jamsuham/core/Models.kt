@@ -113,6 +113,16 @@ data class MenuItem(
     val searchText: String get() = (listOf(name.plain) + lore.map { it.plain }).joinToString("\n")
 }
 
+/**
+ * 내 인벤토리 (보기 전용). 칸 번호는 게임의 인벤토리 창 기준:
+ * 5~8 갑옷(머리·몸통·다리·발), 9~35 가방, 36~44 핫바, 45 왼손
+ */
+data class Inventory(val slots: List<MenuItem>, val selectedHotbar: Int) {
+    companion object {
+        val EMPTY = Inventory(emptyList(), 0)
+    }
+}
+
 /** 서버가 띄운 메뉴 창. containerSlots 개 칸이 메뉴 부분이고 그 뒤는 내 인벤토리 */
 data class Menu(
     val windowId: Int,
@@ -154,6 +164,7 @@ interface SessionListener {
     fun onPlayers(list: PlayerList) {}
     /** 메뉴가 열리거나 바뀌면 메뉴, 닫히면 null */
     fun onMenu(menu: Menu?) {}
+    fun onInventory(inventory: Inventory) {}
 }
 
 /** 아주 단순한 로거 (안드로이드에서는 Logcat 으로 연결) */

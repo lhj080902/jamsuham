@@ -28,6 +28,7 @@ import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
+import kr.jamsuham.core.Inventory
 import kr.jamsuham.core.LogLine
 import kr.jamsuham.core.Menu
 import kr.jamsuham.core.PlayerList
@@ -67,6 +68,10 @@ class ChatPanel(
     private val actionButton: Button
     private val playerPanel: PlayerPanel
     private val mapPage: MapPanel
+    private val invPanel: InventoryPanel
+    /** 메뉴 알림을 눌러 들어왔으면 화면이 뜨자마자 메뉴 창을 연다 */
+    var openMenuOnAttach = false
+    private var backDialog: android.app.AlertDialog? = null
     private val chatPage: LinearLayout
     private val pages: FrameLayout
     private var tabs: List<Button> = emptyList()
@@ -95,7 +100,7 @@ class ChatPanel(
         // --- 상단 상태 줄
         val top = ui.card().apply { setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10)) }
         val row = ui.horizontal()
-        if (showBack) row.addView(ui.button("←", "ghost") { onBack() }, ui.lp(ui.dp(44), ui.dp(40)))
+        if (showBack) row.addView(ui.button("←", "ghost") { requestBack() }, ui.lp(ui.dp(44), ui.dp(40)))
         statusDot = ui.dot(p.muted)
         row.addView(statusDot, ui.lp(ui.dp(10), ui.dp(10)).apply { rightMargin = ui.dp(8); leftMargin = ui.dp(4) })
         val titles = ui.vertical()
@@ -109,14 +114,15 @@ class ChatPanel(
         titles.addView(detailRow)
         row.addView(titles, ui.lp(0, Ui.WRAP, 1f))
         row.addView(ui.button("⚙", "ghost") { onEdit() }, ui.lp(ui.dp(44), ui.dp(40)))
-        actionButton = ui.button("잠수 시작", "primary") { toggle() }
+        // 접속 중에는 버튼을 숨겨 제목·상태 글씨 자리를 넓힌다 (끊기는 ← 버튼에서)
+        actionButton = ui.button("접속", "primary") { toggle() }
         row.addView(actionButton, ui.lp(Ui.WRAP, ui.dp(40)).apply { leftMargin = ui.dp(4) })
         top.addView(row)
         addView(top, ui.lp())
 
-        // --- 페이지 탭: 채팅 / 지도·이동 / 접속자 (좌우로 밀어서 넘김)
+        // --- 페이지 탭: 채팅 / 지도 / 인벤 / 접속자 (좌우로 밀어서 넘김)
         val tabBar = ui.horizontal()
-        tabs = listOf("채팅", "지도·이동", "접속자").mapIndexed { i, label ->
+        tabs = listOf("채팅", "지도", "인벤", "접속자").mapIndexed { i, label ->
             ui.button(label, "plain") { showPage(i) }.also { b ->
                 tabBar.addView(b, ui.lp(0, ui.dp(40), 1f).apply { if (i > 0) leftMargin = ui.dp(6) })
             }
@@ -148,8 +154,9 @@ class ChatPanel(
         chatPage.addView(logCard, ui.lp(Ui.MATCH, 0, 1f))
         mapPage = MapPanel(activity, ui, serverId)
         playerPanel = PlayerPanel(activity, ui)
+        invPanel = InventoryPanel(activity, ui)
         pages = FrameLayout(activity)
-        listOf<View>(chatPage, mapPage, playerPanel).forEachIndexed { i, v ->
+        listOf<View>(chatPage, mapPage, invPanel, playerPanel).forEachIndexed { i, v ->
             v.visibility = if (i == 0) VISIBLE else GONE
             pages.addView(v, FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH))
         }
@@ -165,6 +172,7 @@ class ChatPanel(
         })
         list.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
         playerPanel.listView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
+        invPanel.scrollView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
         mapPage.mapView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); true }
         styleTabs()
 
@@ -214,9 +222,9 @@ class ChatPanel(
     }
 
     private fun showPage(target: Int) {
-        val next = target.coerceIn(0, 2)
+        val next = target.coerceIn(0, 3)
         if (next == page) return
-        val views = listOf<View>(chatPage, mapPage, playerPanel)
+        val views = listOf<View>(chatPage, mapPage, invPanel, playerPanel)
         val from = views[page]
         val to = views[next]
         val dir = if (next > page) 1 else -1
@@ -230,7 +238,8 @@ class ChatPanel(
             if (views[page] !== from) from.visibility = GONE
             from.translationX = 0f
         }.start()
-        if (next == 2) playerPanel.show(SessionHub.players(serverId))
+        if (next == 2) invPanel.show(SessionHub.inventory(serverId))
+        if (next == 3) playerPanel.show(SessionHub.players(serverId))
         styleTabs()
     }
 
@@ -245,7 +254,12 @@ class ChatPanel(
         onPlayers(serverId, SessionHub.players(serverId))
         lastMenuWindow = SessionHub.menu(serverId)?.windowId ?: -1
         onMenu(serverId, SessionHub.menu(serverId))
+        onInventory(serverId, SessionHub.inventory(serverId))
         render(SessionHub.status(serverId))
+        if (openMenuOnAttach) {
+            openMenuOnAttach = false
+            main.post { if (SessionHub.menu(serverId) != null && menuDialog?.isShowing != true) showMenuDialog() }
+        }
         main.post(ticker)
     }
 
@@ -353,9 +367,38 @@ class ChatPanel(
             .show()
     }
 
+    override fun onInventory(serverId: String, inventory: Inventory) {
+        if (serverId != this.serverId) return
+        if (page == 2) invPanel.show(inventory)
+    }
+
+    /** ← 버튼이나 뒤로 가기: 잠수 중이면 끊을지 물어본다 */
+    fun requestBack() {
+        if (!SessionHub.isActive(serverId)) {
+            onBack()
+            return
+        }
+        if (backDialog?.isShowing == true) return
+        val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
+        box.addView(ui.hint("잠수를 유지하면 화면을 나가도 알림 줄에서 계속 접속해 있습니다."))
+        val dialog = android.app.AlertDialog.Builder(activity)
+            .setTitle("서버 목록으로 나갈까요?")
+            .setView(box)
+            .create()
+        box.addView(ui.button("잠수 유지하고 나가기", "primary") { dialog.dismiss(); onBack() }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(10) })
+        box.addView(ui.button("연결 끊고 나가기", "danger") {
+            dialog.dismiss()
+            AfkService.stop(activity, serverId)
+            onBack()
+        }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(8) })
+        box.addView(ui.button("머무르기", "plain") { dialog.dismiss() }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(8); bottomMargin = ui.dp(8) })
+        backDialog = dialog
+        dialog.show()
+    }
+
     override fun onPlayers(serverId: String, list: PlayerList) {
         if (serverId != this.serverId) return
-        tabs.getOrNull(2)?.text = "접속자 ${list.players.size}"
+        tabs.getOrNull(3)?.text = "접속자 ${list.players.size}"
         playerPanel.show(list)
     }
 
@@ -380,12 +423,8 @@ class ChatPanel(
         if (s.reconnectCount > 0) parts.add("재접속 ${s.reconnectCount}회")
         s.serverVersion?.let { parts.add(it) }
         detailView.setTextIfChanged(parts.joinToString(" · "))
-        val active = s.state.isActive()
-        val btnText = if (active) "끊기" else "잠수 시작"
-        if (actionButton.text.toString() != btnText) {
-            actionButton.text = btnText
-            ui.style(actionButton, if (active) "danger" else "primary")
-        }
+        val vis = if (s.state.isActive()) GONE else VISIBLE
+        if (actionButton.visibility != vis) actionButton.visibility = vis
     }
 
     private fun stateLabel(st: SessionState) = when (st) {

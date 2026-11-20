@@ -65,6 +65,7 @@ server.on('playerJoin', (client) => {
   setTimeout(() => safe(() => sendPosition(client, 100.5, 70, 100.5)), 1200) // 강제 텔포
   setTimeout(() => safe(() => sendPlayers(client)), 900)
   setTimeout(() => safe(() => openPackMenu(client)), 1500)
+  setTimeout(() => safe(() => sendInventory(client)), 1000)
   client.on('window_click', (d) => {
     log(`MENU CLICK #${n} slot=${d.slot} window=${d.windowId}`)
     if (d.slot === 13) safe(() => { client.write('close_window', { windowId: 7 }); sendChat(client, '§a리소스팩이 적용되었습니다') })
@@ -166,6 +167,28 @@ function sendPlayers (client) {
       data: people.map(p => ({ uuid: p.uuid, name: p.name, properties: p.props, gamemode: 0, ping: p.ping, displayName: p.display ? JSON.stringify({ text: p.display }) : undefined }))
     })
     client.write('playerlist_header', { header: JSON.stringify({ text: '§b§l잠수 테스트 서버' }), footer: JSON.stringify({ text: '§7접속자 2명' }) })
+  }
+}
+
+// 인벤토리 보기 테스트: 핫바에 다이아 검, 머리에 철 투구, 가방에 리소스팩 글꼴 이름 아이템
+function sendInventory (client) {
+  if (mcData.isNewerOrEqualTo('1.21.4')) {
+    const it = n => mcData.itemsByName[n].id
+    const items = Array(46).fill({ itemCount: 0 })
+    items[36] = { itemCount: 1, itemId: it('diamond_sword'), addedComponentCount: 0, removedComponentCount: 0, components: [], removeComponents: [] }
+    items[5] = { itemCount: 1, itemId: it('iron_helmet'), addedComponentCount: 0, removedComponentCount: 0, components: [], removeComponents: [] }
+    items[9] = { itemCount: 3, itemId: it('paper'), addedComponentCount: 1, removedComponentCount: 0,
+      components: [{ type: 'custom_name', data: nbt.comp({ text: nbt.string('\ue001'), font: nbt.string('dos:icons') }) }], removeComponents: [] }
+    client.write('window_items', { windowId: 0, stateId: 1, items, carriedItem: { itemCount: 0 } })
+    client.write('set_player_inventory', { slotId: 1, contents: { itemCount: 64, itemId: it('cobblestone'), addedComponentCount: 0, removedComponentCount: 0, components: [], removeComponents: [] } })
+    client.write('held_item_slot', { slot: 1 })
+  } else if (!mcData.isNewerOrEqualTo('1.13')) {
+    const items = Array(46).fill({ blockId: -1 })
+    items[36] = { blockId: 276, itemCount: 1, itemDamage: 0 }
+    items[5] = { blockId: 306, itemCount: 1, itemDamage: 0 }
+    items[37] = { blockId: 4, itemCount: 64, itemDamage: 0 }
+    client.write('window_items', { windowId: 0, items })
+    client.write('held_item_slot', { slot: 1 })
   }
 }
 
