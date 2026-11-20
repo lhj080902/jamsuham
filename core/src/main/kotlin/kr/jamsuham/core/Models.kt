@@ -53,6 +53,9 @@ sealed class CloseReason {
     /** 모장 인증(세션) 서버 장애·과부하. 복구될 때까지 접속하지 않고 기다린다 */
     data class ServiceDown(val message: String) : CloseReason()
 
+    /** 모장 인증 서버가 이 계정의 요청을 잠깐 막음 (429). 자주 두드릴수록 안 풀리므로 점점 길게 기다린다 */
+    data class RateLimited(val message: String) : CloseReason()
+
     /** 다시 시도해도 소용없는 문제 (정품 필요 등) */
     data class Fatal(val message: String) : CloseReason()
 }

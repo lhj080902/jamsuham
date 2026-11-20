@@ -60,8 +60,8 @@ class AfkSession(
         Thread(r, "jamsuham-session").apply { isDaemon = true }
     }
 
-    // 아래 상태는 모두 exec 스레드에서만 바꾼다
-    private var userStopped = false
+    // 아래 상태는 모두 exec 스레드에서만 바꾼다 (userStopped 만 예외: stop() 이 바로 표시해서 진행 중인 준비 단계를 멈춘다)
+    @Volatile private var userStopped = false
     @Volatile private var connection: McConnection? = null
     private var pending: ScheduledFuture<*>? = null
     private var failures = 0
@@ -80,8 +80,12 @@ class AfkSession(
     /** 모장 인증 서버 장애를 감지함 → 복구 확인 전까지 접속 안 함 */
     private var mojangDown = false
     private var mojangChecks = 0
-    private var generation = 0
-    private var status = SessionStatus(SessionState.IDLE)
+    /** 모장 429(요청 제한)를 연달아 받은 횟수 */
+    private var rateLimitHits = 0
+    /** "Failed to verify username" 같은 인증 킥을 연달아 받은 횟수 */
+    private var authKicks = 0
+    @Volatile private var generation = 0
+    @Volatile private var status = SessionStatus(SessionState.IDLE)
 
     val currentStatus: SessionStatus get() = status
 
@@ -90,11 +94,25 @@ class AfkSession(
         failures = 0
         offlineChecks = 0
         mojangChecks = 0
+        rateLimitHits = 0
+        authKicks = 0
         attempt()
     }
 
     /** 사용자가 직접 끊기. 재연결하지 않는다. */
-    fun stop() = submit {
+    fun stop() {
+        // 세션 스레드가 핑·DNS·토큰 갱신을 기다리는 중이어도 다음 단계로 넘어가지 않도록 바로 표시한다
+        userStopped = true
+        // 아직 접속 전(준비·대기 중)이면 화면에 바로 "끊음" 을 보여 준다. 세션 스레드는 막힌 작업이 끝난 뒤 정리한다
+        if (connection == null && status.state != SessionState.STOPPED) {
+            status = SessionStatus(SessionState.STOPPED, "연결을 끊었습니다", status.serverVersion,
+                reconnectCount = status.reconnectCount, totalOnlineMs = status.totalOnlineMs)
+            listener.onStatus(status)
+        }
+        submit { stopNow() }
+    }
+
+    private fun stopNow() {
         userStopped = true
         pending?.cancel(false)
         pending = null
@@ -181,8 +199,10 @@ class AfkSession(
                 setStatus(SessionState.PREPARING, "서버 주소 확인 중…")
                 AddressResolver.resolve(config.address, dns)
             }
+            if (userStopped) return
 
             val version = resolveVersion(target) ?: return
+            if (userStopped) return
             ViaSetup.prepare(version)
 
             setStatus(SessionState.PREPARING, "계정 확인 중…", version.name)
@@ -195,11 +215,19 @@ class AfkSession(
                 }
                 throw e
             }
+            if (userStopped) return
 
             // 정품 인증이 필요한 서버인데 모장 인증 서버가 죽어 있으면 접속해 봐야 실패하므로 기다린다
             if (creds.online && (mojangDown || serverRequiresAuth)) {
                 setStatus(SessionState.PREPARING, "모장 인증 서버 확인 중…", version.name)
-                if (!MojangStatus.sessionServerUp()) {
+                val mojang = MojangStatus.check()
+                if (userStopped) return
+                if (mojang == MojangStatus.Result.NO_NETWORK) {
+                    // 폰 인터넷 문제를 모장 장애로 오인해 몇 분씩 기다리지 않도록 일반 튕김처럼 짧게 재시도
+                    handleClosed(CloseReason.Lost("인터넷에 연결되지 않은 것 같습니다 (모장 인증 서버에 닿지 않음)"))
+                    return
+                }
+                if (mojang == MojangStatus.Result.DOWN) {
                     mojangDown = true
                     mojangChecks++
                     if (mojangChecks == 1) line(LogLine.Kind.SYSTEM, "모장 인증 서버에 문제가 있어 보여 접속하지 않고 복구될 때까지 기다립니다")
@@ -241,6 +269,7 @@ class AfkSession(
         val ping = try {
             StatusPinger.ping(target, fixed?.version ?: ViaSetup.newestProtocol())
         } catch (e: Exception) {
+            if (userStopped) return null
             if (isUnreachable(e)) {
                 offlineChecks++
                 if (offlineChecks == 1) {
@@ -294,13 +323,20 @@ class AfkSession(
 
     private inner class Events(private val gen: Int) : ConnectionEvents {
         override fun onJoined() = submit {
+            if (generation != gen) return@submit
             onlineSince = System.currentTimeMillis()
             authRetried = false
+            rateLimitHits = 0
             if (connection?.usedSessionServer == true) serverRequiresAuth = true
             line(LogLine.Kind.SYSTEM, "서버에 들어갔습니다")
             setStatus(SessionState.ONLINE, "접속 중", detectedVersion?.name ?: config.fixedVersion)
-            // 1분 이상 버티면 실패 횟수 초기화
-            exec.schedule({ if (status.state == SessionState.ONLINE && generation == gen) failures = 0 }, 60, TimeUnit.SECONDS)
+            // 1분 이상 버티면 실패 횟수 초기화 (들어가자마자 킥하는 서버에서 횟수가 매번 0 으로 돌아가지 않도록 접속 순간이 아니라 1분 뒤에)
+            exec.schedule({
+                if (status.state == SessionState.ONLINE && generation == gen) {
+                    failures = 0
+                    authKicks = 0
+                }
+            }, 60, TimeUnit.SECONDS)
             scheduleJoinCommands(gen)
         }
 
@@ -322,7 +358,8 @@ class AfkSession(
             if (generation == gen) listener.onInventory(inventory)
         }
 
-        override fun onClosed(reason: CloseReason) = submit { handleClosed(reason) }
+        // 이미 처리한(세대가 지난) 연결의 종료 알림은 무시한다
+        override fun onClosed(reason: CloseReason) = submit { if (generation == gen) handleClosed(reason) }
     }
 
     /**
@@ -364,6 +401,8 @@ class AfkSession(
     }
 
     private fun handleClosed(reason: CloseReason) {
+        // 세대를 먼저 올려서, 끊기기 직전에 예약된 접속자·메뉴·인벤토리 갱신이 비운 화면을 다시 채우지 못하게 한다
+        generation++
         if (connection?.usedSessionServer == true) serverRequiresAuth = true
         connection = null
         listener.onPlayers(PlayerList.EMPTY)
@@ -402,6 +441,14 @@ class AfkSession(
                 schedule(30)
                 return
             }
+            is CloseReason.RateLimited -> {
+                // 30초마다 두드리면 제한이 계속 연장되므로 60 → 120 → 300 → 600초로 늘린다. 모장 상태 확인으로 줄이지 않는다
+                rateLimitHits++
+                reconnectCount++
+                val wait = RATE_LIMIT_WAIT[(rateLimitHits - 1).coerceAtMost(RATE_LIMIT_WAIT.size - 1)]
+                schedule(wait, "모장 요청 제한 · ${wait}초 뒤 다시 접속합니다")
+                return
+            }
             is CloseReason.Transfer -> {
                 transferTo = reason.host to reason.port
                 line(LogLine.Kind.SYSTEM, "서버가 ${reason.host}:${reason.port} 로 이동시킵니다")
@@ -410,8 +457,28 @@ class AfkSession(
             }
             is CloseReason.Kicked -> {
                 val plain = reason.text.plain
+                if (isDuplicateLogin(plain)) {
+                    // PC 등에서 같은 계정으로 들어간 것: 다시 들어가면 그쪽을 튕겨 내므로 멈춘다
+                    stopWithError("다른 곳(PC 등)에서 같은 계정으로 접속해서 잠수를 멈췄습니다. 다시 잠수하려면 시작을 눌러 주세요")
+                    return
+                }
+                if (isAuthKick(plain)) {
+                    // 대부분 모장 인증 서버의 일시 장애나 토큰 만료 → 토큰을 새로 받고 모장 상태를 확인한 뒤 다시 시도
+                    authKicks++
+                    if (authKicks >= AUTH_KICK_LIMIT) {
+                        stopWithError("정품 인증 실패가 ${authKicks}번 이어져서 멈춥니다: $plain")
+                        return
+                    }
+                    authRetried = true
+                    serverRequiresAuth = true
+                    reconnectCount++
+                    val wait = if (authKicks == 1) 10L else 60L
+                    line(LogLine.Kind.SYSTEM, "정품 인증에 실패했습니다. 토큰을 새로 받아 ${wait}초 뒤 다시 시도합니다 (${authKicks}/${AUTH_KICK_LIMIT - 1})")
+                    schedule(wait)
+                    return
+                }
                 if (isPermanentKick(plain)) {
-                    stopWithError("다시 접속하지 않습니다 (차단·화이트리스트·인증 문제로 보이는 킥): $plain")
+                    stopWithError("다시 접속하지 않습니다 (차단·화이트리스트로 보이는 킥): $plain")
                     return
                 }
                 if (!config.reconnectOnKick && !isAlreadyConnected(reason)) {
@@ -432,6 +499,8 @@ class AfkSession(
 
     private fun schedule(delaySec: Long, message: String = "${delaySec}초 뒤 다시 접속합니다") {
         pending?.cancel(false)
+        pending = null
+        if (userStopped) return
         val at = System.currentTimeMillis() + delaySec * 1000
         status = status.copy(
             state = SessionState.WAITING_RECONNECT,
@@ -450,15 +519,7 @@ class AfkSession(
         schedule(delaySec, message)
     }
 
-    private fun backoffSeconds(reason: CloseReason, n: Int): Long {
-        val max = config.maxBackoffSec.coerceAtLeast(10).toLong()
-        val steps: LongArray = when {
-            isAlreadyConnected(reason) -> longArrayOf(15, 25, 35, 45, 60)
-            reason is CloseReason.Kicked -> longArrayOf(10, 20, 30, 60)
-            else -> longArrayOf(3, 5, 10, 20, 30, 60)
-        }
-        return steps[(n - 1).coerceIn(0, steps.size - 1)].coerceAtMost(max)
-    }
+    private fun backoffSeconds(reason: CloseReason, n: Int): Long = computeBackoff(reason, n, config.maxBackoffSec)
 
     private fun stopWithError(message: String) {
         pending?.cancel(false)
@@ -468,6 +529,8 @@ class AfkSession(
     }
 
     private fun setStatus(state: SessionState, message: String, version: String? = status.serverVersion) {
+        // 사용자가 끊은 뒤에는 늦게 끝난 준비 단계가 "접속 중…" 같은 상태로 덮어쓰지 못하게 한다
+        if (userStopped && state != SessionState.STOPPED) return
         status = SessionStatus(
             state = state,
             message = message,
@@ -485,26 +548,79 @@ class AfkSession(
     }
 
     companion object {
+        /** 연속 인증 킥이 이 횟수가 되면 멈춘다 */
+        private const val AUTH_KICK_LIMIT = 3
+        private val RATE_LIMIT_WAIT = longArrayOf(60, 120, 300, 600)
+
+        /**
+         * 내 새 접속이 거절됨: 프록시(번지코드·벨로시티)가 아직 옛 연결을 붙잡고 있음 → 기다렸다 다시 접속.
+         * (킥 설정과 상관없이 재접속한다)
+         */
         private val ALREADY_CONNECTED = listOf(
             "already connected", "already online", "already logged", "already playing",
-            "logged in from another", "이미 접속", "이미 연결", "이미 서버", "이미 온라인", "중복 접속", "중복 로그인",
+            "이미 접속", "이미 연결", "이미 서버", "이미 온라인", "중복 접속",
         )
+
+        /**
+         * 내 연결이 밀려남: 다른 곳(PC 등)에서 같은 계정으로 새로 들어옴 → 다시 들어가면 그쪽을 튕기므로 멈춘다.
+         * 바닐라·페이퍼는 번역 키 multiplayer.disconnect.duplicate_login 으로 보낸다 (ChatText 가 한국어로 번역).
+         */
+        private val DUPLICATE_LOGIN = listOf(
+            "logged in from another", "duplicate_login", "다른 곳에서 같은 계정으로 접속", "다른 곳에서 접속", "다른 위치에서 접속", "중복 로그인",
+        )
+
+        /** 정품 인증 실패 킥: 대부분 일시적(모장 장애·토큰 만료)이라 몇 번은 다시 시도한다 */
+        private val AUTH_KICK = listOf(
+            "failed to verify username", "invalid session", "인증하지 못했",
+        )
+
         private val PERMANENT = listOf(
             "banned", "you are banned", "blacklist", "not whitelisted", "whitelist",
-            "차단", "밴", "영구", "화이트리스트", "블랙리스트", "정지된 계정",
-            "failed to verify username", "invalid session", "인증하지 못했", "정품 계정",
+            "차단", "밴", "영구", "화이트리스트", "블랙리스트", "정지된 계정", "정품 계정",
         )
+
+        private fun String.hasAny(words: List<String>): Boolean {
+            val t = lowercase(Locale.ROOT)
+            return words.any { t.contains(it) }
+        }
 
         fun isAlreadyConnected(reason: CloseReason?): Boolean {
             if (reason !is CloseReason.Kicked) return false
-            val t = reason.text.plain.lowercase(Locale.ROOT)
-            return ALREADY_CONNECTED.any { t.contains(it) }
+            val plain = reason.text.plain
+            return plain.hasAny(ALREADY_CONNECTED) && !plain.hasAny(DUPLICATE_LOGIN)
         }
 
+        fun isDuplicateLogin(text: String): Boolean = text.hasAny(DUPLICATE_LOGIN)
+
+        fun isAuthKick(text: String): Boolean = text.hasAny(AUTH_KICK)
+
         fun isPermanentKick(text: String): Boolean {
-            val t = text.lowercase(Locale.ROOT)
-            if (ALREADY_CONNECTED.any { t.contains(it) }) return false
-            return PERMANENT.any { t.contains(it) }
+            if (text.hasAny(ALREADY_CONNECTED) || text.hasAny(DUPLICATE_LOGIN) || text.hasAny(AUTH_KICK)) return false
+            return text.hasAny(PERMANENT)
+        }
+
+        /**
+         * 재접속 대기 시간. 단계표를 다 쓰면 [maxBackoffSec] 까지 두 배씩 늘린다.
+         * 들어가자마자 계속 킥당하는 경우(가득 참·봇 차단 등) 몇 시간 동안 수백 번 로그인해 모장 429 를 부르지 않도록,
+         * 킥이 8번 넘게 이어지면 설정과 상관없이 최소 3분은 기다린다.
+         */
+        fun computeBackoff(reason: CloseReason, n: Int, maxBackoffSec: Int): Long {
+            val max = maxBackoffSec.coerceAtLeast(10).toLong()
+            val steps: LongArray = when {
+                isAlreadyConnected(reason) -> longArrayOf(15, 25, 35, 45, 60)
+                reason is CloseReason.Kicked -> longArrayOf(10, 20, 30, 60)
+                else -> longArrayOf(3, 5, 10, 20, 30, 60)
+            }
+            val i = (n - 1).coerceAtLeast(0)
+            var wait = if (i < steps.size) {
+                steps[i]
+            } else {
+                val doublings = (i - steps.size + 1).coerceAtMost(10)
+                steps.last() shl doublings
+            }
+            wait = wait.coerceAtMost(max)
+            if (reason is CloseReason.Kicked && !isAlreadyConnected(reason) && n > 8) wait = wait.coerceAtLeast(180)
+            return wait
         }
 
         fun describe(reason: CloseReason): String = when (reason) {
@@ -515,6 +631,7 @@ class AfkSession(
             is CloseReason.Fatal -> reason.message
             is CloseReason.AuthFailed -> reason.message
             is CloseReason.ServiceDown -> "${reason.message} → 모장 인증 서버가 복구될 때까지 기다립니다"
+            is CloseReason.RateLimited -> reason.message
         }
     }
 }

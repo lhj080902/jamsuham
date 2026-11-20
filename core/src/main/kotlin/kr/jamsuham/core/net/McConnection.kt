@@ -355,6 +355,7 @@ class McConnection(
             } catch (e: SessionJoinException) {
                 closeReason = when {
                     e.tokenProblem -> CloseReason.AuthFailed(e.message ?: "인증 실패")
+                    e.rateLimited -> CloseReason.RateLimited(e.message ?: "모장 요청 제한")
                     e.serviceDown -> CloseReason.ServiceDown(e.message ?: "모장 인증 서버 장애")
                     else -> CloseReason.Lost(e.message ?: "인증 실패")
                 }
@@ -1145,7 +1146,12 @@ class McConnection(
 
     // ------------------------------------------------------------------ session server
 
-    private class SessionJoinException(message: String, val tokenProblem: Boolean, val serviceDown: Boolean = false) : Exception(message)
+    private class SessionJoinException(
+        message: String,
+        val tokenProblem: Boolean,
+        val serviceDown: Boolean = false,
+        val rateLimited: Boolean = false,
+    ) : Exception(message)
 
     private fun joinSession(c: JoinCredentials, hash: String) {
         val token = c.accessToken ?: throw SessionJoinException("정품 계정이 아닙니다", true)
@@ -1166,7 +1172,7 @@ class McConnection(
                 throw SessionJoinException("마이크로소프트 인증이 만료됐거나 거부됐습니다 ($code) - 다시 로그인해 주세요", true)
             }
             if (code == 429) {
-                throw SessionJoinException("모장 인증 서버가 잠깐 요청을 막았습니다 (429, 짧은 시간에 접속을 너무 자주 시도함)", false, serviceDown = true)
+                throw SessionJoinException("모장 인증 서버가 잠깐 요청을 막았습니다 (429, 짧은 시간에 접속을 너무 자주 시도함)", false, rateLimited = true)
             }
             // 오류 내용이 웹페이지(HTML)이면 길기만 하고 쓸모없으므로 상태 코드만 보여 준다
             val detail = if (err.trimStart().startsWith("<")) "" else " " + err.take(120)

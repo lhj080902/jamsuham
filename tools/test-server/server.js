@@ -1,7 +1,7 @@
 // 테스트용 마인크래프트 서버 (node-minecraft-protocol)
 // node server.js <version> <port> [scenario]
 // scenario: full (기본) = 1번째 접속: "already connected" 킥 / 2번째: 소켓 강제 끊기 / 3번째: 밴 킥
-//           stay = 계속 유지
+//           stay = 계속 유지 / dupe = 중복 로그인 킥 / authkick = 정품 인증 실패 킥
 const mc = require('minecraft-protocol')
 const nbt = require('prismarine-nbt')
 const crypto = require('crypto')
@@ -78,6 +78,14 @@ server.on('playerJoin', (client) => {
       if (n === 2) { log('>> destroy socket'); client.socket.destroy() }
       if (n >= 3) { log('>> kick banned'); kick(client, '§cYou are banned from this server.') }
     }, 5000)
+  }
+  // dupe = 바닐라처럼 번역 키로 "다른 곳에서 같은 계정으로 접속" 킥 (앱은 재접속하지 않고 멈춰야 함)
+  if (scenario === 'dupe') {
+    setTimeout(() => { log('>> kick duplicate_login'); kickTranslate(client, 'multiplayer.disconnect.duplicate_login') }, 3000)
+  }
+  // authkick = 매번 "Failed to verify username!" 킥 (앱은 몇 번 다시 시도한 뒤 멈춰야 함)
+  if (scenario === 'authkick') {
+    setTimeout(() => { log('>> kick failed to verify'); kick(client, 'Failed to verify username!') }, 1000)
   }
 })
 
@@ -238,6 +246,12 @@ function sendResourcePack (client) {
   } else {
     client.write('resource_pack_send', { url: 'https://example.com/pack.zip', hash: 'a'.repeat(40) })
   }
+}
+
+function kickTranslate (client, key) {
+  const reason = nbtChat ? nbt.comp({ translate: nbt.string(key) }) : JSON.stringify({ translate: key })
+  client.write('kick_disconnect', { reason })
+  setTimeout(() => client.end(), 100)
 }
 
 function kick (client, s) {

@@ -9,3 +9,7 @@ captures/
 .cxx/
 *.apk
 *.aab
+
+# 테스트 서버 의존성 (npm install 로 받음)
+tools/test-server/node_modules/
+tools/test-server/package-lock.json

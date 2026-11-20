@@ -30,7 +30,10 @@ class AfkService : Service() {
 
     private val main = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
+    /** 화면이 꺼져 있을 때도 효과가 있는 잠금 (잠수의 핵심 상황) */
     private var wifiLock: WifiManager.WifiLock? = null
+    /** 화면이 켜져 있고 앱이 앞에 있을 때만 효과가 있는 저지연 잠금 (안드로이드 10+) */
+    private var wifiLowLatencyLock: WifiManager.WifiLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var inForeground = false
     private lateinit var store: Store
@@ -76,8 +79,16 @@ class AfkService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                if (serverId == null || !goForeground()) return START_NOT_STICKY
-                begin(serverId)
+                // startForegroundService 로 시작됐으므로 어떤 경우든 먼저 포그라운드로 올려야 앱이 죽지 않는다
+                if (!goForeground()) return START_NOT_STICKY
+                if (serverId == null) {
+                    if (!SessionHub.anyActive) shutdown()
+                    return START_NOT_STICKY
+                }
+                if (!begin(serverId) && !SessionHub.anyActive) {
+                    shutdown()
+                    return START_NOT_STICKY
+                }
             }
             else -> {
                 // 시스템이 앱을 정리했다가 서비스를 다시 살린 경우 (intent == null)
@@ -91,18 +102,26 @@ class AfkService : Service() {
                     SessionHub.note(id, "앱이 시스템에 의해 종료됐다가 다시 실행되어 이어서 접속합니다")
                     begin(id)
                 }
+                // 그 사이 지워진 서버뿐이라 아무것도 시작하지 못했으면 "준비 중" 알림만 남기지 말고 정리한다
+                if (!SessionHub.anyActive) {
+                    shutdown()
+                    return START_NOT_STICKY
+                }
             }
         }
         return START_STICKY
     }
 
-    private fun begin(serverId: String) {
-        val server = store.server(serverId) ?: return
+    /**
+     * 잠수 하나를 시작한다. 시작하지 못했으면(지워진 서버·계정 없음) false.
+     * 서비스 정리는 부르는 쪽에서 한 번만 한다 (여러 개를 이어서 시작하는 도중에 서비스를 닫지 않도록)
+     */
+    private fun begin(serverId: String): Boolean {
+        val server = store.server(serverId) ?: return false
         val accountId = server.accountId
         if (accountId == null || accounts.get(accountId) == null) {
             SessionHub.note(serverId, "이 서버에 사용할 계정이 없습니다. 서버 설정에서 계정을 골라 주세요", LogLine.Kind.ERROR)
-            if (!SessionHub.anyActive) shutdown()
-            return
+            return false
         }
         acquireLocks()
         registerNetwork()
@@ -110,6 +129,7 @@ class AfkService : Service() {
         store.setActive(SessionHub.activeIds())
         main.removeCallbacks(ticker)
         main.post(ticker)
+        return true
     }
 
     private fun goForeground(): Boolean {
@@ -163,11 +183,18 @@ class AfkService : Service() {
                 acquire()
             }
         }
+        // LOW_LATENCY 잠금은 화면이 켜져 있고 앱이 앞에 있을 때만 동작한다. 두 잠금을 같이 잡으면
+        // 그 밖의 경우(화면 꺼짐 잠수)에는 HIGH_PERF 잠금이 적용된다 (WifiManager 공식 문서)
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         if (wifiLock?.isHeld != true) {
-            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             @Suppress("DEPRECATION")
-            val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
-            wifiLock = wm.createWifiLock(mode, "Jamsuham:afk").apply {
+            wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Jamsuham:afk").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 29 && wifiLowLatencyLock?.isHeld != true) {
+            wifiLowLatencyLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "Jamsuham:afk-ll").apply {
                 setReferenceCounted(false)
                 acquire()
             }
@@ -183,8 +210,13 @@ class AfkService : Service() {
             wifiLock?.let { if (it.isHeld) it.release() }
         } catch (_: Throwable) {
         }
+        try {
+            wifiLowLatencyLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Throwable) {
+        }
         wakeLock = null
         wifiLock = null
+        wifiLowLatencyLock = null
     }
 
     private fun registerNetwork() {
