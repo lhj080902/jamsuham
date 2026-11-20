@@ -83,17 +83,6 @@ object ViaSetup {
     }
 
     /**
-     * 버전 확인 핑에 쓸 프로토콜: 지원하는 가장 최신 버전.
-     * 벨로시티·번지 같은 프록시는 핑을 보낸 쪽 버전을 그대로 돌려주므로, 1.21.4 로 핑하면 1.21.4 로 감지돼
-     * 최신 서버의 대화창(리소스팩 안내 등)을 못 받는다. 최신으로 핑하면 프록시가 받아 주는 가장 새 버전이 나온다.
-     */
-    fun newestProtocol(): Int = try {
-        selectableVersions().firstOrNull { isSupported(it) }?.version ?: NATIVE_PROTOCOL
-    } catch (_: Throwable) {
-        NATIVE_PROTOCOL
-    }
-
-    /**
      * 변환 데이터는 백그라운드에서 읽히는데, 다 읽히기 전에 패킷이 오면 변환에 실패한다
      * (예: 1.21.6+ 대화창이 가끔 사라짐). 접속 전에 이번 경로에 필요한 것만 다 읽힐 때까지 기다린다.
      */

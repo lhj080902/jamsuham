@@ -268,7 +268,7 @@ class AfkSession(
         }
         setStatus(SessionState.PREPARING, if (offlineChecks > 0) "서버가 켜졌는지 확인 중…" else "서버 확인 중…")
         val ping = try {
-            StatusPinger.ping(target, fixed?.version ?: ViaSetup.newestProtocol())
+            StatusPinger.ping(target, fixed?.version ?: ViaSetup.NATIVE_PROTOCOL)
         } catch (e: Exception) {
             if (userStopped) return null
             if (isUnreachable(e)) {
