@@ -151,7 +151,9 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         listPane.addView(scroll, ui.lp(Ui.MATCH, 0, 1f).apply { topMargin = ui.dp(10) })
 
         val footer = ui.horizontal().apply { setPadding(0, ui.dp(6), 0, 0) }
-        val buildLabel = ui.text("빌드 ${Updater.currentBuild(this)}" + if (Plan.isPremium(this)) " · 프리미엄(테스트)" else "", 12f, ui.p.muted)
+        // 작은 회색 글씨로 버전 표시 (예: v1.1.13)
+        val version = Updater.versionLabel(this)
+        val buildLabel = ui.text(version + if (Plan.isPremium(this)) " · 프리미엄(테스트)" else "", 11f, ui.p.muted)
         var taps = 0
         buildLabel.setOnClickListener {
             // 결제를 붙이기 전 테스트용: 7번 누르면 프리미엄 켜기/끄기
@@ -159,7 +161,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
                 taps = 0
                 val on = !Plan.isPremium(this)
                 Plan.setPremiumTest(this, on)
-                buildLabel.text = "빌드 ${Updater.currentBuild(this)}" + if (on) " · 프리미엄(테스트)" else ""
+                buildLabel.text = version + if (on) " · 프리미엄(테스트)" else ""
                 toast(if (on) "테스트용 프리미엄을 켰습니다 (동시 잠수 제한 없음)" else "테스트용 프리미엄을 껐습니다")
             }
         }
@@ -380,13 +382,13 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
                 val current = Updater.currentBuild(this)
                 if (release != null && release.build > current) {
                     updateBanner = banner(
-                        "새 버전이 있어요 (빌드 ${release.build})",
-                        "지금 버전: 빌드 $current. 누르면 받아서 바로 설치합니다.",
+                        "새 버전이 있어요 (${Updater.versionLabel(this, release.build)})",
+                        "지금 버전: ${Updater.versionLabel(this)}. 누르면 받아서 바로 설치합니다.",
                         "업데이트",
                     ) { startUpdate(release) }
                     renderBanners()
                 } else if (manual) {
-                    toast(if (release == null) "업데이트 정보를 가져오지 못했습니다" else "최신 버전입니다 (빌드 $current)")
+                    toast(if (release == null) "업데이트 정보를 가져오지 못했습니다" else "최신 버전입니다 (${Updater.versionLabel(this)})")
                 }
             }
         }.apply { isDaemon = true; start() }

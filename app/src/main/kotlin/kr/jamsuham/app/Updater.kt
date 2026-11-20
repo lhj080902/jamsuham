@@ -30,6 +30,19 @@ object Updater {
         return if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
     }
 
+    /** 화면에 보여 줄 지금 버전 (예: "v1.1.13"). build.gradle.kts 의 versionName 그대로 */
+    fun versionLabel(context: Context): String {
+        val name = context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        return "v" + (name ?: currentBuild(context).toString())
+    }
+
+    /** 빌드 번호로 그 빌드의 버전 이름을 만든다 (versionName = "앞자리.빌드번호" 이므로 마지막 자리만 바꾼다) */
+    fun versionLabel(context: Context, build: Number): String {
+        val name = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: return "빌드 $build"
+        val prefix = name.substringBeforeLast('.', "")
+        return if (prefix.isEmpty()) "빌드 $build" else "v$prefix.$build"
+    }
+
     /** 최신 릴리스 정보. 네트워크 사용 - 백그라운드에서 호출 */
     @Throws(IOException::class)
     fun fetchLatest(): Release? {
