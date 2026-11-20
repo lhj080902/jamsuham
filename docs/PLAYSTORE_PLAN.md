@@ -160,6 +160,21 @@
 - 공식 확인이 안 된 내용이므로 **세무서·정부24·Play Console 안내**로 확인하세요.
 - 개인정보처리방침 공개 의무는 **무료여도 적용**됩니다(4단계).
 
+## 10단계. 후원·수익 (나중에 진행 — 지금은 계획만)
+**핵심 규칙**: Play 앱 **안에서는** Play 결제가 아닌 결제 수단(토스·Buy Me a Coffee 등)으로 유도하면 안 됩니다. **앱 밖**(웹사이트·GitHub)에서 알리는 것은 자유롭다고 Google 이 안내합니다. "후원"만 따로 다룬 정책 문구는 찾지 못했으니, Play 판 앱 안에는 외부 후원 링크를 넣지 않는 것이 안전합니다.
+
+| 방법 | 정책 | 수수료 | 메모 |
+|---|---|---|---|
+| ① 앱 안 "후원하기" (Play 결제, 여러 번 살 수 있는 상품) | 안전 | 구글 수수료 | Play 판매자 등록 필요 → 사업자·통신판매업 확인 대상(9단계) |
+| ② GitHub Sponsors | 앱 밖 | 개인 후원 0% | 한국 지원 지역. GPL 로 소스를 공개하면 잘 맞음 |
+| ③ 토스 송금·투네이션·Buy Me a Coffee | 앱 밖에만 | 서비스별 | README·웹사이트에 걸기. **Play 판 앱 안 금지**, GitHub 판 앱 안은 괜찮음 |
+| ④ 프리미엄 (동시 잠수 여러 개) | 안전 | 구글 수수료 | `Plan` 에 이미 설계됨. 가장 안정적인 수익 |
+| ⑤ 광고 | 가능 | - | 비추천 (잠수 앱은 화면을 거의 안 봄, 데이터 보안 신고 부담) |
+
+- **추천 조합**: Play 판은 ①(+ 나중에 ④), 앱 밖은 ② + ③, GitHub 판 앱에는 ③ 링크
+- **구현 메모**: Play 결제 라이브러리는 Google Maven 에서 받으므로 클라우드 환경에서는 컴파일 확인이 안 되고, GitHub Actions 로 빌드 확인. 실제 결제 시험은 Play Console 에 올린 뒤 가능
+- **세금**: 정기적으로 받는 후원금은 종합소득세 신고 대상이라는 국세청 관계자 설명이 있음 (계좌 후원 포함). 금액이 쌓이면 홈택스·세무사로 확인
+
 ---
 
 ## 체크리스트 요약
@@ -175,6 +190,7 @@
 - [ ] 테스터 12명 모집 → 비공개 테스트 14일 연속
 - [ ] 프로덕션 접근 신청 → 심사
 - [ ] 단계적 출시 → 출시 후 관리 (매년 타깃 API)
+- [ ] (나중에) 후원: GitHub Sponsors 개설, 앱 밖 후원 링크, Play 판 "후원하기"(Play 결제), 프리미엄
 
 ---
 
@@ -218,6 +234,12 @@ Google Play 공식
 - [Google 개발자 계정 만들기 (채널톡 문서, 25달러·선불카드 불가)](https://docs.channel.io/firstmall/ko/articles/Google-%EA%B0%9C%EB%B0%9C%EC%9E%90-%EA%B3%84%EC%A0%95-%EB%A7%8C%EB%93%A4%EA%B8%B0-a1b85cc3)
 - [앱 개발자 통신판매업 관련 문답 (인프런)](https://www.inflearn.com/questions/1619606)
 - [1인 개발자 구글플레이 주소 노출 후기 (다모앙)](https://damoang.net/development/1222)
+
+후원·수익
+- [Google Play 결제 정책 이해하기](https://support.google.com/googleplay/android-developer/answer/10281818?hl=en) · [결제 정책](https://support.google.com/googleplay/android-developer/answer/9858738?hl=en)
+- [구글플레이의 새로운 정책 — 결제 선택 프로그램 (한국어, 2026)](https://blog.google/intl/ko-kr/products/android-play-hardware/a-new-era-for-choice-and-openness-kr/)
+- [GitHub Sponsors 소개 (한국어 문서)](https://docs.github.com/ko/sponsors/getting-started-with-github-sponsors/about-github-sponsors) · [GitHub Sponsors 30개 지역 확대 (한국 포함)](https://github.blog/news-insights/company-news/github-sponsors-available-in-30-new-regions-2/)
+- [과세 사각지대 '유튜브 후원금' (다음 뉴스)](https://v.daum.net/v/20220829093005831) · [크리에이터를 위한 사업자등록과 세무 가이드 (토스페이먼츠)](https://www.tosspayments.com/blog/articles/creator)
 
 테스트·심사 기간 (비공식)
 - [Google Play 비공개 테스트 설정·심사 기간 (LearnDash)](https://learndash.com/support/kb/learndash-app/uncategorized/configure-google-play-closed-testing/)
