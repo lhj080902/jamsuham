@@ -1080,7 +1080,12 @@ class McConnection(
             if (code == 401 || code == 403) {
                 throw SessionJoinException("마이크로소프트 인증이 만료됐거나 거부됐습니다 ($code) - 다시 로그인해 주세요", true)
             }
-            throw SessionJoinException("세션 서버 오류 $code ${err.take(200)}", false)
+            if (code == 429) {
+                throw SessionJoinException("모장 인증 서버가 잠깐 요청을 막았습니다 (429, 짧은 시간에 접속을 너무 자주 시도함) - 잠시 뒤 다시 시도합니다", false)
+            }
+            // 오류 내용이 웹페이지(HTML)이면 길기만 하고 쓸모없으므로 상태 코드만 보여 준다
+            val detail = if (err.trimStart().startsWith("<")) "" else " " + err.take(120)
+            throw SessionJoinException("모장 인증 서버 오류 ($code)$detail", false)
         } catch (e: IOException) {
             throw SessionJoinException("세션 서버에 연결하지 못했습니다: ${describe(e)}", false)
         } finally {
