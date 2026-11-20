@@ -37,14 +37,22 @@ class AccountStore(context: Context) {
     private val dir = File(app.filesDir, "accounts").apply { mkdirs() }
     private val gson = Gson()
 
+    // 서버 목록 화면이 1초마다 서버마다 계정을 찾으므로, 저장된 글자가 그대로면 지난번 해석 결과를 다시 쓴다
+    @Volatile private var cachedJson: String? = null
+    @Volatile private var cachedList: List<Account> = emptyList()
+
     fun list(): List<Account> {
         migrateOld()
         val json = sp.getString("accounts", null) ?: return emptyList()
-        return try {
+        if (json == cachedJson) return cachedList
+        val list = try {
             gson.fromJson<List<Account>>(json, object : TypeToken<List<Account>>() {}.type) ?: emptyList()
         } catch (_: Throwable) {
             emptyList()
         }
+        cachedList = list
+        cachedJson = json
+        return list
     }
 
     fun get(id: String?): Account? = if (id == null) null else list().firstOrNull { it.id == id }
@@ -118,7 +126,8 @@ class AccountStore(context: Context) {
             val f = file(acc.id)
             if (!f.exists()) throw AuthException("${acc.name} 계정에 다시 로그인해 주세요")
             val manager = try {
-                JavaAuthManager.fromJson(http(), JsonParser.parseString(f.readText()).asJsonObject)
+                val text = TokenCrypto.open(f.readText()) { tokenKey() ?: throw IllegalStateException("암호화 키를 찾을 수 없습니다") }
+                JavaAuthManager.fromJson(http(), JsonParser.parseString(text).asJsonObject)
             } catch (t: Throwable) {
                 throw AuthException("저장된 로그인 정보를 읽지 못했습니다. 다시 로그인해 주세요", true, t)
             }
@@ -145,7 +154,15 @@ class AccountStore(context: Context) {
     private fun save(id: String, manager: JavaAuthManager) {
         val f = file(id)
         val tmp = File(dir, f.name + ".tmp")
-        tmp.writeText(JavaAuthManager.toJson(manager).toString())
+        val json = JavaAuthManager.toJson(manager).toString()
+        // Keystore 키로 암호화해서 저장. 일부 기기에서 Keystore 가 고장 나 있으면 로그인이 풀리지 않도록 예전처럼 평문으로 저장
+        val stored = try {
+            tokenKey()?.let { TokenCrypto.seal(json, it) } ?: json
+        } catch (t: Throwable) {
+            SessionHub.log.w("토큰 암호화 실패, 평문으로 저장합니다", t)
+            json
+        }
+        tmp.writeText(stored)
         if (!tmp.renameTo(f)) {
             f.delete()
             tmp.renameTo(f)
@@ -180,5 +197,32 @@ class AccountStore(context: Context) {
     companion object {
         val NAME_REGEX = Regex("^[A-Za-z0-9_]{3,16}$")
         private val LOCK = Any()
+        private const val KEY_ALIAS = "jamsuham_tokens"
+
+        /**
+         * 토큰 파일을 암호화하는 AES 키. 안드로이드 Keystore 안에 만들어져 앱 밖으로 꺼낼 수 없다.
+         * Keystore 를 쓸 수 없는 기기면 null (그때는 평문으로 저장).
+         */
+        @Synchronized
+        private fun tokenKey(): javax.crypto.SecretKey? = try {
+            val ks = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            (ks.getKey(KEY_ALIAS, null) as? javax.crypto.SecretKey) ?: run {
+                val gen = javax.crypto.KeyGenerator.getInstance(android.security.keystore.KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+                gen.init(
+                    android.security.keystore.KeyGenParameterSpec.Builder(
+                        KEY_ALIAS,
+                        android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT,
+                    )
+                        .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setKeySize(256)
+                        .build(),
+                )
+                gen.generateKey()
+            }
+        } catch (t: Throwable) {
+            SessionHub.log.w("Keystore 키를 준비하지 못했습니다", t)
+            null
+        }
     }
 }

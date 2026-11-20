@@ -136,6 +136,8 @@ object Updater {
             val pending = PendingIntent.getBroadcast(context, sessionId, intent, flags)
             session.commit(pending.intentSender)
         }
+        // 설치 세션에 복사했으므로 수십 MB 짜리 임시 파일은 지운다
+        apk.delete()
     }
 }
 
@@ -147,11 +149,17 @@ class UpdateReceiver : BroadcastReceiver() {
                 @Suppress("DEPRECATION")
                 val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                try {
-                    context.startActivity(confirm)
-                } catch (t: Throwable) {
-                    SessionHub.log.w("설치 확인 창을 띄우지 못했습니다", t)
+                // 안드로이드 10+ 는 앱이 화면에 없을 때 다른 화면을 띄우는 것을 막는다(아무 표시 없이 무시됨).
+                // 다운로드 중에 홈으로 나갔으면 알림으로 대신 알려서 눌러서 설치하게 한다
+                if (JamsuApp.inForeground) {
+                    try {
+                        context.startActivity(confirm)
+                        return
+                    } catch (t: Throwable) {
+                        SessionHub.log.w("설치 확인 창을 띄우지 못했습니다", t)
+                    }
                 }
+                notifyInstall(context, confirm)
             }
             PackageInstaller.STATUS_SUCCESS -> {}
             else -> {
@@ -161,7 +169,31 @@ class UpdateReceiver : BroadcastReceiver() {
         }
     }
 
+    private fun notifyInstall(context: Context, confirm: Intent) {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        nm.createNotificationChannel(
+            android.app.NotificationChannel(CHANNEL, "앱 업데이트", android.app.NotificationManager.IMPORTANCE_HIGH),
+        )
+        val open = PendingIntent.getActivity(context, NOTIFY_ID, confirm, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val icon = context.resources.getIdentifier("ic_stat_afk", "drawable", context.packageName).takeIf { it != 0 }
+            ?: android.R.drawable.stat_sys_download_done
+        val n = android.app.Notification.Builder(context, CHANNEL)
+            .setSmallIcon(icon)
+            .setContentTitle("업데이트를 받았습니다")
+            .setContentText("눌러서 설치를 마쳐 주세요")
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        try {
+            nm.notify(NOTIFY_ID, n)
+        } catch (_: SecurityException) {
+            Toast.makeText(context, "업데이트를 받았습니다. 앱에서 다시 업데이트를 눌러 주세요", Toast.LENGTH_LONG).show()
+        }
+    }
+
     companion object {
         const val ACTION = "kr.jamsuham.app.UPDATE_STATUS"
+        private const val CHANNEL = "update"
+        private const val NOTIFY_ID = 100_001 // 메뉴 알림(1000~66535)·잠수 알림(7)과 겹치지 않게
     }
 }

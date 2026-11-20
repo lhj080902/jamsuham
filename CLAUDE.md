@@ -17,7 +17,8 @@
   - `SessionHub` 서버별 세션 상태(메인 스레드 콜백), `AfkService` 포그라운드 서비스(알림, 화면 꺼져도 유지)
   - `MainActivity` 서버 목록(태블릿은 두 칸), `ChatPanel` 채팅/지도/인벤/접속자 4페이지, `MapPanel` 미니맵·이동·웨이포인트,
     `InventoryPanel`, `PlayerPanel`, `ServerEditActivity`(서버별 설정·메뉴 자동 클릭 규칙), `LoginActivity`(MS 로그인 WebView),
-    `Store`(서버·웨이포인트·기록, Gson+SharedPreferences), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
+    `Store`(서버·웨이포인트·기록, Gson+SharedPreferences),
+    `AccountStore`(MS 토큰은 files/accounts/ 에 Keystore AES-GCM 으로 암호화 저장 `TokenCrypto`, 예전 평문도 읽음. 백업·기기 이전에서 제외 `res/xml/data_extraction_rules.xml`), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
 
 ## 빌드·배포
 - `main` 에 푸시하면 GitHub Actions(`.github/workflows/build.yml`)가 APK 를 만들고 릴리스 `build-N` 으로 올린다.
@@ -34,12 +35,12 @@
 - 클라우드(Claude Code 웹) 환경은 dl.google.com 이 막혀 안드로이드 플러그인을 못 받는다 → 루트 빌드 대신
   임시 폴더에 core 만 include 한 Gradle 설정을 만들어 컴파일·테스트하고, app 코드는 Maven Central 의
   `org.robolectric:android-all:16-robolectric-13921718`(API 36) 을 compileOnly 로 두고 Kotlin 컴파일만 확인한다 (APK 빌드는 GitHub Actions)
+- 지원 버전 확인됨: 1.8.8, 1.12.2, 1.20.x, 1.21.4, 1.21.8, 26.1 (테스트 서버 기준)
 
 ## 재접속 판단 규칙 (AfkSession)
 - 중복 로그인(다른 곳에서 같은 계정 접속, `duplicate_login`) → 멈춤 / 프록시 "already connected"(내 새 접속이 거절됨) → 기다렸다 재접속
 - 정품 인증 실패 킥 → 토큰 새로 받아 재시도, 3번 연속이면 멈춤 / 모장 429 → 60·120·300·600초 대기
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
-- 지원 버전 확인됨: 1.8.8, 1.12.2, 1.20.x, 1.21.4, 1.21.8, 26.1 (테스트 서버 기준)
 
 ## 해결 못 한 것 / 다음 할 일
 - **도스온라인 리소스팩 창**: 실제 클라이언트에는 상자 창이 뜨는데 앱에는 "서버 메뉴 열림" 이 안 온다. 접속 직후 채팅 로그 확인 필요

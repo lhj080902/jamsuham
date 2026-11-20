@@ -298,6 +298,15 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
 
     private fun renderBanners() {
         bannerBox.removeAllViews()
+        // 알림을 꺼 두면 잠수 중 고정 알림(끊기 버튼)과 서버 메뉴 알림이 아무 표시 없이 사라진다
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        if (!nm.areNotificationsEnabled()) {
+            bannerBox.addView(banner(
+                "알림이 꺼져 있어요",
+                "잠수 중 알림(끊기 버튼)과 서버 메뉴·보상 알림을 받으려면 알림을 켜 주세요.",
+                "켜기",
+            ) { requestNotifications() }, ui.gap(10))
+        }
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
             bannerBox.addView(banner(
@@ -319,6 +328,27 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         row.addView(ui.button(action, "primary", onClick), ui.lp(Ui.WRAP, ui.dp(40)).apply { leftMargin = ui.dp(8) })
         card.addView(row)
         return card
+    }
+
+    private fun requestNotifications() {
+        // 한 번 거절한 뒤라면 권한 창을 다시 띄울 수 있다. "다시 묻지 않음" 이거나 알림 자체를 끈 경우는 설정 화면으로 보낸다
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            shouldShowRequestPermissionRationale(android.Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 11)
+            return
+        }
+        try {
+            startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+        } catch (_: Throwable) {
+            toast("설정 화면을 열 수 없습니다")
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        renderBanners()
     }
 
     private fun requestBatteryExemption() {

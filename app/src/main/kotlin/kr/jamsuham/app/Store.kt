@@ -56,14 +56,23 @@ class Store(context: Context) {
 
     // ------------------------------------------------------------ servers
 
+    // 서버 목록 화면·채팅 화면이 1초마다 읽으므로, 저장된 글자가 그대로면 지난번 해석 결과를 다시 쓴다.
+    // (SharedPreferences 는 앱 전체가 같은 메모리 사본을 쓰므로, 다른 Store 객체가 저장해도 글자가 바뀌어 캐시가 저절로 무효가 된다)
+    @Volatile private var cachedServersJson: String? = null
+    @Volatile private var cachedServers: List<ServerEntry> = emptyList()
+
     fun servers(): List<ServerEntry> {
         val json = sp.getString("servers", null) ?: return migrateOld()
-        return try {
+        if (json == cachedServersJson) return cachedServers
+        val list = try {
             gson.fromJson<List<ServerEntry>>(json, object : TypeToken<List<ServerEntry>>() {}.type)
                 ?.map { it.copy(joinCommands = it.joinCommands ?: emptyList(), autoClickRules = it.autoClickRules ?: emptyList()) } ?: emptyList()
         } catch (_: Throwable) {
             emptyList()
         }
+        cachedServers = list
+        cachedServersJson = json
+        return list
     }
 
     fun server(id: String): ServerEntry? = servers().firstOrNull { it.id == id }

@@ -315,15 +315,61 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
             openWaypointDialog(null, intArrayOf(bx, y, bz))
         }
 
-        private fun rebuild(world: World, bx0: Int, bz0: Int, feet: Int, radius: Int) {
-            val size = radius * 2 + 1
-            if (bmp == null || bmpSize != size) {
-                bmp?.recycle()
-                bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                pixels = IntArray(size * size)
-                tops = IntArray(size * size)
-                bmpSize = size
+        /** 백그라운드에서 만든 지도 한 장 (메인 스레드에서 비트맵에 옮긴다) */
+        private inner class Built(
+            val pixels: IntArray, val tops: IntArray, val size: Int,
+            val x0: Int, val z0: Int, val feet: Int, val version: Long, val world: World,
+        )
+
+        /** 지금 백그라운드에서 만드는 중인지 (한 번에 하나만) */
+        private var building = false
+
+        /**
+         * 지도 비트맵을 백그라운드 스레드에서 다시 만든다. 반경이 크면(최대 325×325칸 × 높이 수십 칸) 수백만 번 블록을 읽어서
+         * 메인 스레드에서 하면 걸을 때마다 버벅이거나 "응답 없음" 이 뜰 수 있다. 만드는 동안은 이전 비트맵을 제자리에 그린다.
+         */
+        private fun requestRebuild(world: World, bx0: Int, bz0: Int, feet: Int, radius: Int) {
+            if (building) return
+            building = true
+            // 만드는 도중에 청크가 바뀌면 다음 그리기에서 다시 만들도록 시작 전에 버전을 읽어 둔다
+            val version = world.version
+            MAP_BUILDER.execute {
+                val built = try {
+                    build(world, bx0, bz0, feet, radius, version)
+                } catch (t: Throwable) {
+                    SessionHub.log.w("지도 만들기 실패", t)
+                    null
+                }
+                post {
+                    building = false
+                    if (built != null) apply(built)
+                    invalidate()
+                }
             }
+        }
+
+        private fun apply(b: Built) {
+            if (bmp == null || bmpSize != b.size) {
+                bmp?.recycle()
+                bmp = Bitmap.createBitmap(b.size, b.size, Bitmap.Config.ARGB_8888)
+                bmpSize = b.size
+            }
+            bmp!!.setPixels(b.pixels, 0, b.size, 0, 0, b.size, b.size)
+            pixels = b.pixels
+            tops = b.tops
+            bmpX0 = b.x0
+            bmpZ0 = b.z0
+            bmpFeet = b.feet
+            bmpVersion = b.version
+            bmpWorld = b.world
+            bmpBuiltAt = System.currentTimeMillis()
+        }
+
+        /** 백그라운드 스레드에서 실행 (뷰의 필드는 건드리지 않는다) */
+        private fun build(world: World, bx0: Int, bz0: Int, feet: Int, radius: Int, version: Long): Built {
+            val size = radius * 2 + 1
+            val pixels = IntArray(size * size)
+            val tops = IntArray(size * size)
             val x0 = bx0 - radius
             val z0 = bz0 - radius
             // 밖에 있으면(머리 위가 뚫려 있으면) 나무 같은 높은 것도 보이게 위에서부터, 안이면 지붕을 건너뛰게 머리 높이부터
@@ -357,13 +403,7 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
                     tops[j * size + i] = top
                 }
             }
-            bmp!!.setPixels(pixels, 0, size, 0, 0, size, size)
-            bmpX0 = x0
-            bmpZ0 = z0
-            bmpFeet = feet
-            bmpVersion = world.version
-            bmpWorld = world
-            bmpBuiltAt = System.currentTimeMillis()
+            return Built(pixels, tops, size, x0, z0, feet, version, world)
         }
 
         /** 발밑(-1)이 기본 밝기. 벽(발 높이 이상)은 밝게, 낮은 곳은 어둡게 */
@@ -403,7 +443,7 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
             val stale = bmp == null || bmpSize != radius * 2 + 1 || bmpWorld !== world ||
                 abs(bx0 - (bmpX0 + bmpSize / 2)) > 0 || abs(bz0 - (bmpZ0 + bmpSize / 2)) > 0 || feet != bmpFeet ||
                 (world.version != bmpVersion && now - bmpBuiltAt > 400)
-            if (stale) rebuild(world, bx0, bz0, feet, radius)
+            if (stale) requestRebuild(world, bx0, bz0, feet, radius)
             bmp?.let {
                 canvas.save()
                 canvas.translate(cx + ((bmpX0 - px).toFloat()) * cell, cy + ((bmpZ0 - pz).toFloat()) * cell)
@@ -493,6 +533,14 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
     }
 
     companion object {
+        /** 지도 비트맵을 만드는 스레드 하나 (모든 지도 화면이 같이 쓴다. 화면을 열 때마다 스레드가 늘지 않도록) */
+        private val MAP_BUILDER = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "jamsuham-map").apply {
+                isDaemon = true
+                priority = Thread.MIN_PRIORITY
+            }
+        }
+
         val COLORS = intArrayOf(
             0xFFFF5252.toInt(), 0xFFFFA726.toInt(), 0xFFFFEB3B.toInt(), 0xFF66BB6A.toInt(),
             0xFF26C6DA.toInt(), 0xFF42A5F5.toInt(), 0xFFAB47BC.toInt(), 0xFFEC407A.toInt(),

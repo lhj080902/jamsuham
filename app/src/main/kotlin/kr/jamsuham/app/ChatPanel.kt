@@ -247,8 +247,23 @@ class ChatPanel(
         tabs.forEachIndexed { i, b -> ui.style(b, if (i == page) "primary" else "plain") }
     }
 
+    /** 화면에 보이는 동안만 1초 갱신과 세션 알림을 받는다 (홈으로 나가 밤새 잠수할 때 배터리 절약) */
+    private var live = false
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        if (windowVisibility == VISIBLE) resume()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (!isAttachedToWindow) return
+        if (visibility == VISIBLE) resume() else pause()
+    }
+
+    private fun resume() {
+        if (live) return
+        live = true
         SessionHub.addObserver(this)
         adapter.reload()
         onPlayers(serverId, SessionHub.players(serverId))
@@ -260,13 +275,20 @@ class ChatPanel(
             openMenuOnAttach = false
             main.post { if (SessionHub.menu(serverId) != null && menuDialog?.isShowing != true) showMenuDialog() }
         }
+        main.removeCallbacks(ticker)
         main.post(ticker)
     }
 
-    override fun onDetachedFromWindow() {
+    private fun pause() {
+        if (!live) return
+        live = false
         SessionHub.removeObserver(this)
         main.removeCallbacks(ticker)
         main.removeCallbacks(suggestTask)
+    }
+
+    override fun onDetachedFromWindow() {
+        pause()
         super.onDetachedFromWindow()
     }
 
