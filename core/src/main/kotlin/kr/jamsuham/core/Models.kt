@@ -207,6 +207,14 @@ data class DeathInfo(
     }
 }
 
+/** 데이터 사용량 (이 잠수를 시작한 뒤 모든 접속 합계). onlineMs = 서버에 들어가 있던 시간 */
+data class Traffic(val received: Long, val sent: Long, val onlineMs: Long) {
+    val total: Long get() = received + sent
+
+    /** 접속해 있던 시간 기준 시간당 사용량 (1분 미만이면 아직 모름 = null) */
+    val perHour: Long? get() = if (onlineMs < 60_000) null else total * 3_600_000 / onlineMs
+}
+
 interface SessionListener {
     fun onStatus(status: SessionStatus) {}
     fun onLine(line: LogLine) {}

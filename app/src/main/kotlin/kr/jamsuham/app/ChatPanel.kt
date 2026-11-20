@@ -95,6 +95,8 @@ class ChatPanel(
     private val ticker = object : Runnable {
         override fun run() {
             render(SessionHub.status(serverId))
+            // 상태 탭을 보고 있으면 데이터 사용량·접속 시간도 1초마다 갱신
+            if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
             main.postDelayed(this, 1000)
         }
     }
@@ -263,7 +265,7 @@ class ChatPanel(
         }.start()
         if (next == 2) invPanel.show(SessionHub.inventory(serverId))
         if (next == 3) playerPanel.show(SessionHub.players(serverId))
-        if (next == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId))
+        if (next == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
         styleTabs()
     }
 
@@ -295,7 +297,7 @@ class ChatPanel(
         onMenu(serverId, SessionHub.menu(serverId))
         onInventory(serverId, SessionHub.inventory(serverId))
         showDeathBanner(SessionHub.lastDeath(serverId))
-        if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId))
+        if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
         render(SessionHub.status(serverId))
         if (openMenuOnAttach) {
             openMenuOnAttach = false
@@ -446,13 +448,13 @@ class ChatPanel(
 
     override fun onVitals(serverId: String, vitals: Vitals?) {
         if (serverId != this.serverId) return
-        if (page == 4) statusPanel.show(vitals, SessionHub.lastDeath(serverId))
+        if (page == 4) statusPanel.show(vitals, SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
     }
 
     override fun onDeath(serverId: String, death: DeathInfo?) {
         if (serverId != this.serverId) return
         showDeathBanner(death)
-        if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId))
+        if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
     }
 
     private fun showDeathBanner(death: DeathInfo?) {

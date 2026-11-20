@@ -85,9 +85,26 @@ class AfkSession(
     /** "Failed to verify username" 같은 인증 킥을 연달아 받은 횟수 */
     private var authKicks = 0
     @Volatile private var generation = 0
+    /** 끝난 접속들이 주고받은 바이트 합계 (지금 접속분은 [traffic] 에서 더한다) */
+    @Volatile private var rxDone = 0L
+    @Volatile private var txDone = 0L
+    @Volatile private var onlineSinceShared: Long? = null
+    @Volatile private var totalOnlineShared = 0L
     @Volatile private var status = SessionStatus(SessionState.IDLE)
 
     val currentStatus: SessionStatus get() = status
+
+    /** 이 잠수를 시작한 뒤의 데이터 사용량 (아무 스레드에서나) */
+    val traffic: Traffic
+        get() {
+            val c = connection
+            val since = onlineSinceShared
+            return Traffic(
+                received = rxDone + (c?.bytesReceived ?: 0L),
+                sent = txDone + (c?.bytesSent ?: 0L),
+                onlineMs = totalOnlineShared + (since?.let { System.currentTimeMillis() - it } ?: 0L),
+            )
+        }
 
     fun start() = submit {
         userStopped = false
@@ -326,6 +343,7 @@ class AfkSession(
         override fun onJoined() = submit {
             if (generation != gen) return@submit
             onlineSince = System.currentTimeMillis()
+            onlineSinceShared = onlineSince
             authRetried = false
             rateLimitHits = 0
             if (connection?.usedSessionServer == true) serverRequiresAuth = true
@@ -413,6 +431,10 @@ class AfkSession(
         // 세대를 먼저 올려서, 끊기기 직전에 예약된 접속자·메뉴·인벤토리 갱신이 비운 화면을 다시 채우지 못하게 한다
         generation++
         if (connection?.usedSessionServer == true) serverRequiresAuth = true
+        connection?.let { c ->
+            rxDone += c.bytesReceived
+            txDone += c.bytesSent
+        }
         connection = null
         listener.onPlayers(PlayerList.EMPTY)
         listener.onMenu(null)
@@ -420,6 +442,8 @@ class AfkSession(
         listener.onVitals(null)
         onlineSince?.let { totalOnlineMs += System.currentTimeMillis() - it }
         onlineSince = null
+        totalOnlineShared = totalOnlineMs
+        onlineSinceShared = null
         lastReason = reason
 
         val text = describe(reason)

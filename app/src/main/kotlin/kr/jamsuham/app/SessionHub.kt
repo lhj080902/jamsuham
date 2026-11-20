@@ -97,6 +97,9 @@ object SessionHub {
 
     fun vitals(serverId: String): Vitals? = entries[serverId]?.vitals
 
+    /** 이 서버 잠수를 시작한 뒤의 데이터 사용량 (시작한 적 없으면 null) */
+    fun traffic(serverId: String): kr.jamsuham.core.Traffic? = entries[serverId]?.session?.traffic
+
     fun lastDeath(serverId: String): DeathInfo? = entries[serverId]?.lastDeath
 
     /** 사망 알림 줄 닫기 */

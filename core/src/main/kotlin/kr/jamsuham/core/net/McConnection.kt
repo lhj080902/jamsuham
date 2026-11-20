@@ -153,6 +153,8 @@ class McConnection(
             .handler(object : ChannelInitializer<Channel>() {
                 override fun initChannel(ch: Channel) {
                     val p = ch.pipeline()
+                    // 맨 앞: 실제로 주고받은 바이트(압축·암호화된 그대로)를 센다
+                    p.addLast("traffic", TrafficCounter())
                     p.addLast(Pipe.TIMEOUT, ReadTimeoutHandler(READ_TIMEOUT_SEC.toLong(), TimeUnit.SECONDS))
                     p.addLast(Pipe.FRAME, FrameCodec())
                     val user = ViaChannelInitializer.createUserConnection(ch, true)
@@ -1051,6 +1053,8 @@ class McConnection(
             needPlayerLoaded = false
             send(PlayOut.PLAYER_LOADED)
         }
+        // 위치가 바뀌었으니 느린 틱이었으면 바로 깨운다
+        wakeTicks()
     }
 
     /** 바닐라 클라이언트처럼 1초마다 현재 위치를 다시 보낸다 */
@@ -1060,32 +1064,78 @@ class McConnection(
      */
     private fun startPositionReminder() {
         val ch = channel ?: return
+        lastIdleSendMs = 0L
+        ch.eventLoop().execute { scheduleTick(50) }
+    }
+
+    /**
+     * 다음 틱 예약 (네티 이벤트 루프에서만 부른다).
+     * 움직이거나 떨어지는 중이면 바닐라처럼 50ms(초당 20번), 땅에 가만히 서 있으면 1초에 한 번만 깨어난다.
+     * 화면을 끈 잠수 중에 폰이 초당 20번씩 깨어나지 않게 해서 배터리를 아낀다 (서버에 보내는 내용은 같음: 1초마다 위치).
+     */
+    private fun scheduleTick(delayMs: Long) {
+        val ch = channel ?: return
         positionTask?.cancel(false)
-        idleTicks = 0
-        positionTask = ch.eventLoop().scheduleAtFixedRate({
+        if (!ch.isActive || closed.get()) return
+        positionTask = ch.eventLoop().schedule({
+            var active = false
             if (state == State.PLAY && hasPosition && ch.isActive) {
                 try {
-                    tickMovement()
+                    active = tickMovement()
                 } catch (t: Throwable) {
                     log.w("이동 처리 오류", t)
                 }
             }
-        }, 50, 50, TimeUnit.MILLISECONDS)
+            if (state == State.PLAY) scheduleTick(if (active) TICK_MS else IDLE_TICK_MS)
+        }, delayMs, TimeUnit.MILLISECONDS)
     }
 
-    private var idleTicks = 0
+    /** 이동 버튼·텔레포트처럼 바로 움직여야 할 때 느린 틱에서 깨운다 (아무 스레드에서나) */
+    private fun wakeTicks() {
+        val ch = channel ?: return
+        ch.eventLoop().execute { if (state == State.PLAY) scheduleTick(0) }
+    }
+
+    private var lastIdleSendMs = 0L
     private var vy = 0.0
     private var onGround = true
 
     /** 이동 입력 (비트: 1 북, 2 남, 4 서, 8 동, 16 점프). 화면에서 아무 스레드나 불러도 된다. */
     @Volatile var movementInput = 0
+        set(value) {
+            val wake = value != 0 && field == 0
+            field = value
+            if (wake) wakeTicks()
+        }
+
+    // ------------------------------------------------------------------ 데이터 사용량
+
+    private val rxBytes = java.util.concurrent.atomic.AtomicLong()
+    private val txBytes = java.util.concurrent.atomic.AtomicLong()
+
+    /** 이 연결에서 받은 / 보낸 바이트 (마인크래프트 데이터 기준, TCP 머리글 제외) */
+    val bytesReceived: Long get() = rxBytes.get()
+    val bytesSent: Long get() = txBytes.get()
+
+    private inner class TrafficCounter : io.netty.channel.ChannelDuplexHandler() {
+        override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
+            if (msg is ByteBuf) rxBytes.addAndGet(msg.readableBytes().toLong())
+            ctx.fireChannelRead(msg)
+        }
+
+        override fun write(ctx: ChannelHandlerContext, msg: Any, promise: io.netty.channel.ChannelPromise) {
+            if (msg is ByteBuf) txBytes.addAndGet(msg.readableBytes().toLong())
+            ctx.write(msg, promise)
+        }
+    }
 
     val currentX: Double get() = x
     val currentY: Double get() = y
     val currentZ: Double get() = z
     val currentYaw: Float get() = yaw
 
-    private fun tickMovement() {
+    /** 한 틱 처리. 물리(이동·낙하)를 계산했으면 true (= 계속 빠른 틱이 필요) */
+    private fun tickMovement(): Boolean {
         val input = movementInput
         var dx = 0.0
         var dz = 0.0
@@ -1098,16 +1148,17 @@ class McConnection(
         val physics = (moving || wantsJump || !onGround) && Collision.loaded &&
             world.isLoaded(kotlin.math.floor(x).toInt(), kotlin.math.floor(z).toInt())
         if (!physics) {
-            if (++idleTicks >= 20) {
-                idleTicks = 0
+            val now = System.currentTimeMillis()
+            if (now - lastIdleSendMs >= IDLE_TICK_MS - 10) {
+                lastIdleSendMs = now
                 send(PlayOut.MOVE_PLAYER_POS) {
                     it.writeDouble(x); it.writeDouble(y); it.writeDouble(z)
                     it.writeByte(if (onGround) 0x01 else 0x00)
                 }
             }
-            return
+            return false
         }
-        idleTicks = 0
+        lastIdleSendMs = System.currentTimeMillis()
         if (moving) {
             val len = kotlin.math.sqrt(dx * dx + dz * dz)
             dx = dx / len * WALK_SPEED
@@ -1152,6 +1203,7 @@ class McConnection(
             it.writeFloat(yaw); it.writeFloat(pitch)
             it.writeByte(if (onGround) 0x01 else 0x00)
         }
+        return true
     }
 
     /** 한 축으로 움직이기. 막히면 0.6칸까지 자동으로 올라선다(계단, 반 블록) */
@@ -1329,6 +1381,10 @@ class McConnection(
     companion object {
         const val READ_TIMEOUT_SEC = 30
         const val PLAYER_ENTITY_TYPE = 147 // 1.21.4 엔티티 종류 번호
+        /** 바닐라 틱 (움직이거나 떨어지는 중) */
+        const val TICK_MS = 50L
+        /** 땅에 가만히 서 있을 때 깨어나는 간격 = 위치를 다시 보내는 간격 */
+        const val IDLE_TICK_MS = 1000L
         const val WALK_SPEED = 0.2158 // 블록/틱 (초당 4.3칸, 바닐라 걷기)
         const val STEP = 0.6
 

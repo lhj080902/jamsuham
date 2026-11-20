@@ -9,6 +9,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import kr.jamsuham.core.DeathInfo
+import kr.jamsuham.core.Traffic
 import kr.jamsuham.core.Vitals
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -29,6 +30,8 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
     private val foodText: TextView
     private val foodBar = Bar(COLOR_FOOD, 0)
     private val foodSub: TextView
+    private val dataText: TextView
+    private val dataSub: TextView
     private val deathTitle: TextView
     private val deathText: TextView
     private val scroll: ScrollView
@@ -59,6 +62,12 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
         body.addView(foodSub)
         inner.addView(body)
 
+        inner.addView(ui.text("데이터 사용량", 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
+        dataText = ui.text("", 15f, bold = true)
+        inner.addView(dataText)
+        dataSub = ui.text("", 12f, p.muted).apply { setPadding(0, ui.dp(2), 0, 0) }
+        inner.addView(dataSub)
+
         inner.addView(ui.text("마지막 사망", 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
         deathTitle = ui.text("", 15f, bold = true)
         inner.addView(deathTitle)
@@ -71,7 +80,18 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
 
     val scrollView: ScrollView get() = scroll
 
-    fun show(v: Vitals?, death: DeathInfo?) {
+    fun show(v: Vitals?, death: DeathInfo?, traffic: Traffic?) {
+        if (traffic == null || traffic.total == 0L) {
+            dataText.setTextIfChanged("아직 없습니다")
+            dataSub.setTextIfChanged("")
+        } else {
+            dataText.setTextIfChanged("받음 ${bytes(traffic.received)} · 보냄 ${bytes(traffic.sent)}")
+            val rate = traffic.perHour
+            dataSub.setTextIfChanged(
+                (if (rate != null) "시간당 약 ${bytes(rate)} (접속 ${Formats.minutes(traffic.onlineMs)} 기준)" else "1분 넘게 접속하면 시간당 사용량이 보입니다") +
+                    "\n이번에 잠수를 시작한 뒤 합계 · 마인크래프트 데이터 기준이라 통신사 집계는 조금 더 많을 수 있습니다",
+            )
+        }
         if (v == null) {
             emptyView.visibility = VISIBLE
             body.visibility = GONE
@@ -149,6 +169,14 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
     companion object {
         private const val COLOR_ABSORB = 0xFFF5C518.toInt()
         private const val COLOR_FOOD = 0xFFD9822B.toInt()
+
+        /** 1234567 → "1.2MB" */
+        fun bytes(b: Long): String = when {
+            b >= 1L shl 30 -> String.format(Locale.ROOT, "%.2fGB", b / 1073741824.0)
+            b >= 1L shl 20 -> String.format(Locale.ROOT, "%.1fMB", b / 1048576.0)
+            b >= 1L shl 10 -> String.format(Locale.ROOT, "%.0fKB", b / 1024.0)
+            else -> "${b}B"
+        }
 
         /** 소수점이 없으면 정수로 (20.0 → 20, 7.5 → 7.5) */
         fun num(f: Float): String {
