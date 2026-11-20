@@ -87,7 +87,10 @@ class LoginActivity : Activity() {
 
     /** 로그인이 끝나 돌아오는 주소면 코드를 꺼낸다 */
     private fun handle(url: String, redirect: String): Boolean {
-        if (!url.startsWith(redirect) || finishing) return false
+        if (finishing) return false
+        // 마이크로소프트는 로그인이 끝나면 oauth20_desktop.srf 또는 ms-xal-<클라이언트ID>://auth 로 돌려보낸다
+        val isRedirect = url.startsWith(redirect) || url.startsWith("ms-xal-")
+        if (!isRedirect) return false
         val uri = Uri.parse(url)
         val error = uri.getQueryParameter("error")
         if (error != null) {
