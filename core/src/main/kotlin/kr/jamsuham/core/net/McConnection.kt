@@ -1129,6 +1129,9 @@ class McConnection(
  * (ViaProxy 의 "변환 오류 무시" 옵션과 같은 방식)
  */
 internal class SafeViaCodec(user: com.viaversion.viaversion.api.connection.UserConnection, private val log: CoreLog) : ViaCodecHandler(user) {
+    private companion object {
+        val LOG_ALL = System.getProperty("jamsuham.viaLogAll") == "true"
+    }
     private var lastLog = 0L
     private var suppressed = 0
 
@@ -1138,7 +1141,7 @@ internal class SafeViaCodec(user: com.viaversion.viaversion.api.connection.UserC
         } catch (t: Throwable) {
             if (t is com.viaversion.viaversion.exception.CancelCodecException) throw t
             val now = System.currentTimeMillis()
-            if (now - lastLog > 10_000) {
+            if (now - lastLog > 10_000 || LOG_ALL) {
                 log.w("버전 변환 중 패킷 하나를 처리하지 못해 건너뜁니다" + (if (suppressed > 0) " (그 사이 ${suppressed}개 더)" else ""), t)
                 lastLog = now
                 suppressed = 0

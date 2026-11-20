@@ -66,6 +66,7 @@ server.on('playerJoin', (client) => {
   setTimeout(() => safe(() => sendPlayers(client)), 900)
   setTimeout(() => safe(() => openPackMenu(client)), 1500)
   setTimeout(() => safe(() => sendInventory(client)), 1000)
+  setTimeout(() => safe(() => sendDialog(client)), 1800)
   client.on('window_click', (d) => {
     log(`MENU CLICK #${n} slot=${d.slot} window=${d.windowId}`)
     if (d.slot === 13) safe(() => { client.write('close_window', { windowId: 7 }); sendChat(client, '§a리소스팩이 적용되었습니다') })
@@ -168,6 +169,19 @@ function sendPlayers (client) {
     })
     client.write('playerlist_header', { header: JSON.stringify({ text: '§b§l잠수 테스트 서버' }), footer: JSON.stringify({ text: '§7접속자 2명' }) })
   }
+}
+
+// 1.21.6+ 대화창(dialog): 최신 서버가 리소스팩 안내 등에 쓰는 창
+// 주의: node-minecraft-protocol 이 직접 넣은 대화창의 첫 바이트를 가끔 쓰레기 값으로 보내서 가끔 실패한다 (테스트 서버 쪽 문제)
+function sendDialog (client) {
+  if (!mcData.isNewerOrEqualTo('1.21.6')) return
+  const t = (s) => nbt.comp({ text: nbt.string(s) })
+  client.write('show_dialog', { dialog: { data: nbt.comp({
+    type: nbt.string('minecraft:notice'),
+    title: t('리소스팩 적용 안내'),
+    body: nbt.list(nbt.comp([{ type: nbt.string('minecraft:plain_message'), contents: t('리소스팩을 적용해야 움직일 수 있습니다') }])),
+    action: nbt.comp({ label: t('적용하기'), action: nbt.comp({ type: nbt.string('minecraft:run_command'), command: nbt.string('rp apply') }) })
+  }) } })
 }
 
 // 인벤토리 보기 테스트: 핫바에 다이아 검, 머리에 철 투구, 가방에 리소스팩 글꼴 이름 아이템

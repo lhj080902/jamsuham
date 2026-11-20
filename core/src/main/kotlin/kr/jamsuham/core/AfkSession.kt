@@ -167,6 +167,7 @@ class AfkSession(
             }
 
             val version = resolveVersion(target) ?: return
+            ViaSetup.prepare(version)
 
             setStatus(SessionState.PREPARING, "계정 확인 중…", version.name)
             val creds = try {
@@ -206,7 +207,7 @@ class AfkSession(
         }
         setStatus(SessionState.PREPARING, "서버 버전 확인 중…")
         val ping = try {
-            StatusPinger.ping(target, ViaSetup.NATIVE_PROTOCOL)
+            StatusPinger.ping(target, ViaSetup.newestProtocol())
         } catch (e: Exception) {
             // 핑이 안 되면 서버가 꺼졌거나 네트워크 문제. 전에 감지한 버전이 있으면 그걸로 시도
             val cached = detectedVersion
