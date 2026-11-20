@@ -27,6 +27,9 @@ import kr.jamsuham.core.MenuItem
 import kr.jamsuham.core.PlayerInfo
 import kr.jamsuham.core.PlayerList
 import kr.jamsuham.core.ResolvedTarget
+import kr.jamsuham.core.Vitals
+import kr.jamsuham.core.DeathInfo
+import kr.jamsuham.core.text.DeathMessages
 import kr.jamsuham.core.text.ChatText
 import kr.jamsuham.core.via.ViaSetup
 import kr.jamsuham.core.world.Collision
@@ -55,6 +58,8 @@ interface ConnectionEvents {
     fun onPlayers(list: PlayerList) {}
     fun onMenu(menu: Menu?) {}
     fun onInventory(inventory: Inventory) {}
+    fun onVitals(vitals: Vitals) {}
+    fun onDeath(death: DeathInfo) {}
 }
 
 /**
@@ -464,6 +469,93 @@ class McConnection(
         }
     }
 
+    // ------------------------------------------------------------------ 체력·허기
+
+    @Volatile private var selfEntityId = Int.MIN_VALUE
+
+    /** 지금 체력·허기 (화면이 읽음). 처음 체력 패킷을 받기 전에는 기본값 */
+    @Volatile var vitals = Vitals(health = 20f)
+        private set
+    @Volatile private var vitalsKnown = false
+
+    /** 체력 패킷을 한 번이라도 받았으면 지금 상태, 아니면 null */
+    val currentVitals: Vitals? get() = if (vitalsKnown) vitals else null
+
+    private fun publishVitals(v: Vitals) {
+        vitals = v
+        vitalsKnown = true
+        events.onVitals(v)
+    }
+
+    /**
+     * 속성 갱신 중 내 최대 체력(max_health, 1.21.4 속성 번호 18)만 읽는다.
+     * 서버·플러그인이 최대 체력을 바꾼 경우(하트 5칸, 20칸 등)를 그대로 보여 주기 위해 기본값 + 수정치를 바닐라와 같은 순서로 계산한다.
+     */
+    private fun readAttributes(buf: ByteBuf) {
+        try {
+            if (buf.readVarInt() != selfEntityId) return
+            repeat(buf.readVarInt().coerceIn(0, 256)) {
+                val attr = buf.readVarInt()
+                val base = buf.readDouble()
+                var add = 0.0
+                var mulBase = 0.0
+                var mulTotal = 1.0
+                repeat(buf.readVarInt().coerceIn(0, 1024)) {
+                    buf.readMcString() // 수정치 이름
+                    val amount = buf.readDouble()
+                    when (buf.readByte().toInt()) {
+                        0 -> add += amount
+                        1 -> mulBase += amount
+                        2 -> mulTotal *= 1.0 + amount
+                    }
+                }
+                if (attr == ATTR_MAX_HEALTH) {
+                    val withAdd = base + add
+                    val max = ((withAdd + withAdd * mulBase) * mulTotal).toFloat()
+                    if (max > 0f && max.isFinite()) publishVitals(vitals.copy(maxHealth = max))
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * 내 엔티티 정보 중 흡수 체력(노란 하트, 플레이어 15번 칸 float)만 읽는다. 1.21.4 형식.
+     * 앞 칸을 건너뛰다 모르는 복잡한 형식(아이템·입자 등)을 만나면 그만 읽는다 (흡수 체력만 못 볼 뿐 접속엔 영향 없음).
+     */
+    private fun readEntityData(buf: ByteBuf) {
+        try {
+            if (buf.readVarInt() != selfEntityId) return
+            while (buf.isReadable) {
+                val index = buf.readUnsignedByte().toInt()
+                if (index == 0xFF) return
+                val type = buf.readVarInt()
+                if (index == META_ABSORPTION && type == 3) {
+                    val absorption = buf.readFloat()
+                    publishVitals(vitals.copy(absorption = absorption.coerceAtLeast(0f)))
+                    continue
+                }
+                when (type) {
+                    0, 8 -> buf.skipBytes(1) // byte, boolean
+                    1, 12, 14, 15, 20, 21, 22, 27, 28 -> buf.readVarInt() // varint 류
+                    2 -> buf.readVarLong()
+                    3 -> buf.skipBytes(4) // float
+                    4 -> buf.readMcString()
+                    5 -> buf.readAnonymousTag()
+                    6 -> if (buf.readBoolean()) buf.readAnonymousTag()
+                    9, 29 -> buf.skipBytes(12) // 회전·벡터 (float 3개)
+                    10 -> buf.skipBytes(8) // 위치
+                    11 -> if (buf.readBoolean()) buf.skipBytes(8)
+                    13 -> if (buf.readBoolean()) buf.skipBytes(16)
+                    16 -> buf.readAnonymousTag()
+                    30 -> buf.skipBytes(16) // 쿼터니언
+                    else -> return
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     private fun applyDimension(type: Int?) {
         world.setDimensionMinY(type?.let { dimensionMinY.getOrNull(it) })
     }
@@ -474,7 +566,7 @@ class McConnection(
         when (id) {
             PlayIn.LOGIN -> {
                 try {
-                    buf.readInt() // 엔티티 번호
+                    selfEntityId = buf.readInt() // 내 엔티티 번호 (최대 체력 속성·흡수 체력을 내 것만 골라 읽는 데 씀)
                     buf.readBoolean() // 하드코어
                     repeat(buf.readVarInt()) { buf.readMcString() } // 월드 목록
                     buf.readVarInt(); buf.readVarInt(); buf.readVarInt() // 최대 인원, 시야, 시뮬레이션 거리
@@ -515,12 +607,18 @@ class McConnection(
             PlayIn.RESOURCE_PACK_PUSH -> resourcePack(buf, PlayOut.RESOURCE_PACK)
             PlayIn.SET_HEALTH -> {
                 val health = buf.readFloat()
+                val food = buf.readVarInt()
+                val saturation = buf.readFloat()
+                publishVitals(vitals.copy(health = health, food = food, saturation = saturation))
                 if (health <= 0f) scheduleRespawn() else respawnPending = false
             }
+            PlayIn.UPDATE_ATTRIBUTES -> readAttributes(buf)
+            PlayIn.SET_ENTITY_DATA -> readEntityData(buf)
             PlayIn.PLAYER_COMBAT_KILL -> {
                 buf.readVarInt()
-                val msg = ChatText.fromTag(buf.readAnonymousTag())
-                events.onInfo("사망: ${msg.plain}")
+                val death = DeathMessages.parse(buf.readAnonymousTag())
+                events.onInfo("☠ 사망했습니다 · ${death.describe()}")
+                events.onDeath(death)
                 scheduleRespawn()
             }
             PlayIn.RESPAWN -> {
@@ -1327,6 +1425,12 @@ internal object ConfigIn {
     const val SELECT_KNOWN_PACKS = 0x0E
 }
 
+/** 1.21.4 속성 번호: max_health (minecraft-data 1.21.4 attributes 기준) */
+internal const val ATTR_MAX_HEALTH = 18
+
+/** 1.21.4 플레이어 엔티티 정보에서 흡수 체력(float) 칸 번호 */
+internal const val META_ABSORPTION = 15
+
 /** known pack 으로 내용이 생략돼 오는 바닐라 차원의 아래 끝 높이 */
 internal val VANILLA_MIN_Y = mapOf(
     "minecraft:overworld" to -64,
@@ -1378,6 +1482,8 @@ internal object PlayIn {
     const val RESOURCE_PACK_PUSH = 0x4B
     const val RESPAWN = 0x4C
     const val SET_HEALTH = 0x62
+    const val SET_ENTITY_DATA = 0x5D
+    const val UPDATE_ATTRIBUTES = 0x7C
     const val SET_HELD_SLOT = 0x63
     const val SET_PLAYER_INVENTORY = 0x66
     const val START_CONFIGURATION = 0x70

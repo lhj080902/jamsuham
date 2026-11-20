@@ -16,6 +16,7 @@ class JamsuApp : Application() {
         super.onCreate()
         // Netty 가 안드로이드에서 쓸데없이 네이티브 라이브러리를 찾지 않게 한다
         System.setProperty("io.netty.transport.noNative", "true")
+        ChatLog.init(this)
         // 화면이 하나라도 보이는지 (메뉴 알림을 띄울지 판단용)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(a: Activity) { started++ }

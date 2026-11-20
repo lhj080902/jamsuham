@@ -28,12 +28,14 @@ import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
+import kr.jamsuham.core.DeathInfo
 import kr.jamsuham.core.Inventory
 import kr.jamsuham.core.LogLine
 import kr.jamsuham.core.Menu
 import kr.jamsuham.core.PlayerList
 import kr.jamsuham.core.SessionState
 import kr.jamsuham.core.SessionStatus
+import kr.jamsuham.core.Vitals
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,6 +71,9 @@ class ChatPanel(
     private val playerPanel: PlayerPanel
     private val mapPage: MapPanel
     private val invPanel: InventoryPanel
+    private val statusPanel: StatusPanel
+    private val deathBanner: LinearLayout
+    private val deathBannerText: TextView
     /** 메뉴 알림을 눌러 들어왔으면 화면이 뜨자마자 메뉴 창을 연다 */
     var openMenuOnAttach = false
     private var backDialog: android.app.AlertDialog? = null
@@ -113,6 +118,7 @@ class ChatPanel(
         detailRow.addView(detailView, ui.lp(0, Ui.WRAP, 1f))
         titles.addView(detailRow)
         row.addView(titles, ui.lp(0, Ui.WRAP, 1f))
+        row.addView(ui.button("💾", "ghost") { (activity as? BaseActivity)?.exportChatLog(serverId) }, ui.lp(ui.dp(44), ui.dp(40)))
         row.addView(ui.button("⚙", "ghost") { onEdit() }, ui.lp(ui.dp(44), ui.dp(40)))
         // 접속 중에는 버튼을 숨겨 제목·상태 글씨 자리를 넓힌다 (끊기는 ← 버튼에서)
         actionButton = ui.button("접속", "primary") { toggle() }
@@ -120,11 +126,26 @@ class ChatPanel(
         top.addView(row)
         addView(top, ui.lp())
 
+        // --- 사망 알림 줄: 언제·누구에 의해·무엇으로 죽었는지 (✕ 로 닫기)
+        deathBanner = ui.horizontal().apply {
+            background = ui.rounded(if (p.dark) 0xFF3A1E22.toInt() else 0xFFFFE3E3.toInt(), 14)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ui.dp(12), ui.dp(8), ui.dp(6), ui.dp(8))
+            visibility = GONE
+            setOnClickListener { showPage(4) }
+        }
+        deathBannerText = ui.text("", 13f, p.text).apply { maxLines = 3 }
+        deathBanner.addView(deathBannerText, ui.lp(0, Ui.WRAP, 1f))
+        deathBanner.addView(ui.button("✕", "ghost") { SessionHub.clearDeath(serverId) }, ui.lp(ui.dp(40), ui.dp(36)))
+        addView(deathBanner, ui.lp().apply { topMargin = ui.dp(8) })
+
         // --- 페이지 탭: 채팅 / 지도 / 인벤 / 접속자 (좌우로 밀어서 넘김)
         val tabBar = ui.horizontal()
-        tabs = listOf("채팅", "지도", "인벤", "접속자").mapIndexed { i, label ->
+        tabs = listOf("채팅", "지도", "인벤", "접속자", "상태").mapIndexed { i, label ->
             ui.button(label, "plain") { showPage(i) }.also { b ->
-                tabBar.addView(b, ui.lp(0, ui.dp(40), 1f).apply { if (i > 0) leftMargin = ui.dp(6) })
+                b.setPadding(ui.dp(2), 0, ui.dp(2), 0)
+                b.setSingleLine(true)
+                tabBar.addView(b, ui.lp(0, ui.dp(40), 1f).apply { if (i > 0) leftMargin = ui.dp(4) })
             }
         }
         addView(tabBar, ui.lp().apply { topMargin = ui.dp(8) })
@@ -155,8 +176,9 @@ class ChatPanel(
         mapPage = MapPanel(activity, ui, serverId)
         playerPanel = PlayerPanel(activity, ui)
         invPanel = InventoryPanel(activity, ui, serverId)
+        statusPanel = StatusPanel(activity, ui)
         pages = FrameLayout(activity)
-        listOf<View>(chatPage, mapPage, invPanel, playerPanel).forEachIndexed { i, v ->
+        listOf<View>(chatPage, mapPage, invPanel, playerPanel, statusPanel).forEachIndexed { i, v ->
             v.visibility = if (i == 0) VISIBLE else GONE
             pages.addView(v, FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH))
         }
@@ -173,6 +195,7 @@ class ChatPanel(
         list.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
         playerPanel.listView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
         invPanel.scrollView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
+        statusPanel.scrollView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
         mapPage.mapView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); mapPage.mapView.touch(ev); true }
         styleTabs()
 
@@ -222,9 +245,9 @@ class ChatPanel(
     }
 
     private fun showPage(target: Int) {
-        val next = target.coerceIn(0, 3)
+        val next = target.coerceIn(0, 4)
         if (next == page) return
-        val views = listOf<View>(chatPage, mapPage, invPanel, playerPanel)
+        val views = listOf<View>(chatPage, mapPage, invPanel, playerPanel, statusPanel)
         val from = views[page]
         val to = views[next]
         val dir = if (next > page) 1 else -1
@@ -240,6 +263,7 @@ class ChatPanel(
         }.start()
         if (next == 2) invPanel.show(SessionHub.inventory(serverId))
         if (next == 3) playerPanel.show(SessionHub.players(serverId))
+        if (next == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId))
         styleTabs()
     }
 
@@ -270,6 +294,8 @@ class ChatPanel(
         lastMenuWindow = SessionHub.menu(serverId)?.windowId ?: -1
         onMenu(serverId, SessionHub.menu(serverId))
         onInventory(serverId, SessionHub.inventory(serverId))
+        showDeathBanner(SessionHub.lastDeath(serverId))
+        if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId))
         render(SessionHub.status(serverId))
         if (openMenuOnAttach) {
             openMenuOnAttach = false
@@ -416,6 +442,26 @@ class ChatPanel(
         box.addView(ui.button("머무르기", "plain") { dialog.dismiss() }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(8); bottomMargin = ui.dp(8) })
         backDialog = dialog
         dialog.show()
+    }
+
+    override fun onVitals(serverId: String, vitals: Vitals?) {
+        if (serverId != this.serverId) return
+        if (page == 4) statusPanel.show(vitals, SessionHub.lastDeath(serverId))
+    }
+
+    override fun onDeath(serverId: String, death: DeathInfo?) {
+        if (serverId != this.serverId) return
+        showDeathBanner(death)
+        if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId))
+    }
+
+    private fun showDeathBanner(death: DeathInfo?) {
+        if (death == null) {
+            deathBanner.visibility = GONE
+            return
+        }
+        deathBannerText.text = "☠ ${StatusPanel.timeOf(death.atMs)} 사망\n${death.describe()}"
+        deathBanner.visibility = VISIBLE
     }
 
     override fun onPlayers(serverId: String, list: PlayerList) {

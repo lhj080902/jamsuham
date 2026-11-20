@@ -7,6 +7,7 @@ import android.util.Log
 import kr.jamsuham.core.AfkSession
 import kr.jamsuham.core.CoreLog
 import kr.jamsuham.core.CredentialsProvider
+import kr.jamsuham.core.DeathInfo
 import kr.jamsuham.core.Inventory
 import kr.jamsuham.core.LogLine
 import kr.jamsuham.core.Menu
@@ -15,6 +16,7 @@ import kr.jamsuham.core.SessionConfig
 import kr.jamsuham.core.SessionListener
 import kr.jamsuham.core.SessionState
 import kr.jamsuham.core.SessionStatus
+import kr.jamsuham.core.Vitals
 import kr.jamsuham.core.net.CommandSuggestions
 import kr.jamsuham.core.text.ChatText
 import java.util.ArrayDeque
@@ -31,6 +33,9 @@ object SessionHub {
         fun onPlayers(serverId: String, list: PlayerList) {}
         fun onMenu(serverId: String, menu: Menu?) {}
         fun onInventory(serverId: String, inventory: Inventory) {}
+        fun onVitals(serverId: String, vitals: Vitals?) {}
+        /** 사망했을 때, 또는 사망 알림을 지웠을 때(null) */
+        fun onDeath(serverId: String, death: DeathInfo?) {}
     }
 
     private class Entry {
@@ -42,6 +47,9 @@ object SessionHub {
         var menu: Menu? = null
         var inventory: Inventory = Inventory.EMPTY
         var notifiedMenuWindow = -1
+        var vitals: Vitals? = null
+        /** 마지막 사망 (화면 위 알림 줄에 띄움. 닫으면 null) */
+        var lastDeath: DeathInfo? = null
     }
 
     private const val MAX_LINES = 500
@@ -86,6 +94,18 @@ object SessionHub {
     fun inventory(serverId: String): Inventory = entries[serverId]?.inventory ?: Inventory.EMPTY
 
     fun players(serverId: String): PlayerList = entries[serverId]?.players ?: PlayerList.EMPTY
+
+    fun vitals(serverId: String): Vitals? = entries[serverId]?.vitals
+
+    fun lastDeath(serverId: String): DeathInfo? = entries[serverId]?.lastDeath
+
+    /** 사망 알림 줄 닫기 */
+    fun clearDeath(serverId: String) {
+        val e = entries[serverId] ?: return
+        if (e.lastDeath == null) return
+        e.lastDeath = null
+        for (o in observers.toList()) o.onDeath(serverId, null)
+    }
 
     fun isActive(serverId: String): Boolean = status(serverId).state.isActive()
 
@@ -134,6 +154,24 @@ object SessionHub {
                     if (e.token === myToken) {
                         e.inventory = inventory
                         for (o in observers.toList()) o.onInventory(serverId, inventory)
+                    }
+                }
+            }
+
+            override fun onVitals(vitals: Vitals?) {
+                main.post {
+                    if (e.token === myToken) {
+                        e.vitals = vitals
+                        for (o in observers.toList()) o.onVitals(serverId, vitals)
+                    }
+                }
+            }
+
+            override fun onDeath(death: DeathInfo) {
+                main.post {
+                    if (e.token === myToken) {
+                        e.lastDeath = death
+                        for (o in observers.toList()) o.onDeath(serverId, death)
                     }
                 }
             }
@@ -219,6 +257,7 @@ object SessionHub {
         val buf = entry(serverId).lines
         buf.addLast(line)
         while (buf.size > MAX_LINES) buf.removeFirst()
+        ChatLog.append(serverId, line)
         for (o in observers.toList()) o.onLine(serverId, line)
     }
 }

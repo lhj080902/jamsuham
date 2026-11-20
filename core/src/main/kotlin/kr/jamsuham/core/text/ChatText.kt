@@ -96,8 +96,19 @@ data class ChatText(val spans: List<ChatSpan>) {
         private fun appendTranslated(obj: JsonObject, style: Style, out: MutableList<ChatSpan>) {
             val key = obj.get("translate").asStringSafe()
             val fallback = obj.get("fallback")?.asStringSafe()
-            val pattern = Translations.get(key) ?: fallback ?: key
             val args: JsonArray = obj.getAsJsonArray("with") ?: obj.getAsJsonArray("args") ?: JsonArray()
+            // 번역표에 없는 사망 메시지는 "누구님이 무엇에 의해 사망했습니다 (원인)" 으로 만든다 (키가 그대로 보이지 않게)
+            if (key.startsWith("death.") && Translations.get(key) == null) {
+                val plains = (0 until args.size()).map { i ->
+                    val tmp = ArrayList<ChatSpan>()
+                    val a = args[i]
+                    if (a.isJsonPrimitive && !(a as JsonPrimitive).isString) appendLegacy(a.asString, style, tmp) else walk(a, style, tmp)
+                    tmp.joinToString("") { it.text }
+                }
+                appendLegacy(DeathMessages.sentence(key, plains), style, out)
+                return
+            }
+            val pattern = Translations.get(key) ?: fallback ?: key
             var argIndex = 0
             val regex = Regex("%(?:(\\d+)\\$)?([sd%])")
             var last = 0
@@ -235,10 +246,37 @@ object Translations {
         "disconnect.lost" to "연결이 끊어졌습니다",
         "disconnect.genericReason" to "%s",
         "disconnect.disconnected" to "서버와 연결이 끊어졌습니다",
-        "death.attack.generic" to "%s님이 사망했습니다",
+        "chat.square_brackets" to "[%s]",
         "chat.disabled.missingProfileKey" to "채팅이 꺼져 있습니다: 이 서버는 서명된 채팅이 필요합니다 (명령어는 사용 가능)",
         "chat.disabled.options" to "채팅이 꺼져 있습니다",
     )
 
-    fun get(key: String): String? = map[key]
+    fun get(key: String): String? {
+        map[key]?.let { return it }
+        // 사망 메시지의 "누구"(몹)·"무기"(아이템) 이름
+        if (key.startsWith("entity.minecraft.")) {
+            val id = key.removePrefix("entity.minecraft.")
+            return ENTITIES[id] ?: id.replace('_', ' ')
+        }
+        if (key.startsWith("item.minecraft.") || key.startsWith("block.minecraft.")) {
+            return ItemNames.name(key.substringAfter(".minecraft."))
+        }
+        return null
+    }
+
+    /** 자주 보이는 몹 이름 (마인크래프트 한국어 번역 기준) */
+    private val ENTITIES = mapOf(
+        "player" to "플레이어", "zombie" to "좀비", "zombie_villager" to "좀비 주민", "husk" to "허스크", "drowned" to "드라운드",
+        "skeleton" to "스켈레톤", "stray" to "스트레이", "bogged" to "보그드", "wither_skeleton" to "위더 스켈레톤",
+        "creeper" to "크리퍼", "spider" to "거미", "cave_spider" to "동굴 거미", "enderman" to "엔더맨", "endermite" to "엔더마이트",
+        "witch" to "마녀", "slime" to "슬라임", "magma_cube" to "마그마 큐브", "blaze" to "블레이즈", "ghast" to "가스트",
+        "piglin" to "피글린", "piglin_brute" to "난폭한 피글린", "zombified_piglin" to "좀비 피글린", "hoglin" to "호글린", "zoglin" to "조글린",
+        "wither" to "위더", "ender_dragon" to "엔더 드래곤", "guardian" to "가디언", "elder_guardian" to "엘더 가디언",
+        "phantom" to "팬텀", "pillager" to "약탈자", "vindicator" to "변명자", "evoker" to "소환사", "ravager" to "파괴수", "vex" to "벡스",
+        "illusioner" to "환술사", "silverfish" to "좀벌레", "shulker" to "셜커", "warden" to "워든", "breeze" to "브리즈",
+        "bee" to "벌", "wolf" to "늑대", "iron_golem" to "철 골렘", "polar_bear" to "북극곰", "llama" to "라마", "trader_llama" to "상인 라마",
+        "dolphin" to "돌고래", "panda" to "판다", "goat" to "염소", "pufferfish" to "복어",
+        "arrow" to "화살", "spectral_arrow" to "분광 화살", "trident" to "삼지창", "fireball" to "화염구", "small_fireball" to "작은 화염구",
+        "tnt" to "TNT", "end_crystal" to "엔드 수정", "lightning_bolt" to "번개", "falling_block" to "떨어지는 블록", "potion" to "물약",
+    )
 }

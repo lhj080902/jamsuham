@@ -359,6 +359,14 @@ class AfkSession(
             if (generation == gen) listener.onInventory(inventory)
         }
 
+        override fun onVitals(vitals: Vitals) {
+            if (generation == gen) listener.onVitals(vitals)
+        }
+
+        override fun onDeath(death: DeathInfo) {
+            if (generation == gen) listener.onDeath(death)
+        }
+
         // 이미 처리한(세대가 지난) 연결의 종료 알림은 무시한다
         override fun onClosed(reason: CloseReason) = submit { if (generation == gen) handleClosed(reason) }
     }
@@ -409,6 +417,7 @@ class AfkSession(
         listener.onPlayers(PlayerList.EMPTY)
         listener.onMenu(null)
         listener.onInventory(Inventory.EMPTY)
+        listener.onVitals(null)
         onlineSince?.let { totalOnlineMs += System.currentTimeMillis() - it }
         onlineSince = null
         lastReason = reason

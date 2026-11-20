@@ -167,6 +167,46 @@ data class AutoClickRule(val title: String, val item: String) {
     }
 }
 
+/**
+ * 내 캐릭터 상태. 최대 체력은 서버가 보내는 max_health 속성을 따른다 (기본 20 = 하트 10칸, 서버·플러그인이 바꿀 수 있음).
+ * absorption = 흡수(노란 하트) 체력.
+ */
+data class Vitals(
+    val health: Float,
+    val maxHealth: Float = 20f,
+    val absorption: Float = 0f,
+    val food: Int = 20,
+    val saturation: Float = 0f,
+) {
+    val dead: Boolean get() = health <= 0f
+}
+
+/**
+ * 사망 정보. 서버가 보낸 사망 메시지(번역 키 + 인자)에서 뽑는다. 알 수 없으면 각 칸이 null.
+ * [killer] 누구에 의해, [cause] 무엇으로(원인), [weapon] 무기, [message] 사망 메시지 전체(한국어로 바꾼 것)
+ */
+data class DeathInfo(
+    val atMs: Long,
+    val killer: String? = null,
+    val cause: String? = null,
+    val weapon: String? = null,
+    val message: String? = null,
+) {
+    /** "누구: 좀비 · 원인: 공격당함" 같은 한 줄. 아무것도 모르면 사망 메시지, 그것도 없으면 "사망했습니다" */
+    fun describe(): String {
+        val parts = listOfNotNull(
+            killer?.let { "누구: $it" },
+            cause?.let { "원인: $it" },
+            weapon?.let { "무기: $it" },
+        )
+        return when {
+            parts.isNotEmpty() -> parts.joinToString(" · ")
+            !message.isNullOrBlank() -> message
+            else -> "사망했습니다"
+        }
+    }
+}
+
 interface SessionListener {
     fun onStatus(status: SessionStatus) {}
     fun onLine(line: LogLine) {}
@@ -174,6 +214,10 @@ interface SessionListener {
     /** 메뉴가 열리거나 바뀌면 메뉴, 닫히면 null */
     fun onMenu(menu: Menu?) {}
     fun onInventory(inventory: Inventory) {}
+    /** 체력·허기가 바뀔 때. 연결이 끊기면 null */
+    fun onVitals(vitals: Vitals?) {}
+    /** 내 캐릭터가 죽었을 때 */
+    fun onDeath(death: DeathInfo) {}
 }
 
 /** 아주 단순한 로거 (안드로이드에서는 Logcat 으로 연결) */

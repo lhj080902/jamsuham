@@ -70,4 +70,71 @@ abstract class BaseActivity : Activity(), Starter {
     }
 
     fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+
+    // ------------------------------------------------------------ 채팅 기록 내보내기
+
+    /** 내보낼 서버와 기간 (파일 위치를 고르는 동안 기억). 기간 null = 전부 */
+    private var pendingExport: Pair<String, Int?>? = null
+
+    /** 기간을 고르고 → 안드로이드 "파일 저장" 화면에서 위치를 골라 .txt 로 저장 (따로 권한 필요 없음) */
+    fun exportChatLog(serverId: String) {
+        val days = ChatLog.days(serverId)
+        if (days.isEmpty()) {
+            toast("아직 저장된 채팅 기록이 없습니다")
+            return
+        }
+        val choices = arrayOf("오늘", "최근 7일", "전체 (${days.size}일치)")
+        val ranges = arrayOf<Int?>(1, 7, null)
+        AlertDialog.Builder(this)
+            .setTitle("채팅 기록 저장")
+            .setItems(choices) { _, which ->
+                pendingExport = serverId to ranges[which]
+                val name = (Store(this).server(serverId)?.displayName ?: "서버").replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
+                val date = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.ROOT).format(java.util.Date())
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("text/plain")
+                    .putExtra(Intent.EXTRA_TITLE, "잠수함_${name}_$date.txt")
+                try {
+                    @Suppress("DEPRECATION")
+                    startActivityForResult(intent, REQ_EXPORT_LOG)
+                } catch (_: Throwable) {
+                    pendingExport = null
+                    toast("파일 저장 화면을 열 수 없습니다")
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_EXPORT_LOG) return
+        val job = pendingExport
+        pendingExport = null
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) return
+        if (job == null) {
+            toast("다시 시도해 주세요")
+            return
+        }
+        val (serverId, range) = job
+        val serverName = Store(this).server(serverId)?.displayName ?: "서버"
+        Thread {
+            val result = try {
+                val n = contentResolver.openOutputStream(uri)?.use { ChatLog.export(serverId, serverName, range, it) }
+                    ?: throw java.io.IOException("파일을 열 수 없습니다")
+                "채팅 기록 ${n}줄을 저장했습니다"
+            } catch (t: Throwable) {
+                "저장하지 못했습니다: ${t.message}"
+            }
+            runOnUiThread { toast(result) }
+        }.apply { isDaemon = true; start() }
+    }
+
+    companion object {
+        private const val REQ_EXPORT_LOG = 7301
+    }
 }

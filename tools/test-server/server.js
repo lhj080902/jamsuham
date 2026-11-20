@@ -87,6 +87,28 @@ server.on('playerJoin', (client) => {
   if (scenario === 'authkick') {
     setTimeout(() => { log('>> kick failed to verify'); kick(client, 'Failed to verify username!') }, 1000)
   }
+  // vitals = 체력·허기, 최대 체력 40(하트 20칸, 속성 수정치), 흡수 체력 4, 좀비에게 사망 (1.21.4 전용)
+  if (scenario === 'vitals') {
+    const eid = (mcData.loginPacket && mcData.loginPacket.entityId) || 0
+    setTimeout(() => safe(() => {
+      log('>> vitals')
+      client.write('update_health', { health: 31.5, food: 17, foodSaturation: 2.5 })
+      client.write('entity_update_attributes', {
+        entityId: eid,
+        properties: [{ key: 'generic.max_health', value: 20, modifiers: [{ uuid: 'test:bonus', amount: 20, operation: 0 }] }]
+      })
+      client.write('entity_metadata', { entityId: eid, metadata: [{ key: 15, type: 'float', value: 4 }] })
+    }), 2000)
+    setTimeout(() => safe(() => {
+      log('>> death by zombie')
+      const msg = nbt.comp({
+        translate: nbt.string('death.attack.mob'),
+        with: nbt.list(nbt.comp([{ text: nbt.string(client.username) }, { translate: nbt.string('entity.minecraft.zombie') }]))
+      })
+      client.write('update_health', { health: 0, food: 17, foodSaturation: 2.5 })
+      client.write('death_combat_event', { playerId: eid, message: msg })
+    }), 3500)
+  }
 })
 
 function safe (fn) { try { fn() } catch (e) { log('write error', e.message) } }

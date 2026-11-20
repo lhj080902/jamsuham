@@ -87,6 +87,7 @@ class Store(context: Context) {
     fun deleteServer(id: String) {
         writeServers(servers().filter { it.id != id })
         sp.edit().remove("history_$id").remove("waypoints_$id").apply()
+        ChatLog.delete(id)
     }
 
     // ------------------------------------------------------------ 웨이포인트 (서버별)
