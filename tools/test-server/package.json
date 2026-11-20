@@ -1,0 +1,8 @@
+{
+  "name": "jamsuham-test-server",
+  "private": true,
+  "description": "앱 테스트용 마인크래프트 서버 (node server.js <버전> <포트> [full|stay])",
+  "dependencies": {
+    "minecraft-protocol": "^1.68.0"
+  }
+}
