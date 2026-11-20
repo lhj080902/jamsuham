@@ -12,34 +12,32 @@ import kr.jamsuham.core.SessionConfig
 import kr.jamsuham.core.SessionListener
 import kr.jamsuham.core.SessionState
 import kr.jamsuham.core.SessionStatus
+import kr.jamsuham.core.net.CommandSuggestions
+import kr.jamsuham.core.text.ChatText
 import java.util.ArrayDeque
 
 /**
- * 화면(Activity)과 서비스가 함께 보는 세션 상태. 모든 콜백은 메인 스레드에서 전달된다.
+ * 서버별 잠수 세션 상태. 여러 서버에 동시에 잠수할 수 있다.
+ * 화면과 서비스가 함께 보며, 모든 콜백은 메인 스레드에서 전달된다.
  */
 object SessionHub {
 
     interface Observer {
-        fun onStatus(status: SessionStatus) {}
-        fun onLine(line: LogLine) {}
+        fun onStatus(serverId: String, status: SessionStatus) {}
+        fun onLine(serverId: String, line: LogLine) {}
+    }
+
+    private class Entry {
+        var session: AfkSession? = null
+        var token: Any? = null
+        var status = SessionStatus(SessionState.IDLE, "꺼짐")
+        val lines = ArrayDeque<LogLine>()
     }
 
     private const val MAX_LINES = 500
     private val main = Handler(Looper.getMainLooper())
     private val observers = LinkedHashSet<Observer>()
-    private val buffer = ArrayDeque<LogLine>()
-    private var session: AfkSession? = null
-    /** 지금 세션을 가리키는 표식. 예전 세션이 늦게 보내는 상태 변화는 무시한다. */
-    private var token: Any? = null
-
-    var status: SessionStatus = SessionStatus(SessionState.IDLE, "대기 중")
-        private set
-
-    val lines: List<LogLine> get() = ArrayList(buffer)
-
-    val isActive: Boolean
-        get() = status.state == SessionState.PREPARING || status.state == SessionState.CONNECTING ||
-            status.state == SessionState.ONLINE || status.state == SessionState.WAITING_RECONNECT
+    private val entries = HashMap<String, Entry>()
 
     val log = CoreLog { level, message, error ->
         when (level) {
@@ -49,6 +47,8 @@ object SessionHub {
         }
     }
 
+    private fun entry(id: String) = entries.getOrPut(id) { Entry() }
+
     fun addObserver(o: Observer) {
         observers.add(o)
     }
@@ -57,65 +57,92 @@ object SessionHub {
         observers.remove(o)
     }
 
+    fun status(serverId: String): SessionStatus = entries[serverId]?.status ?: SessionStatus(SessionState.IDLE, "꺼짐")
+
+    fun lines(serverId: String): List<LogLine> = entries[serverId]?.lines?.let { ArrayList(it) } ?: emptyList()
+
+    fun isActive(serverId: String): Boolean = status(serverId).state.isActive()
+
+    fun activeIds(): Set<String> = entries.filter { it.value.status.state.isActive() }.keys.toSet()
+
+    val anyActive: Boolean get() = activeIds().isNotEmpty()
+
     /** 서비스에서만 부른다 */
-    fun start(context: Context, config: SessionConfig, credentials: CredentialsProvider) {
+    fun start(context: Context, serverId: String, config: SessionConfig, credentials: CredentialsProvider) {
+        val e = entry(serverId)
         val myToken = Any()
-        token = myToken
-        session?.shutdown()
+        e.token = myToken
+        e.session?.shutdown()
+        e.lines.clear()
         val listener = object : SessionListener {
             override fun onStatus(status: SessionStatus) {
-                main.post { if (token === myToken) publishStatus(status) }
+                main.post { if (e.token === myToken) publishStatus(serverId, status) }
             }
 
             override fun onLine(line: LogLine) {
-                main.post { if (token === myToken) publishLine(line) }
+                main.post { if (e.token === myToken) publishLine(serverId, line) }
             }
         }
         val s = AfkSession(context.filesDir, config, credentials, listener, log, AndroidDns(context))
-        session = s
+        e.session = s
+        publishStatus(serverId, SessionStatus(SessionState.PREPARING, "준비 중…"))
         s.start()
     }
 
-    /** 사용자가 끊기 (재연결 안 함) */
-    fun stopByUser() {
-        val s = session
-        if (s == null) {
-            publishStatus(SessionStatus(SessionState.STOPPED, "연결을 끊었습니다", totalOnlineMs = status.totalOnlineMs))
+    /** 사용자가 끊기 (재접속 안 함) */
+    fun stop(serverId: String) {
+        val e = entries[serverId] ?: return
+        val s = e.session
+        if (s == null || !e.status.state.isActive()) {
+            publishStatus(serverId, e.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
         } else {
             s.stop()
         }
     }
 
-    /** 서비스가 종료될 때 */
-    fun release() {
-        token = null
-        session?.shutdown()
-        session = null
-        if (isActive) publishStatus(status.copy(state = SessionState.STOPPED, message = "연결을 끊었습니다", onlineSinceMs = null))
+    /** 서비스가 사라질 때 모든 세션 정리 */
+    fun releaseAll() {
+        for ((id, e) in entries) {
+            e.token = null
+            e.session?.shutdown()
+            e.session = null
+            if (e.status.state.isActive()) publishStatus(id, e.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
+        }
     }
 
-    fun sendChat(text: String): Boolean = session?.sendChat(text) ?: false
+    fun sendChat(serverId: String, text: String): Boolean = entries[serverId]?.session?.sendChat(text) ?: false
+
+    /** 자동완성 후보 요청. 결과는 메인 스레드로 */
+    fun requestSuggestions(serverId: String, text: String, callback: (CommandSuggestions?) -> Unit): Boolean {
+        val s = entries[serverId]?.session ?: return false
+        return s.requestSuggestions(text) { result -> main.post { callback(result) } }
+    }
 
     fun onNetworkAvailable() {
-        session?.onNetworkAvailable()
+        for (e in entries.values) e.session?.onNetworkAvailable()
     }
 
-    fun clearLines() {
-        buffer.clear()
+    fun clearLines(serverId: String) {
+        entries[serverId]?.lines?.clear()
     }
 
-    fun note(text: String) {
-        publishLine(LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, kr.jamsuham.core.text.ChatText.of(text)))
+    fun note(serverId: String, text: String, kind: LogLine.Kind = LogLine.Kind.SYSTEM) {
+        publishLine(serverId, LogLine(System.currentTimeMillis(), kind, ChatText.of(text)))
     }
 
-    private fun publishStatus(s: SessionStatus) {
-        status = s
-        for (o in observers.toList()) o.onStatus(s)
+    private fun publishStatus(serverId: String, s: SessionStatus) {
+        entry(serverId).status = s
+        for (o in observers.toList()) o.onStatus(serverId, s)
     }
 
-    private fun publishLine(line: LogLine) {
-        buffer.addLast(line)
-        while (buffer.size > MAX_LINES) buffer.removeFirst()
-        for (o in observers.toList()) o.onLine(line)
+    private fun publishLine(serverId: String, line: LogLine) {
+        val buf = entry(serverId).lines
+        buf.addLast(line)
+        while (buf.size > MAX_LINES) buf.removeFirst()
+        for (o in observers.toList()) o.onLine(serverId, line)
     }
 }
+
+fun SessionState.isActive(): Boolean =
+    this == SessionState.PREPARING || this == SessionState.CONNECTING ||
+        this == SessionState.ONLINE || this == SessionState.WAITING_RECONNECT

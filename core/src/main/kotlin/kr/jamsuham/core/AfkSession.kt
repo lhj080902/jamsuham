@@ -102,6 +102,12 @@ class AfkSession(
         return c.sendChat(text)
     }
 
+    /** 명령어 자동완성 후보 요청 (결과는 아무 스레드에서나 올 수 있음) */
+    fun requestSuggestions(text: String, callback: (kr.jamsuham.core.net.CommandSuggestions?) -> Unit): Boolean {
+        val c = connection ?: return false
+        return c.requestSuggestions(text, callback)
+    }
+
     /** 네트워크(와이파이/데이터)가 다시 잡혔을 때 앱이 불러 준다 */
     fun onNetworkAvailable() = submit {
         if (userStopped || status.state != SessionState.WAITING_RECONNECT) return@submit

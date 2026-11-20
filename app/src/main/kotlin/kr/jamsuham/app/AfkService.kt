@@ -21,10 +21,10 @@ import kr.jamsuham.core.SessionState
 import kr.jamsuham.core.SessionStatus
 
 /**
- * 화면이 꺼져도 접속을 유지하는 포그라운드 서비스.
+ * 화면이 꺼져도 접속을 유지하는 포그라운드 서비스. 잠수 중인 서버가 하나라도 있으면 살아 있다.
  *  - 상단 알림을 띄워 시스템이 앱을 정리하지 않게 한다
  *  - CPU/와이파이 잠금으로 화면 꺼짐 상태에서도 네트워크를 살려 둔다
- *  - 네트워크가 다시 잡히면 세션에 알려 바로 재접속하게 한다
+ *  - 네트워크가 다시 잡히면 세션들에 알려 바로 재접속하게 한다
  */
 class AfkService : Service() {
 
@@ -33,18 +33,16 @@ class AfkService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var inForeground = false
-    private lateinit var prefs: Prefs
+    private lateinit var store: Store
+    private lateinit var accounts: AccountStore
 
     private val observer = object : SessionHub.Observer {
-        override fun onStatus(status: SessionStatus) {
-            if (status.state == SessionState.STOPPED) {
-                shutdown()
-            } else {
-                updateNotification()
-            }
+        override fun onStatus(serverId: String, status: SessionStatus) {
+            store.setActive(SessionHub.activeIds())
+            if (!SessionHub.anyActive) shutdown() else updateNotification()
         }
 
-        override fun onLine(line: LogLine) {}
+        override fun onLine(serverId: String, line: LogLine) {}
     }
 
     private val ticker = object : Runnable {
@@ -56,7 +54,8 @@ class AfkService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        prefs = Prefs(this)
+        store = Store(this)
+        accounts = AccountStore(this)
         createChannel()
         SessionHub.addObserver(observer)
     }
@@ -64,45 +63,59 @@ class AfkService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val serverId = intent?.getStringExtra(EXTRA_SERVER)
         when (intent?.action) {
             ACTION_STOP -> {
-                prefs.markActive(false)
-                SessionHub.stopByUser()
-                if (!SessionHub.isActive) shutdown()
+                if (serverId != null) SessionHub.stop(serverId)
+                if (!SessionHub.anyActive) shutdown()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_ALL -> {
+                SessionHub.activeIds().forEach { SessionHub.stop(it) }
+                if (!SessionHub.anyActive) shutdown()
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                if (!goForeground()) return START_NOT_STICKY
-                beginSession()
+                if (serverId == null || !goForeground()) return START_NOT_STICKY
+                begin(serverId)
             }
             else -> {
                 // 시스템이 앱을 정리했다가 서비스를 다시 살린 경우 (intent == null)
-                if (!prefs.shouldResumeAfterKill() || SessionHub.isActive) {
-                    if (!SessionHub.isActive) stopSelf()
+                val resume = store.activeToResume()
+                if (resume.isEmpty() || SessionHub.anyActive) {
+                    if (!SessionHub.anyActive) stopSelf()
                     return START_NOT_STICKY
                 }
                 if (!goForeground()) return START_NOT_STICKY
-                SessionHub.note("앱이 시스템에 의해 종료됐다가 다시 실행되어 이어서 접속합니다")
-                beginSession()
+                for (id in resume) {
+                    SessionHub.note(id, "앱이 시스템에 의해 종료됐다가 다시 실행되어 이어서 접속합니다")
+                    begin(id)
+                }
             }
         }
         return START_STICKY
     }
 
-    private fun beginSession() {
-        val accounts = AccountStore(this)
-        val creds = accounts.credentialsProvider(prefs.useMicrosoft, prefs.offlineName)
-        prefs.markActive(true)
+    private fun begin(serverId: String) {
+        val server = store.server(serverId) ?: return
+        val accountId = server.accountId
+        if (accountId == null || accounts.get(accountId) == null) {
+            SessionHub.note(serverId, "이 서버에 사용할 계정이 없습니다. 서버 설정에서 계정을 골라 주세요", LogLine.Kind.ERROR)
+            if (!SessionHub.anyActive) shutdown()
+            return
+        }
         acquireLocks()
         registerNetwork()
-        SessionHub.start(this, prefs.sessionConfig(), creds)
+        SessionHub.start(this, serverId, server.sessionConfig(), accounts.provider(accountId))
+        store.setActive(SessionHub.activeIds())
         main.removeCallbacks(ticker)
         main.post(ticker)
     }
 
     private fun goForeground(): Boolean {
+        if (inForeground) return true
         return try {
-            val n = buildNotification(SessionHub.status)
+            val n = buildNotification()
             if (Build.VERSION.SDK_INT >= 34) {
                 startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             } else {
@@ -112,8 +125,7 @@ class AfkService : Service() {
             true
         } catch (t: Throwable) {
             SessionHub.log.e("포그라운드 서비스 시작 실패", t)
-            SessionHub.note("백그라운드 유지 서비스를 시작하지 못했습니다: ${t.message}")
-            prefs.markActive(false)
+            store.setActive(emptySet())
             stopSelf()
             false
         }
@@ -121,11 +133,11 @@ class AfkService : Service() {
 
     private fun shutdown() {
         main.removeCallbacks(ticker)
-        prefs.markActive(false)
+        store.setActive(emptySet())
         releaseLocks()
         unregisterNetwork()
         if (inForeground) {
-            if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
+            stopForeground(STOP_FOREGROUND_REMOVE)
             inForeground = false
         }
         stopSelf()
@@ -136,10 +148,8 @@ class AfkService : Service() {
         main.removeCallbacks(ticker)
         releaseLocks()
         unregisterNetwork()
-        if (SessionHub.isActive) {
-            // 서비스가 사라지면 접속도 같이 정리한다 (세션만 남아 떠도는 일을 막음)
-            SessionHub.release()
-        }
+        // 서비스가 사라지면 접속도 같이 정리한다 (세션만 남아 떠도는 일을 막음)
+        if (SessionHub.anyActive) SessionHub.releaseAll()
         super.onDestroy()
     }
 
@@ -217,12 +227,25 @@ class AfkService : Service() {
         if (!inForeground) return
         try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIFICATION_ID, buildNotification(SessionHub.status))
+            nm.notify(NOTIFICATION_ID, buildNotification())
         } catch (_: Throwable) {
         }
     }
 
-    private fun buildNotification(s: SessionStatus): Notification {
+    private fun buildNotification(): Notification {
+        val active = SessionHub.activeIds().mapNotNull { id -> store.server(id)?.let { it to SessionHub.status(id) } }
+        val now = System.currentTimeMillis()
+        val online = active.count { it.second.state == SessionState.ONLINE }
+        val title = when {
+            active.isEmpty() -> "잠수함"
+            active.size == 1 -> "${active[0].first.displayName} · ${stateText(active[0].second)}"
+            else -> "잠수 중 ${online}/${active.size}개 서버"
+        }
+        val lines = active.map { (server, st) ->
+            val time = if (st.state == SessionState.ONLINE && st.onlineSinceMs != null) " · " + Formats.duration(now - st.onlineSinceMs!!) else ""
+            val rc = if (st.reconnectCount > 0) " · 재접속 ${st.reconnectCount}회" else ""
+            "${server.displayName}: ${stateText(st)}$time$rc"
+        }
         val open = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -230,53 +253,46 @@ class AfkService : Service() {
         )
         val stop = PendingIntent.getService(
             this, 1,
-            Intent(this, AfkService::class.java).setAction(ACTION_STOP),
+            Intent(this, AfkService::class.java).setAction(ACTION_STOP_ALL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val title = when (s.state) {
-            SessionState.ONLINE -> "잠수 중"
-            SessionState.WAITING_RECONNECT -> "재접속 대기"
-            SessionState.CONNECTING, SessionState.PREPARING -> "접속 중…"
-            else -> "잠수함"
-        }
-        val text = buildString {
-            append(prefs.address.ifBlank { "서버" })
-            if (s.state == SessionState.ONLINE && s.onlineSinceMs != null) {
-                append(" · ").append(Formats.duration(System.currentTimeMillis() - s.onlineSinceMs!!))
-            } else if (s.message.isNotBlank()) {
-                append(" · ").append(s.message)
-            }
-            if (s.reconnectCount > 0) append(" · 재접속 ").append(s.reconnectCount).append("회")
-        }
         val icon = resources.getIdentifier("ic_stat_afk", "drawable", packageName).takeIf { it != 0 }
             ?: android.R.drawable.stat_notify_sync
-        return Notification.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(icon)
             .setContentTitle(title)
-            .setContentText(text)
+            .setContentText(lines.firstOrNull() ?: "준비 중…")
+            .setStyle(Notification.BigTextStyle().bigText(lines.joinToString("\n").ifEmpty { "준비 중…" }))
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_SERVICE)
-            .addAction(Notification.Action.Builder(null, "연결 끊기", stop).build())
-            .build()
+            .addAction(Notification.Action.Builder(null, "모두 끊기", stop).build())
+        return builder.build()
+    }
+
+    private fun stateText(s: SessionStatus) = when (s.state) {
+        SessionState.ONLINE -> "잠수 중"
+        SessionState.WAITING_RECONNECT -> "재접속 대기"
+        SessionState.CONNECTING, SessionState.PREPARING -> "접속 중"
+        else -> "꺼짐"
     }
 
     companion object {
         const val ACTION_START = "kr.jamsuham.app.START"
         const val ACTION_STOP = "kr.jamsuham.app.STOP"
+        const val ACTION_STOP_ALL = "kr.jamsuham.app.STOP_ALL"
+        const val EXTRA_SERVER = "server_id"
         private const val CHANNEL_ID = "afk"
         private const val NOTIFICATION_ID = 7
 
-        fun start(context: Context) {
-            val i = Intent(context, AfkService::class.java).setAction(ACTION_START)
-            context.startForegroundService(i)
+        fun start(context: Context, serverId: String) {
+            context.startForegroundService(Intent(context, AfkService::class.java).setAction(ACTION_START).putExtra(EXTRA_SERVER, serverId))
         }
 
-        fun stop(context: Context) {
-            val i = Intent(context, AfkService::class.java).setAction(ACTION_STOP)
-            context.startService(i)
+        fun stop(context: Context, serverId: String) {
+            context.startService(Intent(context, AfkService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_SERVER, serverId))
         }
     }
 }

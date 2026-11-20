@@ -80,6 +80,8 @@ class McConnection(
     private var pendingChatAcks = 0
     private var positionTask: ScheduledFuture<*>? = null
     private val random = SecureRandom()
+    private var nextSuggestionId = 1
+    private val pendingSuggestions = HashMap<Int, (CommandSuggestions?) -> Unit>()
 
     fun connect() {
         val bootstrap = Bootstrap()
@@ -138,6 +140,25 @@ class McConnection(
                     it.writeZero(3) // 확인한 메시지 비트셋(20비트)
                 }
             }
+        }
+        return true
+    }
+
+    /**
+     * 게임에서 Tab 을 누른 것처럼 서버에 명령어 후보를 묻는다. 결과는 Netty 스레드에서 [callback] 으로 온다.
+     * 3초 안에 답이 없으면 null.
+     */
+    fun requestSuggestions(text: String, callback: (CommandSuggestions?) -> Unit): Boolean {
+        val ch = channel ?: return false
+        if (state != State.PLAY || !ch.isActive) return false
+        ch.eventLoop().execute {
+            val id = nextSuggestionId++
+            pendingSuggestions[id] = callback
+            send(PlayOut.COMMAND_SUGGESTION) {
+                it.writeVarInt(id)
+                it.writeMcString(text.take(32500))
+            }
+            ch.eventLoop().schedule({ pendingSuggestions.remove(id)?.invoke(null) }, 3, TimeUnit.SECONDS)
         }
         return true
     }
@@ -408,6 +429,19 @@ class McConnection(
             }
             PlayIn.COOKIE_REQUEST -> cookieResponse(PlayOut.COOKIE_RESPONSE, buf)
             PlayIn.TRANSFER -> transfer(buf)
+            PlayIn.COMMAND_SUGGESTIONS -> {
+                val id = buf.readVarInt()
+                val start = buf.readVarInt()
+                val length = buf.readVarInt()
+                val count = buf.readVarInt()
+                val matches = ArrayList<String>(minOf(count, 200))
+                repeat(count) {
+                    val m = buf.readMcString()
+                    buf.readOptionalAnonymousTag() // 툴팁
+                    if (matches.size < 200) matches.add(m)
+                }
+                pendingSuggestions.remove(id)?.invoke(CommandSuggestions(start, length, matches))
+            }
         }
     }
 
@@ -623,6 +657,17 @@ class McConnection(
     }
 }
 
+/**
+ * 서버가 준 명령어 후보. 입력한 글자의 [start] 부터 [length] 글자를 후보 하나로 바꾸면 된다.
+ */
+data class CommandSuggestions(val start: Int, val length: Int, val matches: List<String>) {
+    fun apply(input: String, match: String): String {
+        val s = start.coerceIn(0, input.length)
+        val e = (start + length).coerceIn(s, input.length)
+        return input.substring(0, s) + match + input.substring(e)
+    }
+}
+
 /** 1.21.4 패킷 번호 (ViaVersion 의 ClientboundPackets1_21_2 / ServerboundPackets1_21_4 기준) */
 internal object LoginIn {
     const val DISCONNECT = 0x00
@@ -666,6 +711,7 @@ internal object ConfigOut {
 
 internal object PlayIn {
     const val CHUNK_BATCH_FINISHED = 0x0C
+    const val COMMAND_SUGGESTIONS = 0x10
     const val COOKIE_REQUEST = 0x16
     const val DISCONNECT = 0x1D
     const val DISGUISED_CHAT = 0x1E
@@ -690,6 +736,7 @@ internal object PlayOut {
     const val CHAT = 0x07
     const val CHUNK_BATCH_RECEIVED = 0x09
     const val CLIENT_COMMAND = 0x0A
+    const val COMMAND_SUGGESTION = 0x0D
     const val CONFIGURATION_ACKNOWLEDGED = 0x0E
     const val COOKIE_RESPONSE = 0x13
     const val KEEP_ALIVE = 0x1A

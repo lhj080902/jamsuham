@@ -13,8 +13,10 @@ android {
         applicationId = "kr.jamsuham.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        // GitHub Actions 실행 번호 = 빌드 번호 (앱 안 업데이트 확인에 씀)
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "1.1.$build"
     }
 
     signingConfigs {

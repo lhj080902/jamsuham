@@ -37,6 +37,19 @@ server.on('playerJoin', (client) => {
     if (meta.name === 'position' && counts.position > 2) return
     log(`C->S #${n}`, meta.state, meta.name, JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v).slice(0, 160))
   })
+  // 명령어 자동완성 테스트: 입력의 첫 단어 자리에 후보를 돌려준다
+  client.on('tab_complete', (data) => {
+    const cmds = ['spawn', 'server', '잠수', 'warp']
+    if (mcData.isNewerOrEqualTo('1.13')) {
+      const text = data.text || ''
+      const word = text.replace(/^\//, '')
+      const matches = cmds.filter(c => c.startsWith(word)).map(c => ({ match: c, tooltip: undefined }))
+      client.write('tab_complete', { transactionId: data.transactionId, start: text.startsWith('/') ? 1 : 0, length: word.length, matches })
+    } else {
+      const word = (data.text || '').replace(/^\//, '')
+      client.write('tab_complete', { matches: cmds.filter(c => c.startsWith(word)).map(c => '/' + c) })
+    }
+  })
   client.on('end', (r) => log(`END #${n}`, r || '', 'counts', JSON.stringify(counts)))
   client.on('error', (e) => log(`ERR #${n}`, e.message))
 
