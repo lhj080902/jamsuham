@@ -20,9 +20,13 @@ import io.netty.util.concurrent.DefaultThreadFactory
 import kr.jamsuham.core.CloseReason
 import kr.jamsuham.core.CoreLog
 import kr.jamsuham.core.JoinCredentials
+import kr.jamsuham.core.PlayerInfo
+import kr.jamsuham.core.PlayerList
 import kr.jamsuham.core.ResolvedTarget
 import kr.jamsuham.core.text.ChatText
 import kr.jamsuham.core.via.ViaSetup
+import kr.jamsuham.core.world.Collision
+import kr.jamsuham.core.world.World
 import java.io.IOException
 import java.math.BigInteger
 import java.net.HttpURLConnection
@@ -31,6 +35,7 @@ import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.spec.X509EncodedKeySpec
+import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -43,6 +48,7 @@ interface ConnectionEvents {
     fun onChat(text: ChatText, system: Boolean)
     fun onInfo(message: String)
     fun onClosed(reason: CloseReason)
+    fun onPlayers(list: PlayerList) {}
 }
 
 /**
@@ -80,6 +86,13 @@ class McConnection(
     private var pendingChatAcks = 0
     private var positionTask: ScheduledFuture<*>? = null
     private val random = SecureRandom()
+    /** 주변 블록과 다른 플레이어 위치 (이동·미니맵용) */
+    val world = World()
+    private val players = LinkedHashMap<UUID, PlayerInfo>()
+    private val listedPlayers = HashSet<UUID>()
+    private var tabHeader = ChatText(emptyList())
+    private var tabFooter = ChatText(emptyList())
+    private var playersFlushPending = false
     private var nextSuggestionId = 1
     private val pendingSuggestions = HashMap<Int, (CommandSuggestions?) -> Unit>()
 
@@ -97,7 +110,7 @@ class McConnection(
                     p.addLast(Pipe.TIMEOUT, ReadTimeoutHandler(READ_TIMEOUT_SEC.toLong(), TimeUnit.SECONDS))
                     p.addLast(Pipe.FRAME, FrameCodec())
                     val user = ViaChannelInitializer.createUserConnection(ch, true)
-                    p.addLast(Pipe.VIA, ViaCodecHandler(user))
+                    p.addLast(Pipe.VIA, SafeViaCodec(user, log))
                     p.addLast(Pipe.HANDLER, Handler())
                 }
             })
@@ -417,11 +430,14 @@ class McConnection(
                 scheduleRespawn()
             }
             PlayIn.RESPAWN -> {
+                world.clear()
+                vy = 0.0
                 needPlayerLoaded = true
                 respawnPending = false
             }
             PlayIn.CHUNK_BATCH_FINISHED -> send(PlayOut.CHUNK_BATCH_RECEIVED) { it.writeFloat(10f) }
             PlayIn.START_CONFIGURATION -> {
+                world.clear()
                 positionTask?.cancel(false)
                 hasPosition = false
                 state = State.CONFIG
@@ -429,6 +445,83 @@ class McConnection(
             }
             PlayIn.COOKIE_REQUEST -> cookieResponse(PlayOut.COOKIE_RESPONSE, buf)
             PlayIn.TRANSFER -> transfer(buf)
+            PlayIn.LEVEL_CHUNK -> {
+                val cx = buf.readInt()
+                val cz = buf.readInt()
+                buf.readAnonymousTag() // heightmaps
+                val size = buf.readVarInt()
+                world.loadChunk(cx, cz, buf.readSlice(size))
+            }
+            PlayIn.FORGET_CHUNK -> {
+                val cz = buf.readInt()
+                val cx = buf.readInt()
+                world.unload(cx, cz)
+            }
+            PlayIn.BLOCK_UPDATE -> {
+                val v = buf.readLong()
+                world.setBlock((v shr 38).toInt(), (v shl 52 shr 52).toInt(), (v shl 26 shr 38).toInt(), buf.readVarInt())
+            }
+            PlayIn.SECTION_BLOCKS_UPDATE -> {
+                val v = buf.readLong()
+                val sx = (v shr 42).toInt()
+                val sy = (v shl 44 shr 44).toInt()
+                val sz = (v shl 22 shr 42).toInt()
+                val n = buf.readVarInt()
+                repeat(n) {
+                    val e = buf.readVarLong()
+                    val local = (e and 0xFFF).toInt()
+                    world.setBlock((sx shl 4) + ((local shr 8) and 15), (sy shl 4) + (local and 15), (sz shl 4) + ((local shr 4) and 15), (e ushr 12).toInt())
+                }
+            }
+            PlayIn.ADD_ENTITY -> {
+                val id = buf.readVarInt()
+                val uuid = buf.readUuid()
+                val type = buf.readVarInt()
+                val ex = buf.readDouble()
+                val ey = buf.readDouble()
+                val ez = buf.readDouble()
+                if (type == PLAYER_ENTITY_TYPE) world.players[id] = World.Entity(id, uuid, ex, ey, ez)
+            }
+            PlayIn.MOVE_ENTITY_POS, PlayIn.MOVE_ENTITY_POS_ROT -> {
+                val e = world.players[buf.readVarInt()]
+                if (e != null) {
+                    e.x += buf.readShort() / 4096.0
+                    e.y += buf.readShort() / 4096.0
+                    e.z += buf.readShort() / 4096.0
+                }
+            }
+            PlayIn.TELEPORT_ENTITY, PlayIn.ENTITY_POSITION_SYNC -> {
+                val e = world.players[buf.readVarInt()]
+                if (e != null) {
+                    val nx = buf.readDouble()
+                    val ny = buf.readDouble()
+                    val nz = buf.readDouble()
+                    buf.skipBytes(24 + 8) // 속도, 방향
+                    val rel = if (id == PlayIn.TELEPORT_ENTITY && buf.readableBytes() >= 5) buf.readInt() else 0
+                    e.x = if (rel and 1 != 0) e.x + nx else nx
+                    e.y = if (rel and 2 != 0) e.y + ny else ny
+                    e.z = if (rel and 4 != 0) e.z + nz else nz
+                }
+            }
+            PlayIn.REMOVE_ENTITIES -> {
+                val n = buf.readVarInt()
+                repeat(n) { world.players.remove(buf.readVarInt()) }
+            }
+            PlayIn.PLAYER_INFO_UPDATE -> playerInfoUpdate(buf)
+            PlayIn.PLAYER_INFO_REMOVE -> {
+                val n = buf.readVarInt()
+                repeat(n) {
+                    val id = buf.readUuid()
+                    players.remove(id)
+                    listedPlayers.remove(id)
+                }
+                schedulePlayersFlush()
+            }
+            PlayIn.TAB_LIST -> {
+                tabHeader = ChatText.fromTag(buf.readAnonymousTag())
+                tabFooter = ChatText.fromTag(buf.readAnonymousTag())
+                schedulePlayersFlush()
+            }
             PlayIn.COMMAND_SUGGESTIONS -> {
                 val id = buf.readVarInt()
                 val start = buf.readVarInt()
@@ -443,6 +536,79 @@ class McConnection(
                 pendingSuggestions.remove(id)?.invoke(CommandSuggestions(start, length, matches))
             }
         }
+    }
+
+    /** 1.21.4 플레이어 정보 갱신. 동작 비트: 0 추가, 1 채팅세션, 2 게임모드, 3 목록표시, 4 핑, 5 표시이름, 6 정렬순서, 7 모자 */
+    private fun playerInfoUpdate(buf: ByteBuf) {
+        val actions = buf.readUnsignedByte().toInt()
+        val n = buf.readVarInt()
+        repeat(n) {
+            val id = buf.readUuid()
+            var p = players[id]
+            if (actions and 0x01 != 0) {
+                val name = buf.readMcString(16)
+                var skin: String? = null
+                val props = buf.readVarInt()
+                repeat(props) {
+                    val pn = buf.readMcString()
+                    val pv = buf.readMcString()
+                    if (buf.readBoolean()) buf.readMcString()
+                    if (pn == "textures") skin = skinUrlFromTextures(pv)
+                }
+                p = PlayerInfo(id, name, null, 0, 0, skin, 0)
+            }
+            if (actions and 0x02 != 0 && buf.readBoolean()) {
+                buf.readUuid()
+                buf.readLong()
+                buf.readByteArrayVar()
+                buf.readByteArrayVar()
+            }
+            if (actions and 0x04 != 0) {
+                val gm = buf.readVarInt()
+                p = p?.copy(gameMode = gm)
+            }
+            if (actions and 0x08 != 0) {
+                if (buf.readBoolean()) listedPlayers.add(id) else listedPlayers.remove(id)
+            }
+            if (actions and 0x10 != 0) {
+                val ping = buf.readVarInt()
+                p = p?.copy(latencyMs = ping)
+            }
+            if (actions and 0x20 != 0) {
+                val tag = buf.readOptionalAnonymousTag()
+                p = p?.copy(displayName = tag?.let { ChatText.fromTag(it) })
+            }
+            if (actions and 0x40 != 0) {
+                val order = buf.readVarInt()
+                p = p?.copy(order = order)
+            }
+            if (actions and 0x80 != 0) buf.readBoolean()
+            if (p != null) players[id] = p
+        }
+        schedulePlayersFlush()
+    }
+
+    private fun skinUrlFromTextures(base64: String): String? = try {
+        val json = String(java.util.Base64.getDecoder().decode(base64), Charsets.UTF_8)
+        val url = com.google.gson.JsonParser.parseString(json).asJsonObject
+            .getAsJsonObject("textures")?.getAsJsonObject("SKIN")?.get("url")?.asString
+        url?.replaceFirst("http://", "https://")
+    } catch (_: Throwable) {
+        null
+    }
+
+    /** 목록이 한꺼번에 바뀌는 경우가 많아 0.3초 모았다가 알린다 */
+    private fun schedulePlayersFlush() {
+        if (playersFlushPending) return
+        val ch = channel ?: return
+        playersFlushPending = true
+        ch.eventLoop().schedule({
+            playersFlushPending = false
+            val list = players.values
+                .filter { listedPlayers.contains(it.uuid) }
+                .sortedWith(compareByDescending<PlayerInfo> { it.order }.thenBy { if (it.gameMode == 3) 1 else 0 }.thenBy { it.name.lowercase() })
+            events.onPlayers(PlayerList(list, tabHeader, tabFooter))
+        }, 300, TimeUnit.MILLISECONDS)
     }
 
     private fun teleport(buf: ByteBuf) {
@@ -460,6 +626,7 @@ class McConnection(
         yaw = if (flags and 0x08 != 0) yaw + nyaw else nyaw
         pitch = if (flags and 0x10 != 0) pitch + npitch else npitch
         hasPosition = true
+        vy = 0.0
         send(PlayOut.ACCEPT_TELEPORTATION) { it.writeVarInt(teleportId) }
         send(PlayOut.MOVE_PLAYER_POS_ROT) {
             it.writeDouble(x); it.writeDouble(y); it.writeDouble(z)
@@ -473,17 +640,121 @@ class McConnection(
     }
 
     /** 바닐라 클라이언트처럼 1초마다 현재 위치를 다시 보낸다 */
+    /**
+     * 20틱(초당 20번) 반복. 이동 버튼을 누르고 있거나 공중에 떠 있으면 간단한 물리로 움직이고,
+     * 가만히 있으면 바닐라처럼 1초마다 현재 위치를 다시 보낸다.
+     */
     private fun startPositionReminder() {
         val ch = channel ?: return
         positionTask?.cancel(false)
+        idleTicks = 0
         positionTask = ch.eventLoop().scheduleAtFixedRate({
             if (state == State.PLAY && hasPosition && ch.isActive) {
-                send(PlayOut.MOVE_PLAYER_POS) {
-                    it.writeDouble(x); it.writeDouble(y); it.writeDouble(z)
-                    it.writeByte(0x01) // onGround
+                try {
+                    tickMovement()
+                } catch (t: Throwable) {
+                    log.w("이동 처리 오류", t)
                 }
             }
-        }, 1, 1, TimeUnit.SECONDS)
+        }, 50, 50, TimeUnit.MILLISECONDS)
+    }
+
+    private var idleTicks = 0
+    private var vy = 0.0
+    private var onGround = true
+
+    /** 이동 입력 (비트: 1 북, 2 남, 4 서, 8 동, 16 점프). 화면에서 아무 스레드나 불러도 된다. */
+    @Volatile var movementInput = 0
+
+    val currentX: Double get() = x
+    val currentY: Double get() = y
+    val currentZ: Double get() = z
+    val currentYaw: Float get() = yaw
+
+    private fun tickMovement() {
+        val input = movementInput
+        var dx = 0.0
+        var dz = 0.0
+        if (input and 1 != 0) dz -= 1.0
+        if (input and 2 != 0) dz += 1.0
+        if (input and 4 != 0) dx -= 1.0
+        if (input and 8 != 0) dx += 1.0
+        val wantsJump = input and 16 != 0
+        val moving = dx != 0.0 || dz != 0.0
+        val physics = (moving || wantsJump || !onGround) && Collision.loaded &&
+            world.isLoaded(kotlin.math.floor(x).toInt(), kotlin.math.floor(z).toInt())
+        if (!physics) {
+            if (++idleTicks >= 20) {
+                idleTicks = 0
+                send(PlayOut.MOVE_PLAYER_POS) {
+                    it.writeDouble(x); it.writeDouble(y); it.writeDouble(z)
+                    it.writeByte(if (onGround) 0x01 else 0x00)
+                }
+            }
+            return
+        }
+        idleTicks = 0
+        if (moving) {
+            val len = kotlin.math.sqrt(dx * dx + dz * dz)
+            dx = dx / len * WALK_SPEED
+            dz = dz / len * WALK_SPEED
+            // 바라보는 방향: 0 = 남(+Z), 90 = 서(-X), 180 = 북(-Z), 270 = 동(+X)
+            yaw = Math.toDegrees(kotlin.math.atan2(-dx, dz)).toFloat()
+            moveAxis(dx, 0.0)
+            moveAxis(0.0, dz)
+        }
+        if (wantsJump && onGround) {
+            vy = 0.42
+            onGround = false
+        }
+        if (vy > 0) {
+            var up = vy
+            if (world.collides(x, y + up, z)) {
+                var lo = 0.0
+                var hi = up
+                repeat(10) { val mid = (lo + hi) / 2; if (world.collides(x, y + mid, z)) hi = mid else lo = mid }
+                up = lo
+                vy = 0.0
+            }
+            y += up
+            onGround = false
+        } else {
+            val fall = -vy
+            val probe = maxOf(fall, 0.001)
+            val d = world.dropDistance(x, y, z, probe)
+            if (d < probe - 1e-6) {
+                y -= d
+                onGround = true
+                vy = 0.0
+            } else {
+                y -= fall
+                onGround = false
+            }
+        }
+        if (!onGround) vy = (vy - 0.08) * 0.98
+        if (y < world.minY - 64) y = (world.minY - 64).toDouble() // 공허 아래로 끝없이 떨어지지 않게
+        send(PlayOut.MOVE_PLAYER_POS_ROT) {
+            it.writeDouble(x); it.writeDouble(y); it.writeDouble(z)
+            it.writeFloat(yaw); it.writeFloat(pitch)
+            it.writeByte(if (onGround) 0x01 else 0x00)
+        }
+    }
+
+    /** 한 축으로 움직이기. 막히면 0.6칸까지 자동으로 올라선다(계단, 반 블록) */
+    private fun moveAxis(mx: Double, mz: Double) {
+        val nx = x + mx
+        val nz = z + mz
+        if (!world.collides(nx, y, nz)) {
+            x = nx
+            z = nz
+            return
+        }
+        if (onGround && !world.collides(x, y + STEP, z) && !world.collides(nx, y + STEP, nz)) {
+            val drop = world.dropDistance(nx, y + STEP, nz, STEP)
+            x = nx
+            z = nz
+            y = y + STEP - drop
+        }
     }
 
     private fun scheduleRespawn() {
@@ -633,6 +904,9 @@ class McConnection(
 
     companion object {
         const val READ_TIMEOUT_SEC = 30
+        const val PLAYER_ENTITY_TYPE = 147 // 1.21.4 엔티티 종류 번호
+        const val WALK_SPEED = 0.2158 // 블록/틱 (초당 4.3칸, 바닐라 걷기)
+        const val STEP = 0.6
 
         /** 모든 연결이 같이 쓰는 Netty 스레드 */
         @Suppress("DEPRECATION")
@@ -653,6 +927,31 @@ class McConnection(
             if (t == null) return "알 수 없음"
             val msg = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
             return msg.take(200)
+        }
+    }
+}
+
+/**
+ * 버전 변환 중 오류가 난 패킷 하나 때문에 접속이 끊기지 않게, 그 패킷만 버리고 계속한다.
+ * (ViaProxy 의 "변환 오류 무시" 옵션과 같은 방식)
+ */
+internal class SafeViaCodec(user: com.viaversion.viaversion.api.connection.UserConnection, private val log: CoreLog) : ViaCodecHandler(user) {
+    private var lastLog = 0L
+    private var suppressed = 0
+
+    override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
+        try {
+            super.channelRead(ctx, msg)
+        } catch (t: Throwable) {
+            if (t is com.viaversion.viaversion.exception.CancelCodecException) throw t
+            val now = System.currentTimeMillis()
+            if (now - lastLog > 10_000) {
+                log.w("버전 변환 중 패킷 하나를 처리하지 못해 건너뜁니다" + (if (suppressed > 0) " (그 사이 ${suppressed}개 더)" else ""), t)
+                lastLog = now
+                suppressed = 0
+            } else {
+                suppressed++
+            }
         }
     }
 }
@@ -710,7 +1009,20 @@ internal object ConfigOut {
 }
 
 internal object PlayIn {
+    const val ADD_ENTITY = 0x01
+    const val BLOCK_UPDATE = 0x09
+    const val ENTITY_POSITION_SYNC = 0x20
+    const val FORGET_CHUNK = 0x22
+    const val LEVEL_CHUNK = 0x28
+    const val MOVE_ENTITY_POS = 0x2F
+    const val MOVE_ENTITY_POS_ROT = 0x30
+    const val REMOVE_ENTITIES = 0x47
+    const val SECTION_BLOCKS_UPDATE = 0x4E
+    const val TELEPORT_ENTITY = 0x77
     const val CHUNK_BATCH_FINISHED = 0x0C
+    const val PLAYER_INFO_REMOVE = 0x3F
+    const val PLAYER_INFO_UPDATE = 0x40
+    const val TAB_LIST = 0x74
     const val COMMAND_SUGGESTIONS = 0x10
     const val COOKIE_REQUEST = 0x16
     const val DISCONNECT = 0x1D

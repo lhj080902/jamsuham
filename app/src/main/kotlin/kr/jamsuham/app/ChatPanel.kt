@@ -12,24 +12,30 @@ import android.text.TextWatcher
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
+import android.view.GestureDetector
+import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import kr.jamsuham.core.LogLine
+import kr.jamsuham.core.PlayerList
 import kr.jamsuham.core.SessionState
 import kr.jamsuham.core.SessionStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 /**
  * 서버 하나의 채팅 화면: 상단 상태 줄(접속/끊기), 채팅 기록, 명령어 자동완성 칩, ▲▼ 이전 명령어, 입력창.
@@ -52,6 +58,12 @@ class ChatPanel(
     private val titleView: TextView
     private val detailView: TextView
     private val actionButton: Button
+    private val playerPanel: PlayerPanel
+    private val mapPage: MapPanel
+    private val chatPage: LinearLayout
+    private val pages: FrameLayout
+    private var tabs: List<Button> = emptyList()
+    private var page = 0
     private val list: ListView
     private val chipScroll: HorizontalScrollView
     private val chipRow: LinearLayout
@@ -91,7 +103,15 @@ class ChatPanel(
         top.addView(row)
         addView(top, ui.lp())
 
-        // --- 채팅 기록
+        // --- 페이지 탭: 채팅 / 지도·이동 / 접속자 (좌우로 밀어서 넘김)
+        val tabBar = ui.horizontal()
+        tabs = listOf("채팅", "지도·이동", "접속자").mapIndexed { i, label ->
+            ui.button(label, "plain") { showPage(i) }.also { b ->
+                tabBar.addView(b, ui.lp(0, ui.dp(40), 1f).apply { if (i > 0) leftMargin = ui.dp(6) })
+            }
+        }
+        addView(tabBar, ui.lp().apply { topMargin = ui.dp(8) })
+
         val logCard = ui.card().apply { setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(8)) }
         list = ListView(activity).apply {
             adapter = this@ChatPanel.adapter
@@ -102,7 +122,29 @@ class ChatPanel(
             cacheColorHint = Color.TRANSPARENT
         }
         logCard.addView(list, ui.lp(Ui.MATCH, Ui.MATCH))
-        addView(logCard, ui.lp(Ui.MATCH, 0, 1f).apply { topMargin = ui.dp(8) })
+        chatPage = ui.vertical()
+        chatPage.addView(logCard, ui.lp(Ui.MATCH, 0, 1f))
+        mapPage = MapPanel(activity, ui, serverId)
+        playerPanel = PlayerPanel(activity, ui)
+        pages = FrameLayout(activity)
+        listOf<View>(chatPage, mapPage, playerPanel).forEachIndexed { i, v ->
+            v.visibility = if (i == 0) VISIBLE else GONE
+            pages.addView(v, FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH))
+        }
+        addView(pages, ui.lp(Ui.MATCH, 0, 1f).apply { topMargin = ui.dp(8) })
+
+        val swipe = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                if (abs(vx) < ui.dp(400) || abs(vx) < abs(vy) * 1.5f) return false
+                showPage(page + if (vx < 0) 1 else -1)
+                return true
+            }
+        })
+        list.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
+        playerPanel.listView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
+        mapPage.mapView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); true }
+        styleTabs()
 
         // --- 자동완성 칩
         chipRow = ui.horizontal()
@@ -111,7 +153,7 @@ class ChatPanel(
             addView(chipRow)
             visibility = GONE
         }
-        addView(chipScroll, ui.lp().apply { topMargin = ui.dp(6) })
+        chatPage.addView(chipScroll, ui.lp().apply { topMargin = ui.dp(6) })
 
         // --- 입력 줄: ▲ ▼ [입력] [전송]
         val inputRow = ui.horizontal()
@@ -146,13 +188,39 @@ class ChatPanel(
         }
         inputRow.addView(input, ui.lp(0, Ui.WRAP, 1f).apply { leftMargin = ui.dp(6) })
         inputRow.addView(ui.button("전송", "primary") { send() }, ui.lp(Ui.WRAP, ui.dp(46)).apply { leftMargin = ui.dp(6) })
-        addView(inputRow, ui.lp().apply { topMargin = ui.dp(6) })
+        chatPage.addView(inputRow, ui.lp().apply { topMargin = ui.dp(6) })
+    }
+
+    private fun showPage(target: Int) {
+        val next = target.coerceIn(0, 2)
+        if (next == page) return
+        val views = listOf<View>(chatPage, mapPage, playerPanel)
+        val from = views[page]
+        val to = views[next]
+        val dir = if (next > page) 1 else -1
+        val w = pages.width.toFloat().takeIf { it > 0 } ?: ui.dp(360).toFloat()
+        if (page == 1) mapPage.stopMoving()
+        page = next
+        to.translationX = dir * w
+        to.visibility = VISIBLE
+        to.animate().translationX(0f).setDuration(200).start()
+        from.animate().translationX(-dir * w).setDuration(200).withEndAction {
+            if (views[page] !== from) from.visibility = GONE
+            from.translationX = 0f
+        }.start()
+        if (next == 2) playerPanel.show(SessionHub.players(serverId))
+        styleTabs()
+    }
+
+    private fun styleTabs() {
+        tabs.forEachIndexed { i, b -> ui.style(b, if (i == page) "primary" else "plain") }
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         SessionHub.addObserver(this)
         adapter.reload()
+        onPlayers(serverId, SessionHub.players(serverId))
         render(SessionHub.status(serverId))
         main.post(ticker)
     }
@@ -170,6 +238,12 @@ class ChatPanel(
 
     override fun onLine(serverId: String, line: LogLine) {
         if (serverId == this.serverId) adapter.add(line)
+    }
+
+    override fun onPlayers(serverId: String, list: PlayerList) {
+        if (serverId != this.serverId) return
+        tabs.getOrNull(2)?.text = "접속자 ${list.players.size}"
+        playerPanel.show(list)
     }
 
     fun refreshTitle() = render(SessionHub.status(serverId))

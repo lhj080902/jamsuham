@@ -251,11 +251,25 @@ class AfkService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val stop = PendingIntent.getService(
-            this, 1,
-            Intent(this, AfkService::class.java).setAction(ACTION_STOP_ALL),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        // 서버가 하나면 그 서버만, 여러 개면 전부 끊기
+        val single = active.singleOrNull()?.first
+        val stopIntent = if (single != null) {
+            Intent(this, AfkService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_SERVER, single.id)
+        } else {
+            Intent(this, AfkService::class.java).setAction(ACTION_STOP_ALL)
+        }
+        val stop = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val openChat = if (single != null) {
+            // 뒤로 가기를 누르면 서버 목록으로 돌아가게 목록 → 채팅 순서로 연다
+            PendingIntent.getActivities(
+                this, 2,
+                arrayOf(
+                    Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                    Intent(this, ChatActivity::class.java).putExtra(ChatActivity.EXTRA_ID, single.id),
+                ),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        } else open
         val icon = resources.getIdentifier("ic_stat_afk", "drawable", packageName).takeIf { it != 0 }
             ?: android.R.drawable.stat_notify_sync
         val builder = Notification.Builder(this, CHANNEL_ID)
@@ -268,7 +282,8 @@ class AfkService : Service() {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_SERVICE)
-            .addAction(Notification.Action.Builder(null, "모두 끊기", stop).build())
+            .addAction(Notification.Action.Builder(null, "앱 열기", openChat).build())
+            .addAction(Notification.Action.Builder(null, if (single != null) "연결 끊기" else "모두 끊기", stop).build())
         return builder.build()
     }
 

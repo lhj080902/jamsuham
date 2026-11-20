@@ -57,7 +57,7 @@ class AfkSession(
 
     // 아래 상태는 모두 exec 스레드에서만 바꾼다
     private var userStopped = false
-    private var connection: McConnection? = null
+    @Volatile private var connection: McConnection? = null
     private var pending: ScheduledFuture<*>? = null
     private var failures = 0
     private var reconnectCount = 0
@@ -101,6 +101,14 @@ class AfkSession(
         val c = connection ?: return false
         return c.sendChat(text)
     }
+
+    /** 이동 입력 (비트: 1 북, 2 남, 4 서, 8 동, 16 점프). 손을 떼면 0 */
+    fun setMovement(mask: Int) {
+        connection?.movementInput = mask
+    }
+
+    /** 지금 연결(미니맵이 위치·주변 블록·다른 플레이어를 읽는 데 씀). 접속 중이 아니면 null */
+    val liveConnection: McConnection? get() = connection
 
     /** 명령어 자동완성 후보 요청 (결과는 아무 스레드에서나 올 수 있음) */
     fun requestSuggestions(text: String, callback: (kr.jamsuham.core.net.CommandSuggestions?) -> Unit): Boolean {
@@ -231,6 +239,10 @@ class AfkSession(
 
         override fun onInfo(message: String) = line(LogLine.Kind.SYSTEM, message)
 
+        override fun onPlayers(list: PlayerList) {
+            if (generation == gen) listener.onPlayers(list)
+        }
+
         override fun onClosed(reason: CloseReason) = submit { handleClosed(reason) }
     }
 
@@ -250,6 +262,7 @@ class AfkSession(
 
     private fun handleClosed(reason: CloseReason) {
         connection = null
+        listener.onPlayers(PlayerList.EMPTY)
         onlineSince?.let { totalOnlineMs += System.currentTimeMillis() - it }
         onlineSince = null
         lastReason = reason

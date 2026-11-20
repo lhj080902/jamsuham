@@ -8,6 +8,7 @@ import kr.jamsuham.core.AfkSession
 import kr.jamsuham.core.CoreLog
 import kr.jamsuham.core.CredentialsProvider
 import kr.jamsuham.core.LogLine
+import kr.jamsuham.core.PlayerList
 import kr.jamsuham.core.SessionConfig
 import kr.jamsuham.core.SessionListener
 import kr.jamsuham.core.SessionState
@@ -25,6 +26,7 @@ object SessionHub {
     interface Observer {
         fun onStatus(serverId: String, status: SessionStatus) {}
         fun onLine(serverId: String, line: LogLine) {}
+        fun onPlayers(serverId: String, list: PlayerList) {}
     }
 
     private class Entry {
@@ -32,6 +34,7 @@ object SessionHub {
         var token: Any? = null
         var status = SessionStatus(SessionState.IDLE, "꺼짐")
         val lines = ArrayDeque<LogLine>()
+        var players: PlayerList = PlayerList.EMPTY
     }
 
     private const val MAX_LINES = 500
@@ -61,6 +64,8 @@ object SessionHub {
 
     fun lines(serverId: String): List<LogLine> = entries[serverId]?.lines?.let { ArrayList(it) } ?: emptyList()
 
+    fun players(serverId: String): PlayerList = entries[serverId]?.players ?: PlayerList.EMPTY
+
     fun isActive(serverId: String): Boolean = status(serverId).state.isActive()
 
     fun activeIds(): Set<String> = entries.filter { it.value.status.state.isActive() }.keys.toSet()
@@ -81,6 +86,15 @@ object SessionHub {
 
             override fun onLine(line: LogLine) {
                 main.post { if (e.token === myToken) publishLine(serverId, line) }
+            }
+
+            override fun onPlayers(list: PlayerList) {
+                main.post {
+                    if (e.token === myToken) {
+                        e.players = list
+                        for (o in observers.toList()) o.onPlayers(serverId, list)
+                    }
+                }
             }
         }
         val s = AfkSession(context.filesDir, config, credentials, listener, log, AndroidDns(context))
@@ -106,8 +120,21 @@ object SessionHub {
             e.token = null
             e.session?.shutdown()
             e.session = null
+            e.players = PlayerList.EMPTY
             if (e.status.state.isActive()) publishStatus(id, e.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
         }
+    }
+
+    /** 이동 버튼 입력 */
+    fun setMovement(serverId: String, mask: Int) {
+        entries[serverId]?.session?.setMovement(mask)
+    }
+
+    /** 미니맵용: 지금 접속 중인 연결 (위치·주변 블록·다른 플레이어) */
+    fun live(serverId: String): kr.jamsuham.core.net.McConnection? {
+        val e = entries[serverId] ?: return null
+        if (e.status.state != SessionState.ONLINE) return null
+        return e.session?.liveConnection
     }
 
     fun sendChat(serverId: String, text: String): Boolean = entries[serverId]?.session?.sendChat(text) ?: false

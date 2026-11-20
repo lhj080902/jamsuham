@@ -18,6 +18,8 @@ data class ServerPing(
     val online: Int,
     val max: Int,
     val latencyMs: Long,
+    /** 서버 아이콘 PNG (64x64). 없으면 null */
+    val favicon: ByteArray? = null,
 )
 
 /** 서버 목록 핑으로 서버 버전(프로토콜 번호)을 알아낸다. 블로킹 호출. */
@@ -82,7 +84,15 @@ object StatusPinger {
             online = players?.get("online")?.asInt ?: 0,
             max = players?.get("max")?.asInt ?: 0,
             latencyMs = latencyMs,
+            favicon = root.get("favicon")?.takeIf { it.isJsonPrimitive }?.asString?.let { decodeFavicon(it) },
         )
+    }
+
+    private fun decodeFavicon(dataUri: String): ByteArray? = try {
+        val comma = dataUri.indexOf(',')
+        if (comma < 0) null else java.util.Base64.getMimeDecoder().decode(dataUri.substring(comma + 1))
+    } catch (_: Throwable) {
+        null
     }
 
     private fun writeVarInt(out: ByteArrayOutputStream, v: Int) {

@@ -204,6 +204,7 @@ class ServerEditActivity : BaseActivity() {
             .setPositiveButton("삭제") { _, _ ->
                 if (SessionHub.isActive(s.id)) AfkService.stop(this, s.id)
                 store.deleteServer(s.id)
+                ServerInfos.forget(this, s.id)
                 finish()
             }
             .setNegativeButton("취소", null)

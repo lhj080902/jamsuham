@@ -34,6 +34,19 @@ fun ByteBuf.writeVarInt(v: Int): ByteBuf {
     }
 }
 
+fun ByteBuf.readVarLong(): Long {
+    var value = 0L
+    var shift = 0
+    while (true) {
+        if (!isReadable) throw DecoderException("VarLong 이 중간에 끊겼습니다")
+        val b = readByte().toInt()
+        value = value or ((b and 0x7F).toLong() shl shift)
+        if (b and 0x80 == 0) return value
+        shift += 7
+        if (shift >= 70) throw DecoderException("VarLong 이 너무 깁니다")
+    }
+}
+
 fun varIntSize(v: Int): Int {
     var value = v
     var size = 1

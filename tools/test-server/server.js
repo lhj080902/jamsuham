@@ -63,6 +63,7 @@ server.on('playerJoin', (client) => {
   setTimeout(() => safe(() => sendPlayerChat(client, 'Steve', '반가워요')), 500)
   setTimeout(() => safe(() => sendResourcePack(client)), 700)
   setTimeout(() => safe(() => sendPosition(client, 100.5, 70, 100.5)), 1200) // 강제 텔포
+  setTimeout(() => safe(() => sendPlayers(client)), 900)
 
   if (scenario === 'full') {
     setTimeout(() => {
@@ -139,6 +140,28 @@ function sendPlayerChat (client, name, msg) {
     networkName: text(name),
     networkTargetName: undefined
   })
+}
+
+// 탭 목록 테스트: 스킨 있는 정품 플레이어 1명 + 색 이름 1명 + 목록 위/아래 문구
+function sendPlayers (client) {
+  const skin = Buffer.from(JSON.stringify({ textures: { SKIN: { url: 'http://textures.minecraft.net/texture/1a4af718455d4aab528e7a61f86fa25e6a369d1768dcb13f7df319a713eb810b' } } })).toString('base64')
+  const people = [
+    { uuid: '069a79f4-44e9-4726-a5be-fca90e38aaf5', name: 'Notch', props: [{ name: 'textures', value: skin, signature: undefined }], ping: 42, display: null },
+    { uuid: '22222222-3333-4444-5555-666666666666', name: 'Jamsu_Kim', props: [], ping: 120, display: '§6[VIP] §fJamsu_Kim' }
+  ]
+  if (mcData.isNewerOrEqualTo('1.21.4')) {
+    client.write('player_info', {
+      action: { add_player: true, update_listed: true, update_latency: true, update_display_name: true },
+      data: people.map(p => ({ uuid: p.uuid, player: { name: p.name, properties: p.props }, listed: 1, latency: p.ping, displayName: p.display ? text(p.display) : undefined }))
+    })
+    client.write('playerlist_header', { header: text('§b§l잠수 테스트 서버'), footer: text('§7접속자 2명') })
+  } else if (!mcData.isNewerOrEqualTo('1.19.3')) {
+    client.write('player_info', {
+      action: 0,
+      data: people.map(p => ({ uuid: p.uuid, name: p.name, properties: p.props, gamemode: 0, ping: p.ping, displayName: p.display ? JSON.stringify({ text: p.display }) : undefined }))
+    })
+    client.write('playerlist_header', { header: JSON.stringify({ text: '§b§l잠수 테스트 서버' }), footer: JSON.stringify({ text: '§7접속자 2명' }) })
+  }
 }
 
 function sendResourcePack (client) {

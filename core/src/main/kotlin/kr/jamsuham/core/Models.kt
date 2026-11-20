@@ -79,9 +79,32 @@ data class LogLine(val timeMs: Long, val kind: Kind, val text: ChatText) {
     enum class Kind { CHAT, SYSTEM, ERROR }
 }
 
+/** 탭 목록(접속자 목록)의 한 명 */
+data class PlayerInfo(
+    val uuid: UUID,
+    val name: String,
+    /** 서버가 꾸며서 보내는 이름 (색, 칭호 등). 없으면 null */
+    val displayName: ChatText?,
+    val latencyMs: Int,
+    val gameMode: Int,
+    /** 스킨 이미지 주소 (https://textures.minecraft.net/...). 비정품 서버 등은 null */
+    val skinUrl: String?,
+    val order: Int,
+) {
+    val shownName: ChatText get() = displayName?.takeIf { it.plain.isNotBlank() } ?: ChatText.of(name)
+}
+
+/** 탭 목록 전체 + 위/아래 문구 */
+data class PlayerList(val players: List<PlayerInfo>, val header: ChatText, val footer: ChatText) {
+    companion object {
+        val EMPTY = PlayerList(emptyList(), ChatText(emptyList()), ChatText(emptyList()))
+    }
+}
+
 interface SessionListener {
     fun onStatus(status: SessionStatus) {}
     fun onLine(line: LogLine) {}
+    fun onPlayers(list: PlayerList) {}
 }
 
 /** 아주 단순한 로거 (안드로이드에서는 Logcat 으로 연결) */

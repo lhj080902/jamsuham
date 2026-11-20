@@ -14,6 +14,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -59,6 +60,12 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         setupWindow(root, ui.p)
         arrange()
         setContentView(root)
+        // 잠수 중 상단 고정 알림(끊기/앱 열기 버튼)을 띄우려면 알림 권한이 필요하다
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 11)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -72,6 +79,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         if (selectedId != null && store.server(selectedId!!) == null) selectedId = null
         arrange()
         renderBanners()
+        refreshInfos()
         main.post(ticker)
         checkUpdate(manual = false)
     }
@@ -151,7 +159,19 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
     // ------------------------------------------------------------ 서버 목록
 
     private var lastSignature = ""
-    private val cardViews = HashMap<String, Triple<View, TextView, Button>>()
+    private class CardViews(val dot: View, val detail: TextView, val button: Button, val icon: ImageView, val motd: TextView)
+    private val cardViews = HashMap<String, CardViews>()
+    private val lastPing = HashMap<String, Long>()
+
+    /** 서버 아이콘·문구·접속자 수 새로 가져오기 (서버마다 1분에 한 번) */
+    private fun refreshInfos() {
+        val now = System.currentTimeMillis()
+        for (s in store.servers()) {
+            if (now - (lastPing[s.id] ?: 0) < 60_000) continue
+            lastPing[s.id] = now
+            ServerInfos.refresh(this, s) { renderList() }
+        }
+    }
 
     private fun renderList() {
         val servers = store.servers()
@@ -162,7 +182,17 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         }
         val now = System.currentTimeMillis()
         for (s in servers) {
-            val (dot, detail, button) = cardViews[s.id] ?: continue
+            val views = cardViews[s.id] ?: continue
+            val dot = views.dot
+            val detail = views.detail
+            val button = views.button
+            ServerInfos.icon(this, s.id)?.let { views.icon.setImageBitmap(it) }
+            val info = ServerInfos.info(s.id)
+            views.motd.text = when {
+                info == null -> s.address
+                info.motd.isNotBlank() -> info.motd.lines().joinToString(" ") { it.trim() } + "  ·  ${info.online}/${info.max}명"
+                else -> "${s.address}  ·  ${info.online}/${info.max}명"
+            }
             val st = SessionHub.status(s.id)
             val (label, color) = when (st.state) {
                 SessionState.ONLINE -> "잠수 중" to ui.p.ok
@@ -207,11 +237,21 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
                 setOnLongClickListener { openEditor(s.id); true }
             }
             val row = ui.horizontal()
-            val dot = ui.dot(ui.p.muted)
-            row.addView(dot, ui.lp(ui.dp(12), ui.dp(12)).apply { rightMargin = ui.dp(12) })
+            val icon = ImageView(this).apply {
+                background = ui.rounded(ui.p.input, 12)
+                clipToOutline = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setImageResource(applicationInfo.icon)
+            }
+            row.addView(icon, ui.lp(ui.dp(48), ui.dp(48)).apply { rightMargin = ui.dp(12) })
             val texts = ui.vertical()
-            texts.addView(ui.text(s.displayName, 17f, bold = true).apply { setSingleLine(true) })
-            texts.addView(ui.text(s.address, 13f, ui.p.muted).apply { setSingleLine(true) })
+            val nameRow = ui.horizontal()
+            val dot = ui.dot(ui.p.muted)
+            nameRow.addView(dot, ui.lp(ui.dp(9), ui.dp(9)).apply { rightMargin = ui.dp(6) })
+            nameRow.addView(ui.text(s.displayName, 17f, bold = true).apply { setSingleLine(true) }, ui.lp(0, Ui.WRAP, 1f))
+            texts.addView(nameRow)
+            val motd = ui.text(s.address, 12f, ui.p.muted).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END }
+            texts.addView(motd)
             val detail = ui.text("", 12f, ui.p.muted).apply { setSingleLine(true); setPadding(0, ui.dp(2), 0, 0) }
             texts.addView(detail)
             row.addView(texts, ui.lp(0, Ui.WRAP, 1f))
@@ -219,7 +259,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             row.addView(button, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(8) })
             card.addView(row)
             listBox.addView(card, ui.lp().apply { if (i > 0) topMargin = ui.dp(10) })
-            cardViews[s.id] = Triple(dot, detail, button)
+            cardViews[s.id] = CardViews(dot, detail, button, icon, motd)
         }
         listBox.addView(ui.hint("서버를 길게 누르면 설정을 바꿀 수 있습니다."), ui.lp())
     }
