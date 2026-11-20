@@ -29,6 +29,7 @@ import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import kr.jamsuham.core.LogLine
+import kr.jamsuham.core.Menu
 import kr.jamsuham.core.PlayerList
 import kr.jamsuham.core.SessionState
 import kr.jamsuham.core.SessionStatus
@@ -57,6 +58,12 @@ class ChatPanel(
     private val statusDot: View
     private val titleView: TextView
     private val detailView: TextView
+    private val clockView: TextView
+    private val menuBanner: LinearLayout
+    private val menuBannerText: TextView
+    private var menuDialog: android.app.AlertDialog? = null
+    private var menuDialogBox: LinearLayout? = null
+    private var lastMenuWindow = -1
     private val actionButton: Button
     private val playerPanel: PlayerPanel
     private val mapPage: MapPanel
@@ -92,10 +99,14 @@ class ChatPanel(
         statusDot = ui.dot(p.muted)
         row.addView(statusDot, ui.lp(ui.dp(10), ui.dp(10)).apply { rightMargin = ui.dp(8); leftMargin = ui.dp(4) })
         val titles = ui.vertical()
-        titleView = ui.text("", 17f, bold = true).apply { setSingleLine(true) }
-        detailView = ui.text("", 12f, p.muted).apply { setSingleLine(true) }
+        titleView = ui.marquee(ui.text("", 17f, bold = true))
+        clockView = ui.text("", 12f, p.muted).apply { setSingleLine(true) }
+        detailView = ui.marquee(ui.text("", 12f, p.muted))
         titles.addView(titleView)
-        titles.addView(detailView)
+        val detailRow = ui.horizontal()
+        detailRow.addView(clockView, ui.lp(Ui.WRAP, Ui.WRAP))
+        detailRow.addView(detailView, ui.lp(0, Ui.WRAP, 1f))
+        titles.addView(detailRow)
         row.addView(titles, ui.lp(0, Ui.WRAP, 1f))
         row.addView(ui.button("⚙", "ghost") { onEdit() }, ui.lp(ui.dp(44), ui.dp(40)))
         actionButton = ui.button("잠수 시작", "primary") { toggle() }
@@ -123,6 +134,17 @@ class ChatPanel(
         }
         logCard.addView(list, ui.lp(Ui.MATCH, Ui.MATCH))
         chatPage = ui.vertical()
+        // 서버가 메뉴 창을 띄우면 채팅 위에 알림 줄
+        menuBanner = ui.card().apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
+            visibility = GONE
+        }
+        menuBannerText = ui.marquee(ui.text("", 14f, bold = true))
+        menuBanner.addView(menuBannerText, ui.lp(0, Ui.WRAP, 1f))
+        menuBanner.addView(ui.button("메뉴 보기", "primary") { showMenuDialog() }, ui.lp(Ui.WRAP, ui.dp(38)).apply { leftMargin = ui.dp(8) })
+        chatPage.addView(menuBanner, ui.lp().apply { bottomMargin = ui.dp(6) })
         chatPage.addView(logCard, ui.lp(Ui.MATCH, 0, 1f))
         mapPage = MapPanel(activity, ui, serverId)
         playerPanel = PlayerPanel(activity, ui)
@@ -221,6 +243,8 @@ class ChatPanel(
         SessionHub.addObserver(this)
         adapter.reload()
         onPlayers(serverId, SessionHub.players(serverId))
+        lastMenuWindow = SessionHub.menu(serverId)?.windowId ?: -1
+        onMenu(serverId, SessionHub.menu(serverId))
         render(SessionHub.status(serverId))
         main.post(ticker)
     }
@@ -240,6 +264,95 @@ class ChatPanel(
         if (serverId == this.serverId) adapter.add(line)
     }
 
+    override fun onMenu(serverId: String, menu: Menu?) {
+        if (serverId != this.serverId) return
+        if (menu == null) {
+            menuBanner.visibility = GONE
+            menuDialog?.dismiss()
+            menuDialog = null
+            lastMenuWindow = -1
+            return
+        }
+        menuBannerText.setTextIfChanged("서버 메뉴: " + menu.title.plain.ifBlank { "(제목 없음)" })
+        menuBanner.visibility = VISIBLE
+        if (menuDialog?.isShowing == true) {
+            fillMenu(menu)
+        } else if (menu.windowId != lastMenuWindow && isShown && store.server(serverId)?.autoClickRules.isNullOrEmpty()) {
+            // 자동 클릭 규칙이 없으면 새 메뉴가 열릴 때 바로 보여 준다
+            showMenuDialog()
+        }
+        lastMenuWindow = menu.windowId
+    }
+
+    private fun showMenuDialog() {
+        val menu = SessionHub.menu(serverId) ?: return
+        val box = ui.vertical().apply { setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(4)) }
+        menuDialogBox = box
+        val scroll = android.widget.ScrollView(activity).apply { addView(box) }
+        menuDialog = android.app.AlertDialog.Builder(activity)
+            .setTitle(menu.title.plain.ifBlank { "서버 메뉴" })
+            .setView(scroll)
+            .setPositiveButton("숨기기", null)
+            .setNegativeButton("메뉴 닫기") { _, _ -> SessionHub.closeMenu(serverId) }
+            .show()
+        fillMenu(menu)
+    }
+
+    private fun fillMenu(menu: Menu) {
+        val box = menuDialogBox ?: return
+        box.removeAllViews()
+        box.addView(ui.hint("누르면 그 칸을 클릭합니다. 길게 누르면 자동 클릭 규칙에 추가합니다."))
+        val items = menu.items.filter { it.slot < menu.containerSlots }.sortedBy { it.slot }
+        if (items.isEmpty()) box.addView(ui.text("빈 메뉴입니다", 14f, p.muted).apply { setPadding(0, ui.dp(12), 0, 0) })
+        for (item in items) {
+            val row = ui.vertical().apply {
+                background = ui.rounded(p.input, 10)
+                setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
+                isClickable = true
+                setOnClickListener {
+                    SessionHub.clickMenu(serverId, item.slot)
+                    SessionHub.note(serverId, "메뉴 클릭: ${item.slot}번 칸 '${item.name.plain}'")
+                }
+                setOnLongClickListener { addRule(menu, item); true }
+            }
+            val head = ui.horizontal()
+            head.addView(ui.text("#${item.slot}", 12f, p.muted), ui.lp(ui.dp(40), Ui.WRAP))
+            head.addView(ui.marquee(ui.text(spans(item.name), 15f, bold = true)), ui.lp(0, Ui.WRAP, 1f))
+            if (item.count > 1) head.addView(ui.text("x${item.count}", 12f, p.muted))
+            row.addView(head)
+            for (l in item.lore.take(6)) {
+                if (l.plain.isBlank()) continue
+                row.addView(ui.text(spans(l), 12f, p.muted).apply { setPadding(ui.dp(40), 0, 0, 0) })
+            }
+            box.addView(row, ui.lp().apply { topMargin = ui.dp(6) })
+        }
+    }
+
+    private fun spans(t: kr.jamsuham.core.text.ChatText): CharSequence {
+        val sb = SpannableStringBuilder()
+        for (s in t.spans) {
+            val start = sb.length
+            sb.append(s.text)
+            sb.setSpan(ForegroundColorSpan(s.color?.let { p.readable(it) } ?: p.text), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return sb
+    }
+
+    private fun addRule(menu: Menu, item: kr.jamsuham.core.MenuItem) {
+        val server = store.server(serverId) ?: return
+        val title = menu.title.plain.trim().ifBlank { "*" }
+        val rule = "$title > ${item.name.plain.trim()}"
+        android.app.AlertDialog.Builder(activity)
+            .setTitle("자동 클릭 규칙 추가")
+            .setMessage("다음부터 이 메뉴가 열리면 자동으로 누릅니다.\n\n$rule\n\n(서버 설정에서 고치거나 지울 수 있습니다)")
+            .setPositiveButton("추가") { _, _ ->
+                store.saveServer(server.copy(autoClickRules = (server.autoClickRules.filter { it != rule } + rule)))
+                Toast.makeText(activity, "추가했습니다. 다음 접속부터 적용됩니다", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
     override fun onPlayers(serverId: String, list: PlayerList) {
         if (serverId != this.serverId) return
         tabs.getOrNull(2)?.text = "접속자 ${list.players.size}"
@@ -250,24 +363,29 @@ class ChatPanel(
 
     private fun render(s: SessionStatus) {
         val server = store.server(serverId)
-        titleView.text = server?.displayName ?: "삭제된 서버"
+        titleView.setTextIfChanged(server?.displayName ?: "삭제된 서버")
         val (label, color) = stateLabel(s.state)
         (statusDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
         val now = System.currentTimeMillis()
+        // 1초마다 바뀌는 시간은 따로 두고, 나머지는 바뀔 때만 갱신 (긴 글씨가 흐르다 처음으로 튀지 않게)
+        clockView.setTextIfChanged(
+            when (s.state) {
+                SessionState.ONLINE -> s.onlineSinceMs?.let { "$label · ${Formats.clock(now - it)} · " } ?: "$label · "
+                SessionState.WAITING_RECONNECT -> "$label · ${(((s.nextAttemptAtMs ?: now) - now).coerceAtLeast(0) / 1000)}초 뒤 · "
+                else -> "$label · "
+            },
+        )
         val parts = ArrayList<String>()
-        parts.add(label)
-        when (s.state) {
-            SessionState.ONLINE -> s.onlineSinceMs?.let { parts.add(Formats.clock(now - it)) }
-            SessionState.WAITING_RECONNECT -> parts.add("${(((s.nextAttemptAtMs ?: now) - now).coerceAtLeast(0) / 1000)}초 뒤 재접속")
-            SessionState.PREPARING, SessionState.CONNECTING -> if (s.message.isNotBlank()) parts.add(s.message)
-            else -> {}
-        }
+        if ((s.state == SessionState.PREPARING || s.state == SessionState.CONNECTING) && s.message.isNotBlank()) parts.add(s.message)
         if (s.reconnectCount > 0) parts.add("재접속 ${s.reconnectCount}회")
         s.serverVersion?.let { parts.add(it) }
-        detailView.text = parts.joinToString(" · ")
+        detailView.setTextIfChanged(parts.joinToString(" · "))
         val active = s.state.isActive()
-        actionButton.text = if (active) "끊기" else "잠수 시작"
-        ui.style(actionButton, if (active) "danger" else "primary")
+        val btnText = if (active) "끊기" else "잠수 시작"
+        if (actionButton.text.toString() != btnText) {
+            actionButton.text = btnText
+            ui.style(actionButton, if (active) "danger" else "primary")
+        }
     }
 
     private fun stateLabel(st: SessionState) = when (st) {

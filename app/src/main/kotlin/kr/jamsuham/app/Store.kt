@@ -21,6 +21,8 @@ data class ServerEntry(
     val joinDelaySec: Int = 3,
     val autoReconnect: Boolean = true,
     val reconnectOnKick: Boolean = true,
+    /** 메뉴 자동 클릭 규칙 ("제목 > 아이템") */
+    val autoClickRules: List<String> = emptyList(),
 ) {
     val displayName: String get() = name.ifBlank { address.ifBlank { "이름 없는 서버" } }
 
@@ -31,6 +33,7 @@ data class ServerEntry(
         reconnectOnKick = reconnectOnKick,
         joinCommands = joinCommands.map { it.trim() }.filter { it.isNotEmpty() }.take(10),
         joinCommandDelaySec = joinDelaySec.coerceIn(0, 120),
+        autoClickRules = (autoClickRules ?: emptyList()).mapNotNull { kr.jamsuham.core.AutoClickRule.parse(it) },
     )
 }
 
@@ -46,7 +49,7 @@ class Store(context: Context) {
         val json = sp.getString("servers", null) ?: return migrateOld()
         return try {
             gson.fromJson<List<ServerEntry>>(json, object : TypeToken<List<ServerEntry>>() {}.type)
-                ?.map { it.copy(joinCommands = it.joinCommands ?: emptyList()) } ?: emptyList()
+                ?.map { it.copy(joinCommands = it.joinCommands ?: emptyList(), autoClickRules = it.autoClickRules ?: emptyList()) } ?: emptyList()
         } catch (_: Throwable) {
             emptyList()
         }

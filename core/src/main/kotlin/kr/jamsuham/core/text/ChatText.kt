@@ -51,7 +51,10 @@ data class ChatText(val spans: List<ChatSpan>) {
             return ChatText(merge(out))
         }
 
-        private data class Style(val color: Int? = null, val bold: Boolean = false, val italic: Boolean = false)
+        /** hidden = 서버 리소스팩 전용 글꼴(아이콘 등). 앱에는 그 글꼴이 없어 깨진 글자로 보이므로 숨긴다 */
+        private data class Style(val color: Int? = null, val bold: Boolean = false, val italic: Boolean = false, val hidden: Boolean = false)
+
+        private val STANDARD_FONTS = setOf("minecraft:default", "default", "minecraft:uniform", "uniform")
 
         private fun walk(el: JsonElement, parent: Style, out: MutableList<ChatSpan>) {
             when {
@@ -120,6 +123,7 @@ data class ChatText(val spans: List<ChatSpan>) {
             obj.get("color")?.let { c -> if (c.isJsonPrimitive) parseColor(c.asString)?.let { s = s.copy(color = it) } }
             obj.get("bold")?.let { b -> if (b.isJsonPrimitive) s = s.copy(bold = b.asBooleanLoose()) }
             obj.get("italic")?.let { b -> if (b.isJsonPrimitive) s = s.copy(italic = b.asBooleanLoose()) }
+            obj.get("font")?.let { f -> if (f.isJsonPrimitive) s = s.copy(hidden = f.asString !in STANDARD_FONTS) }
             return s
         }
 
@@ -149,9 +153,10 @@ data class ChatText(val spans: List<ChatSpan>) {
         }
 
         private fun appendLegacy(text: String, base: Style, out: MutableList<ChatSpan>) {
-            if (text.isEmpty()) return
+            if (text.isEmpty() || base.hidden) return
             if (text.indexOf('§') < 0) {
-                out.add(ChatSpan(text, base.color, base.bold, base.italic))
+                val clean = stripPrivateUse(text)
+                if (clean.isNotEmpty()) out.add(ChatSpan(clean, base.color, base.bold, base.italic))
                 return
             }
             var style = base
@@ -161,7 +166,7 @@ data class ChatText(val spans: List<ChatSpan>) {
                 val ch = text[i]
                 if (ch == '§' && i + 1 < text.length) {
                     if (sb.isNotEmpty()) {
-                        out.add(ChatSpan(sb.toString(), style.color, style.bold, style.italic))
+                        out.add(ChatSpan(stripPrivateUse(sb.toString()), style.color, style.bold, style.italic))
                         sb.setLength(0)
                     }
                     val code = text[i + 1].lowercaseChar()
@@ -178,7 +183,13 @@ data class ChatText(val spans: List<ChatSpan>) {
                 sb.append(ch)
                 i++
             }
-            if (sb.isNotEmpty()) out.add(ChatSpan(sb.toString(), style.color, style.bold, style.italic))
+            if (sb.isNotEmpty()) out.add(ChatSpan(stripPrivateUse(sb.toString()), style.color, style.bold, style.italic))
+        }
+
+        /** 개인 사용 영역 문자(서버 전용 아이콘 글꼴에 흔히 쓰임)는 앱 글꼴에 없으니 뺀다 */
+        private fun stripPrivateUse(s: String): String {
+            if (s.none { it in '\uE000'..'\uF8FF' }) return s
+            return s.filterNot { it in '\uE000'..'\uF8FF' }
         }
 
         private fun merge(spans: List<ChatSpan>): List<ChatSpan> {

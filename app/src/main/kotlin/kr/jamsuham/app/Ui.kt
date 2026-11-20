@@ -74,6 +74,15 @@ class Ui(val ctx: Context) {
         if (bold) setTypeface(typeface, Typeface.BOLD)
     }
 
+    /** 한 줄에 다 안 들어가는 글씨는 옆으로 천천히 흐르게 (마키) */
+    fun marquee(tv: TextView): TextView = tv.apply {
+        setSingleLine(true)
+        ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
+        marqueeRepeatLimit = -1
+        setHorizontallyScrolling(true)
+        isSelected = true
+    }
+
     fun title(s: String) = text(s, 22f, p.text, bold = true)
     fun section(s: String) = text(s, 15f, p.accent, bold = true).apply { setPadding(0, 0, 0, dp(8)) }
     fun label(s: String) = text(s, 13f, p.muted).apply { setPadding(0, dp(12), 0, dp(4)) }
@@ -191,4 +200,9 @@ fun Activity.setupWindow(root: View, palette: Palette, basePadDp: Int = 12) {
         }
         insets
     }
+}
+
+/** 글씨가 바뀔 때만 바꾼다 (같은 글씨로 다시 넣으면 흐르던 글씨가 처음으로 돌아가서) */
+fun TextView.setTextIfChanged(value: CharSequence) {
+    if (text?.toString() != value.toString()) text = value
 }

@@ -91,12 +91,12 @@ class PlayerPanel(private val activity: Activity, private val ui: Ui) : LinearLa
                     scaleType = ImageView.ScaleType.FIT_CENTER
                 }
                 addView(img, ui.lp(ui.dp(32), ui.dp(32)).apply { rightMargin = ui.dp(10) })
-                addView(ui.text("", 15f).apply { id = ID_NAME; setSingleLine(true) }, ui.lp(0, Ui.WRAP, 1f))
+                addView(ui.marquee(ui.text("", 15f)).apply { id = ID_NAME }, ui.lp(0, Ui.WRAP, 1f))
                 addView(ui.text("", 11f, p.muted).apply { id = ID_PING }, ui.lp(Ui.WRAP, Ui.WRAP))
             }
             val player = players[position]
             Faces.load(activity, row.findViewById(ID_FACE), player.skinUrl, player.name)
-            row.findViewById<TextView>(ID_NAME).text = spannable(player.shownName, p.text)
+            row.findViewById<TextView>(ID_NAME).let { if (it.text.toString() != player.shownName.plain) it.text = spannable(player.shownName, p.text) }
             val ping = row.findViewById<TextView>(ID_PING)
             ping.text = if (player.latencyMs > 0) "${player.latencyMs}ms" else ""
             ping.setTextColor(

@@ -188,11 +188,11 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             val button = views.button
             ServerInfos.icon(this, s.id)?.let { views.icon.setImageBitmap(it) }
             val info = ServerInfos.info(s.id)
-            views.motd.text = when {
+            views.motd.setTextIfChanged(when {
                 info == null -> s.address
                 info.motd.isNotBlank() -> info.motd.lines().joinToString(" ") { it.trim() } + "  ·  ${info.online}/${info.max}명"
                 else -> "${s.address}  ·  ${info.online}/${info.max}명"
-            }
+            })
             val st = SessionHub.status(s.id)
             val (label, color) = when (st.state) {
                 SessionState.ONLINE -> "잠수 중" to ui.p.ok
@@ -202,14 +202,17 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             }
             (dot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
             val parts = arrayListOf(label)
-            if (st.state == SessionState.ONLINE) st.onlineSinceMs?.let { parts.add(Formats.clock(now - it)) }
+            if (st.state == SessionState.ONLINE) st.onlineSinceMs?.let { parts.add(Formats.minutes(now - it)) }
             if (st.state == SessionState.WAITING_RECONNECT) st.nextAttemptAtMs?.let { parts.add("${((it - now).coerceAtLeast(0)) / 1000}초 뒤") }
             if (st.reconnectCount > 0 && st.state.isActive()) parts.add("재접속 ${st.reconnectCount}회")
             accounts.get(s.accountId)?.let { parts.add(it.name) } ?: parts.add("계정 없음")
-            detail.text = parts.joinToString(" · ")
+            detail.setTextIfChanged(parts.joinToString(" · "))
             val active = st.state.isActive()
-            button.text = if (active) "끊기" else "시작"
-            ui.style(button, if (active) "danger" else "primary")
+            val label2 = if (active) "끊기" else "시작"
+            if (button.text.toString() != label2) {
+                button.text = label2
+                ui.style(button, if (active) "danger" else "primary")
+            }
         }
     }
 
@@ -248,11 +251,11 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             val nameRow = ui.horizontal()
             val dot = ui.dot(ui.p.muted)
             nameRow.addView(dot, ui.lp(ui.dp(9), ui.dp(9)).apply { rightMargin = ui.dp(6) })
-            nameRow.addView(ui.text(s.displayName, 17f, bold = true).apply { setSingleLine(true) }, ui.lp(0, Ui.WRAP, 1f))
+            nameRow.addView(ui.marquee(ui.text(s.displayName, 17f, bold = true)), ui.lp(0, Ui.WRAP, 1f))
             texts.addView(nameRow)
-            val motd = ui.text(s.address, 12f, ui.p.muted).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END }
+            val motd = ui.marquee(ui.text(s.address, 12f, ui.p.muted))
             texts.addView(motd)
-            val detail = ui.text("", 12f, ui.p.muted).apply { setSingleLine(true); setPadding(0, ui.dp(2), 0, 0) }
+            val detail = ui.marquee(ui.text("", 12f, ui.p.muted)).apply { setPadding(0, ui.dp(2), 0, 0) }
             texts.addView(detail)
             row.addView(texts, ui.lp(0, Ui.WRAP, 1f))
             val button = ui.button("시작", "primary") { toggle(s.id) }

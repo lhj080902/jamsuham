@@ -48,7 +48,7 @@ class AfkService : Service() {
     private val ticker = object : Runnable {
         override fun run() {
             updateNotification()
-            main.postDelayed(this, 30_000)
+            main.postDelayed(this, 60_000)
         }
     }
 
@@ -242,7 +242,7 @@ class AfkService : Service() {
             else -> "잠수 중 ${online}/${active.size}개 서버"
         }
         val lines = active.map { (server, st) ->
-            val time = if (st.state == SessionState.ONLINE && st.onlineSinceMs != null) " · " + Formats.duration(now - st.onlineSinceMs!!) else ""
+            val time = if (st.state == SessionState.ONLINE && st.onlineSinceMs != null) " · " + Formats.minutes(now - st.onlineSinceMs!!) else ""
             val rc = if (st.reconnectCount > 0) " · 재접속 ${st.reconnectCount}회" else ""
             "${server.displayName}: ${stateText(st)}$time$rc"
         }

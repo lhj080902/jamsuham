@@ -19,7 +19,10 @@ import io.netty.handler.timeout.ReadTimeoutHandler
 import io.netty.util.concurrent.DefaultThreadFactory
 import kr.jamsuham.core.CloseReason
 import kr.jamsuham.core.CoreLog
+import kr.jamsuham.core.AutoClickRule
 import kr.jamsuham.core.JoinCredentials
+import kr.jamsuham.core.Menu
+import kr.jamsuham.core.MenuItem
 import kr.jamsuham.core.PlayerInfo
 import kr.jamsuham.core.PlayerList
 import kr.jamsuham.core.ResolvedTarget
@@ -49,6 +52,7 @@ interface ConnectionEvents {
     fun onInfo(message: String)
     fun onClosed(reason: CloseReason)
     fun onPlayers(list: PlayerList) {}
+    fun onMenu(menu: Menu?) {}
 }
 
 /**
@@ -65,6 +69,7 @@ class McConnection(
     private val events: ConnectionEvents,
     private val log: CoreLog,
     private val transferIntent: Boolean = false,
+    private val autoClickRules: List<AutoClickRule> = emptyList(),
 ) {
     private enum class State { HANDSHAKE, LOGIN, CONFIG, PLAY }
 
@@ -86,6 +91,15 @@ class McConnection(
     private var pendingChatAcks = 0
     private var positionTask: ScheduledFuture<*>? = null
     private val random = SecureRandom()
+    // 열린 메뉴
+    private var menuId = -1
+    private var menuTitle = ChatText(emptyList())
+    private var menuType = 0
+    private var menuStateId = 0
+    private var menuSlots: Array<MenuItem?> = emptyArray()
+    private var menuAutoClicked = false
+    private var menuFlushPending = false
+
     /** 주변 블록과 다른 플레이어 위치 (이동·미니맵용) */
     val world = World()
     private val players = LinkedHashMap<UUID, PlayerInfo>()
@@ -431,6 +445,7 @@ class McConnection(
             }
             PlayIn.RESPAWN -> {
                 world.clear()
+                if (menuId > 0) clearMenu()
                 vy = 0.0
                 needPlayerLoaded = true
                 respawnPending = false
@@ -506,6 +521,38 @@ class McConnection(
             PlayIn.REMOVE_ENTITIES -> {
                 val n = buf.readVarInt()
                 repeat(n) { world.players.remove(buf.readVarInt()) }
+            }
+            PlayIn.OPEN_SCREEN -> {
+                menuId = buf.readVarInt()
+                menuType = buf.readVarInt()
+                menuTitle = ChatText.fromTag(buf.readAnonymousTag())
+                menuSlots = emptyArray()
+                menuAutoClicked = false
+                events.onInfo("서버 메뉴 열림: ${menuTitle.plain.ifBlank { "(제목 없음)" }}")
+            }
+            PlayIn.CONTAINER_SET_CONTENT -> {
+                val wid = buf.readVarInt()
+                val stateId = buf.readVarInt()
+                if (wid == menuId && wid != 0) {
+                    menuStateId = stateId
+                    val n = buf.readVarInt()
+                    menuSlots = Array(n) { i -> readMenuItem(buf, i) }
+                    scheduleMenuFlush()
+                }
+            }
+            PlayIn.CONTAINER_SET_SLOT -> {
+                val wid = buf.readVarInt()
+                val stateId = buf.readVarInt()
+                val slot = buf.readShort().toInt()
+                if (wid == menuId && wid != 0 && slot in menuSlots.indices) {
+                    menuStateId = stateId
+                    menuSlots[slot] = readMenuItem(buf, slot)
+                    scheduleMenuFlush()
+                }
+            }
+            PlayIn.CONTAINER_CLOSE -> {
+                val wid = buf.readVarInt()
+                if (wid == menuId) clearMenu()
             }
             PlayIn.PLAYER_INFO_UPDATE -> playerInfoUpdate(buf)
             PlayIn.PLAYER_INFO_REMOVE -> {
@@ -609,6 +656,102 @@ class McConnection(
                 .sortedWith(compareByDescending<PlayerInfo> { it.order }.thenBy { if (it.gameMode == 3) 1 else 0 }.thenBy { it.name.lowercase() })
             events.onPlayers(PlayerList(list, tabHeader, tabFooter))
         }, 300, TimeUnit.MILLISECONDS)
+    }
+
+    // ------------------------------------------------------------ 메뉴 (상자 GUI)
+
+    private fun readMenuItem(buf: ByteBuf, slot: Int): MenuItem? {
+        val item = com.viaversion.viaversion.api.type.types.version.VersionedTypes.V1_21_4.item.read(buf) ?: return null
+        if (item.isEmpty) return null
+        val data = item.dataContainer()
+        val custom = data.get(com.viaversion.viaversion.api.minecraft.data.StructuredDataKey.CUSTOM_NAME)
+        val itemName = data.get(com.viaversion.viaversion.api.minecraft.data.StructuredDataKey.ITEM_NAME)
+        val lore = data.get(com.viaversion.viaversion.api.minecraft.data.StructuredDataKey.LORE)?.map { ChatText.fromTag(it) } ?: emptyList()
+        val id = itemIdentifier(item.identifier())
+        val name = when {
+            custom != null -> ChatText.fromTag(custom)
+            itemName != null -> ChatText.fromTag(itemName)
+            else -> ChatText.of(id.removePrefix("minecraft:"))
+        }
+        return MenuItem(slot, id, item.amount(), name, lore)
+    }
+
+    private fun itemIdentifier(id: Int): String = try {
+        val protocol = com.viaversion.viaversion.api.Via.getManager().protocolManager
+            .getProtocol(com.viaversion.viaversion.protocols.v1_21_2to1_21_4.Protocol1_21_2To1_21_4::class.java)
+        protocol?.mappingData?.fullItemMappings?.mappedIdentifier(id) ?: "item#$id"
+    } catch (_: Throwable) {
+        "item#$id"
+    }
+
+    /** 일반 상자 메뉴(9x1~9x6)는 줄 수 x 9 칸, 그 밖에는 전체에서 내 인벤토리 36칸을 뺀 만큼 */
+    private fun containerSize(total: Int): Int = when (menuType) {
+        in 0..5 -> (menuType + 1) * 9
+        else -> (total - 36).coerceAtLeast(0)
+    }.coerceAtMost(total)
+
+    private fun currentMenu(): Menu? {
+        if (menuId <= 0) return null
+        return Menu(menuId, menuTitle, containerSize(menuSlots.size), menuSlots.filterNotNull())
+    }
+
+    private fun clearMenu() {
+        menuId = -1
+        menuSlots = emptyArray()
+        events.onMenu(null)
+    }
+
+    private fun scheduleMenuFlush() {
+        if (menuFlushPending) return
+        val ch = channel ?: return
+        menuFlushPending = true
+        ch.eventLoop().schedule({
+            menuFlushPending = false
+            val menu = currentMenu() ?: return@schedule
+            events.onMenu(menu)
+            if (!menuAutoClicked) {
+                for (rule in autoClickRules) {
+                    val target = rule.matches(menu) ?: continue
+                    menuAutoClicked = true
+                    val wid = menu.windowId
+                    // 사람이 누르는 것처럼 잠깐 기다렸다 클릭
+                    ch.eventLoop().schedule({
+                        if (menuId == wid) {
+                            events.onInfo("자동 클릭: ${target.slot}번 칸 '${target.name.plain}' (규칙: ${rule.title} > ${rule.item})")
+                            clickMenuSlot(target.slot)
+                        }
+                    }, 800, TimeUnit.MILLISECONDS)
+                    break
+                }
+            }
+        }, 150, TimeUnit.MILLISECONDS)
+    }
+
+    /** 메뉴 칸 왼쪽 클릭. 아무 스레드에서나 불러도 된다 */
+    fun clickMenuSlot(slot: Int): Boolean {
+        val ch = channel ?: return false
+        ch.eventLoop().execute {
+            if (menuId <= 0 || state != State.PLAY) return@execute
+            send(PlayOut.CONTAINER_CLICK) {
+                it.writeVarInt(menuId)
+                it.writeVarInt(menuStateId)
+                it.writeShort(slot)
+                it.writeByte(0) // 왼쪽 버튼
+                it.writeVarInt(0) // 집기(PICKUP)
+                it.writeVarInt(0) // 바뀐 칸 없음 (서버가 다시 보내 줌)
+                it.writeVarInt(0) // 커서에 든 아이템 없음
+            }
+        }
+        return true
+    }
+
+    fun closeMenu() {
+        val ch = channel ?: return
+        ch.eventLoop().execute {
+            if (menuId <= 0) return@execute
+            send(PlayOut.CONTAINER_CLOSE) { it.writeVarInt(menuId) }
+            clearMenu()
+        }
     }
 
     private fun teleport(buf: ByteBuf) {
@@ -1010,6 +1153,10 @@ internal object ConfigOut {
 
 internal object PlayIn {
     const val ADD_ENTITY = 0x01
+    const val CONTAINER_CLOSE = 0x12
+    const val CONTAINER_SET_CONTENT = 0x13
+    const val CONTAINER_SET_SLOT = 0x15
+    const val OPEN_SCREEN = 0x35
     const val BLOCK_UPDATE = 0x09
     const val ENTITY_POSITION_SYNC = 0x20
     const val FORGET_CHUNK = 0x22
@@ -1050,6 +1197,8 @@ internal object PlayOut {
     const val CLIENT_COMMAND = 0x0A
     const val COMMAND_SUGGESTION = 0x0D
     const val CONFIGURATION_ACKNOWLEDGED = 0x0E
+    const val CONTAINER_CLICK = 0x10
+    const val CONTAINER_CLOSE = 0x11
     const val COOKIE_RESPONSE = 0x13
     const val KEEP_ALIVE = 0x1A
     const val MOVE_PLAYER_POS = 0x1C

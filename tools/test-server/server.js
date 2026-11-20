@@ -64,6 +64,11 @@ server.on('playerJoin', (client) => {
   setTimeout(() => safe(() => sendResourcePack(client)), 700)
   setTimeout(() => safe(() => sendPosition(client, 100.5, 70, 100.5)), 1200) // 강제 텔포
   setTimeout(() => safe(() => sendPlayers(client)), 900)
+  setTimeout(() => safe(() => openPackMenu(client)), 1500)
+  client.on('window_click', (d) => {
+    log(`MENU CLICK #${n} slot=${d.slot} window=${d.windowId}`)
+    if (d.slot === 13) safe(() => { client.write('close_window', { windowId: 7 }); sendChat(client, '§a리소스팩이 적용되었습니다') })
+  })
 
   if (scenario === 'full') {
     setTimeout(() => {
@@ -161,6 +166,30 @@ function sendPlayers (client) {
       data: people.map(p => ({ uuid: p.uuid, name: p.name, properties: p.props, gamemode: 0, ping: p.ping, displayName: p.display ? JSON.stringify({ text: p.display }) : undefined }))
     })
     client.write('playerlist_header', { header: JSON.stringify({ text: '§b§l잠수 테스트 서버' }), footer: JSON.stringify({ text: '§7접속자 2명' }) })
+  }
+}
+
+// 도스온라인처럼 접속하면 리소스팩 적용 메뉴(상자 GUI)를 띄운다. 13번 칸을 누르면 적용
+function openPackMenu (client) {
+  const title = '§2리소스팩 적용'
+  if (mcData.isNewerOrEqualTo('1.21.4')) {
+    client.write('open_window', { windowId: 7, inventoryType: 2, windowTitle: text(title) })
+    const lime = mcData.itemsByName.lime_concrete.id
+    const red = mcData.itemsByName.red_concrete.id
+    const mk = (id, name, lore) => ({ itemCount: 1, itemId: id, addedComponentCount: 2, removedComponentCount: 0,
+      components: [{ type: 'custom_name', data: text(name) }, { type: 'lore', data: lore.map(l => text(l)) }], removeComponents: [] })
+    const items = Array(27 + 36).fill({ itemCount: 0 })
+    items[11] = mk(red, '§c취소', ['§7접속을 끊습니다'])
+    items[13] = mk(lime, '§a리소스팩 적용하기', ['§7클릭하면 리소스팩이 적용됩니다'])
+    client.write('window_items', { windowId: 7, stateId: 1, items, carriedItem: { itemCount: 0 } })
+  } else if (!mcData.isNewerOrEqualTo('1.13')) {
+    client.write('open_window', { windowId: 7, inventoryType: 'minecraft:chest', windowTitle: JSON.stringify({ text: title }), slotCount: 27 })
+    const mk = (dmg, name, lore) => ({ blockId: 251, itemCount: 1, itemDamage: dmg, nbtData: { type: 'compound', name: '', value: { display: { type: 'compound', value: {
+      Name: { type: 'string', value: name }, Lore: { type: 'list', value: { type: 'string', value: lore } } } } } } })
+    const items = Array(27 + 36).fill({ blockId: -1 })
+    items[11] = mk(14, '§c취소', ['§7접속을 끊습니다'])
+    items[13] = mk(5, '§a리소스팩 적용하기', ['§7클릭하면 리소스팩이 적용됩니다'])
+    client.write('window_items', { windowId: 7, items })
   }
 }
 

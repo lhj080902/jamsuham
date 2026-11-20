@@ -21,6 +21,14 @@ object Formats {
         else String.format(Locale.ROOT, "%d분 %02d초", m, s)
     }
 
+    /** 분 단위만: "45분", "2시간 13분" */
+    fun minutes(ms: Long): String {
+        val total = (ms / 60_000).coerceAtLeast(0)
+        val h = total / 60
+        val m = total % 60
+        return if (h > 0) "${h}시간 ${m}분" else "${m}분"
+    }
+
     fun clock(ms: Long): String {
         val total = (ms / 1000).coerceAtLeast(0)
         return String.format(Locale.ROOT, "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)

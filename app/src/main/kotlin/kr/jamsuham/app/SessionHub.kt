@@ -8,6 +8,7 @@ import kr.jamsuham.core.AfkSession
 import kr.jamsuham.core.CoreLog
 import kr.jamsuham.core.CredentialsProvider
 import kr.jamsuham.core.LogLine
+import kr.jamsuham.core.Menu
 import kr.jamsuham.core.PlayerList
 import kr.jamsuham.core.SessionConfig
 import kr.jamsuham.core.SessionListener
@@ -27,6 +28,7 @@ object SessionHub {
         fun onStatus(serverId: String, status: SessionStatus) {}
         fun onLine(serverId: String, line: LogLine) {}
         fun onPlayers(serverId: String, list: PlayerList) {}
+        fun onMenu(serverId: String, menu: Menu?) {}
     }
 
     private class Entry {
@@ -35,6 +37,7 @@ object SessionHub {
         var status = SessionStatus(SessionState.IDLE, "꺼짐")
         val lines = ArrayDeque<LogLine>()
         var players: PlayerList = PlayerList.EMPTY
+        var menu: Menu? = null
     }
 
     private const val MAX_LINES = 500
@@ -64,6 +67,14 @@ object SessionHub {
 
     fun lines(serverId: String): List<LogLine> = entries[serverId]?.lines?.let { ArrayList(it) } ?: emptyList()
 
+    fun menu(serverId: String): Menu? = entries[serverId]?.menu
+
+    fun clickMenu(serverId: String, slot: Int): Boolean = entries[serverId]?.session?.clickMenu(slot) ?: false
+
+    fun closeMenu(serverId: String) {
+        entries[serverId]?.session?.closeMenu()
+    }
+
     fun players(serverId: String): PlayerList = entries[serverId]?.players ?: PlayerList.EMPTY
 
     fun isActive(serverId: String): Boolean = status(serverId).state.isActive()
@@ -86,6 +97,15 @@ object SessionHub {
 
             override fun onLine(line: LogLine) {
                 main.post { if (e.token === myToken) publishLine(serverId, line) }
+            }
+
+            override fun onMenu(menu: Menu?) {
+                main.post {
+                    if (e.token === myToken) {
+                        e.menu = menu
+                        for (o in observers.toList()) o.onMenu(serverId, menu)
+                    }
+                }
             }
 
             override fun onPlayers(list: PlayerList) {
@@ -121,6 +141,7 @@ object SessionHub {
             e.session?.shutdown()
             e.session = null
             e.players = PlayerList.EMPTY
+            e.menu = null
             if (e.status.state.isActive()) publishStatus(id, e.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
         }
     }

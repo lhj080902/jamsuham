@@ -51,6 +51,13 @@ object ViaSetup {
             Runnable { ViaBackwardsPlatformImpl() },
             Runnable { ViaRewindPlatformImpl() },
         )
+        // 메뉴 아이템을 1.21.4 형식으로 읽으려면 1.21.4 아이템 데이터가 준비돼 있어야 한다
+        try {
+            Via.getManager().protocolManager.completeMappingDataLoading(
+                com.viaversion.viaversion.protocols.v1_21_2to1_21_4.Protocol1_21_2To1_21_4::class.java,
+            )
+        } catch (_: Throwable) {
+        }
         initialized = true
     }
 

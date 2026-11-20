@@ -29,6 +29,7 @@ class ServerEditActivity : BaseActivity() {
     private lateinit var accountSpinner: Spinner
     private lateinit var commandsInput: EditText
     private lateinit var delayInput: EditText
+    private lateinit var rulesInput: EditText
     private lateinit var autoReconnect: Switch
     private lateinit var reconnectOnKick: Switch
 
@@ -115,6 +116,23 @@ class ServerEditActivity : BaseActivity() {
             "재접속하면 로비로 돌아가는 서버에서 잠수 서버로 다시 이동할 때 쓰세요."))
         form.addView(cmdCard, ui.gap(10))
 
+        // 메뉴 자동 클릭
+        val ruleCard = ui.card()
+        ruleCard.addView(ui.section("메뉴 자동 클릭"))
+        rulesInput = ui.input("예: 리소스팩 > 적용", singleLine = false).apply {
+            minLines = 2
+            maxLines = 8
+            gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            setText(s.autoClickRules.joinToString("\n"))
+        }
+        ruleCard.addView(rulesInput, ui.lp())
+        ruleCard.addView(ui.hint("서버가 상자 같은 메뉴 창을 띄우면 규칙대로 자동으로 누릅니다. 한 줄에 하나씩:\n" +
+            "  메뉴 제목에 들어간 글자 > 누를 아이템 이름(또는 설명)에 들어간 글자\n" +
+            "  예) 리소스팩 > 적용      제목 상관없이: * > 적용      칸 번호로: 리소스팩 > #13\n" +
+            "채팅 화면의 메뉴 창에서 아이템을 길게 눌러도 규칙이 추가됩니다."))
+        form.addView(ruleCard, ui.gap(10))
+
         // 재접속
         val optCard = ui.card()
         optCard.addView(ui.section("재접속"))
@@ -188,6 +206,7 @@ class ServerEditActivity : BaseActivity() {
             accountId = pendingAccountId,
             joinCommands = commandsInput.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }.take(10),
             joinDelaySec = delayInput.text.toString().toIntOrNull()?.coerceIn(0, 120) ?: 3,
+            autoClickRules = rulesInput.text.toString().lines().map { it.trim() }.filter { it.contains('>') }.take(20),
             autoReconnect = autoReconnect.isChecked,
             reconnectOnKick = reconnectOnKick.isChecked,
         )

@@ -31,6 +31,8 @@ data class SessionConfig(
     val joinCommands: List<String> = emptyList(),
     /** 접속 후 첫 명령어까지 기다릴 시간 */
     val joinCommandDelaySec: Int = 3,
+    /** 메뉴 자동 클릭 규칙 */
+    val autoClickRules: List<AutoClickRule> = emptyList(),
 )
 
 /**
@@ -107,6 +109,14 @@ class AfkSession(
         connection?.movementInput = mask
     }
 
+    /** 열린 메뉴의 칸 클릭 (왼쪽 클릭) */
+    fun clickMenu(slot: Int): Boolean = connection?.clickMenuSlot(slot) ?: false
+
+    /** 열린 메뉴 닫기 */
+    fun closeMenu() {
+        connection?.closeMenu()
+    }
+
     /** 지금 연결(미니맵이 위치·주변 블록·다른 플레이어를 읽는 데 씀). 접속 중이 아니면 null */
     val liveConnection: McConnection? get() = connection
 
@@ -171,7 +181,7 @@ class AfkSession(
 
             setStatus(SessionState.CONNECTING, "접속 중… (${target.connectHost}:${target.connectPort})", version.name)
             generation++
-            val conn = McConnection(target, version, creds, Events(generation), log, transferIntent = transfer != null)
+            val conn = McConnection(target, version, creds, Events(generation), log, transferIntent = transfer != null, autoClickRules = config.autoClickRules)
             connection = conn
             transferTo = null
             conn.connect()
@@ -243,6 +253,10 @@ class AfkSession(
             if (generation == gen) listener.onPlayers(list)
         }
 
+        override fun onMenu(menu: Menu?) {
+            if (generation == gen) listener.onMenu(menu)
+        }
+
         override fun onClosed(reason: CloseReason) = submit { handleClosed(reason) }
     }
 
@@ -263,6 +277,7 @@ class AfkSession(
     private fun handleClosed(reason: CloseReason) {
         connection = null
         listener.onPlayers(PlayerList.EMPTY)
+        listener.onMenu(null)
         onlineSince?.let { totalOnlineMs += System.currentTimeMillis() - it }
         onlineSince = null
         lastReason = reason

@@ -101,10 +101,59 @@ data class PlayerList(val players: List<PlayerInfo>, val header: ChatText, val f
     }
 }
 
+/** 서버가 띄운 메뉴 창(상자 GUI 등)의 한 칸 */
+data class MenuItem(
+    val slot: Int,
+    val itemId: String,
+    val count: Int,
+    val name: ChatText,
+    val lore: List<ChatText>,
+) {
+    /** 이름 + 설명 (규칙 비교용 순수 글자) */
+    val searchText: String get() = (listOf(name.plain) + lore.map { it.plain }).joinToString("\n")
+}
+
+/** 서버가 띄운 메뉴 창. containerSlots 개 칸이 메뉴 부분이고 그 뒤는 내 인벤토리 */
+data class Menu(
+    val windowId: Int,
+    val title: ChatText,
+    val containerSlots: Int,
+    val items: List<MenuItem>,
+)
+
+/**
+ * 메뉴 자동 클릭 규칙. 메뉴 제목에 [title] 이 들어 있으면 이름/설명에 [item] 이 들어간 칸을 클릭한다.
+ * 한 줄 형식: "제목 > 아이템"   (제목을 * 로 쓰면 아무 메뉴, 아이템을 #13 처럼 쓰면 13번 칸)
+ */
+data class AutoClickRule(val title: String, val item: String) {
+    fun matches(menu: Menu): MenuItem? {
+        if (title != "*" && title.isNotEmpty() && !menu.title.plain.contains(title, ignoreCase = true)) return null
+        val target = item.trim()
+        if (target.startsWith("#")) {
+            val slot = target.substring(1).toIntOrNull() ?: return null
+            return menu.items.firstOrNull { it.slot == slot }
+        }
+        return menu.items.firstOrNull { it.slot < menu.containerSlots && it.searchText.contains(target, ignoreCase = true) }
+    }
+
+    companion object {
+        fun parse(line: String): AutoClickRule? {
+            val i = line.indexOf('>')
+            if (i < 0) return null
+            val t = line.substring(0, i).trim()
+            val it = line.substring(i + 1).trim()
+            if (it.isEmpty()) return null
+            return AutoClickRule(t.ifEmpty { "*" }, it)
+        }
+    }
+}
+
 interface SessionListener {
     fun onStatus(status: SessionStatus) {}
     fun onLine(line: LogLine) {}
     fun onPlayers(list: PlayerList) {}
+    /** 메뉴가 열리거나 바뀌면 메뉴, 닫히면 null */
+    fun onMenu(menu: Menu?) {}
 }
 
 /** 아주 단순한 로거 (안드로이드에서는 Logcat 으로 연결) */
