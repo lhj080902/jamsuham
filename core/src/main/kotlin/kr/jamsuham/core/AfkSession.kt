@@ -45,6 +45,8 @@ data class SessionConfig(
  *  - "이미 프록시에 접속 중" 킥: 프록시가 옛 연결을 정리할 때까지(보통 30초 안팎) 점점 길게 기다린다.
  *  - 차단/화이트리스트 킥: 계속 두드리면 안 되므로 멈춘다.
  */
+private const val MENU_WAIT_MAX_MS = 120_000L
+
 class AfkSession(
     private val dataDir: File,
     private val config: SessionConfig,
@@ -265,18 +267,42 @@ class AfkSession(
         override fun onClosed(reason: CloseReason) = submit { handleClosed(reason) }
     }
 
-    /** 재접속하면 로비로 떨어지는 서버가 많아서, 접속할 때마다 잠수 명령어를 다시 보낸다 */
+    /**
+     * 재접속하면 로비로 떨어지는 서버가 많아서, 접속할 때마다 잠수 명령어를 다시 보낸다.
+     * 서버 메뉴(리소스팩 적용 창 등)가 열려 있으면 명령어가 메뉴를 날려 버릴 수 있으므로,
+     * 메뉴가 닫힐 때까지(직접 고르거나 자동 클릭) 기다렸다가 2초 뒤에 이어서 보낸다. 최대 2분까지만 기다린다.
+     */
     private fun scheduleJoinCommands(gen: Int) {
         val commands = config.joinCommands.map { it.trim() }.filter { it.isNotEmpty() }
-        commands.forEachIndexed { i, cmd ->
-            val delayMs = config.joinCommandDelaySec.coerceAtLeast(0) * 1000L + i * 1500L
-            exec.schedule({
-                if (generation == gen && status.state == SessionState.ONLINE && !userStopped) {
-                    val ok = connection?.sendChat(cmd) == true
-                    line(LogLine.Kind.SYSTEM, if (ok) "자동 실행: $cmd" else "자동 실행 실패: $cmd")
+        if (commands.isEmpty()) return
+        val firstAt = System.currentTimeMillis() + config.joinCommandDelaySec.coerceAtLeast(0) * 1000L
+        var waitingForMenu = false
+
+        fun step(i: Int) {
+            if (generation != gen || status.state != SessionState.ONLINE || userStopped || i >= commands.size) return
+            val conn = connection
+            val menuOpen = conn?.hasOpenMenu == true
+            if (menuOpen && System.currentTimeMillis() - firstAt < MENU_WAIT_MAX_MS) {
+                if (!waitingForMenu) {
+                    waitingForMenu = true
+                    line(LogLine.Kind.SYSTEM, "서버 메뉴가 열려 있어서 자동 실행을 잠시 미룹니다 (메뉴에서 고르거나 닫으면 이어서 실행)")
                 }
-            }, delayMs, TimeUnit.MILLISECONDS)
+                exec.schedule({ step(i) }, 1, TimeUnit.SECONDS)
+                return
+            }
+            waitingForMenu = false
+            // 메뉴가 방금 닫혔다: 서버가 리소스팩 적용 등을 끝낼 시간(2초)을 준다
+            val sinceClose = System.currentTimeMillis() - (conn?.lastMenuClosedMs ?: 0L)
+            if (sinceClose in 0 until 2000) {
+                exec.schedule({ step(i) }, 2000 - sinceClose, TimeUnit.MILLISECONDS)
+                return
+            }
+            val cmd = commands[i]
+            val ok = conn?.sendChat(cmd) == true
+            line(LogLine.Kind.SYSTEM, if (ok) "자동 실행: $cmd" else "자동 실행 실패: $cmd")
+            exec.schedule({ step(i + 1) }, 1500, TimeUnit.MILLISECONDS)
         }
+        exec.schedule({ step(0) }, (firstAt - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS)
     }
 
     private fun handleClosed(reason: CloseReason) {

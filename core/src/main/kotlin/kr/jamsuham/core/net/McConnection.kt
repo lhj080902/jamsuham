@@ -94,7 +94,14 @@ class McConnection(
     private var positionTask: ScheduledFuture<*>? = null
     private val random = SecureRandom()
     // 열린 메뉴
-    private var menuId = -1
+    @Volatile private var menuId = -1
+
+    /** 서버 메뉴(상자 창)가 열려 있는지. 열려 있는 동안에는 접속 후 자동 명령어를 미룬다 */
+    val hasOpenMenu: Boolean get() = menuId > 0
+
+    /** 마지막으로 메뉴가 닫힌 시각 (닫힌 직후에는 서버가 리소스팩 적용 등을 처리하므로 잠깐 기다린다) */
+    @Volatile var lastMenuClosedMs = 0L
+        private set
     private var menuTitle = ChatText(emptyList())
     private var menuType = 0
     private var menuStateId = 0
@@ -731,6 +738,7 @@ class McConnection(
     }
 
     private fun clearMenu() {
+        if (menuId > 0) lastMenuClosedMs = System.currentTimeMillis()
         menuId = -1
         menuSlots = emptyArray()
         events.onMenu(null)
