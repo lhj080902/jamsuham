@@ -159,6 +159,9 @@
 - 앱 안에서 디지털 상품(프리미엄)을 직접 팔면 **사업자 등록(응용 소프트웨어 개발·공급업 등)과 통신판매업 신고**가 필요하다는 안내가 많습니다. 광고 수익만 있으면 대상이 아니라고 합니다.
 - 공식 확인이 안 된 내용이므로 **세무서·정부24·Play Console 안내**로 확인하세요.
 - 개인정보처리방침 공개 의무는 **무료여도 적용**됩니다(4단계).
+- **국가장학금 영향**: 사업자등록 자체로 못 받는다는 규정은 찾지 못했습니다. 다만 국가장학금 지원구간은 학생 본인 + 부모님의 소득·재산(근로·사업 소득 합산)으로 정해지므로, 사업·후원 **수익이 커지면 구간이 올라갈 수 있습니다**.
+  - 학생 본인 사업소득의 정확한 환산 방식은 공식 자료에서 확인하지 못했습니다.
+  - → 사업자등록 전에 **한국장학재단 콜센터(1599-2000)** 에 문의하세요.
 
 ## 10단계. 후원·수익 (나중에 진행 — 지금은 계획만)
 **핵심 규칙**: Play 앱 **안에서는** Play 결제가 아닌 결제 수단(토스·Buy Me a Coffee 등)으로 유도하면 안 됩니다. **앱 밖**(웹사이트·GitHub)에서 알리는 것은 자유롭다고 Google 이 안내합니다. "후원"만 따로 다룬 정책 문구는 찾지 못했으니, Play 판 앱 안에는 외부 후원 링크를 넣지 않는 것이 안전합니다.
@@ -234,6 +237,9 @@ Google Play 공식
 - [Google 개발자 계정 만들기 (채널톡 문서, 25달러·선불카드 불가)](https://docs.channel.io/firstmall/ko/articles/Google-%EA%B0%9C%EB%B0%9C%EC%9E%90-%EA%B3%84%EC%A0%95-%EB%A7%8C%EB%93%A4%EA%B8%B0-a1b85cc3)
 - [앱 개발자 통신판매업 관련 문답 (인프런)](https://www.inflearn.com/questions/1619606)
 - [1인 개발자 구글플레이 주소 노출 후기 (다모앙)](https://damoang.net/development/1222)
+
+국가장학금
+- [한국장학재단 — 국가장학금 알리미](https://www.kosaf.go.kr/ko/prelAplyAlimi.do) · [학자금 지원구간 안내](https://www.kosaf.go.kr/ko/scholar.do?pg=scholarship06_01) · [가구원 정보제공 동의](https://www.kosaf.go.kr/ko/fmlyInfoAgmt.do)
 
 후원·수익
 - [Google Play 결제 정책 이해하기](https://support.google.com/googleplay/android-developer/answer/10281818?hl=en) · [결제 정책](https://support.google.com/googleplay/android-developer/answer/9858738?hl=en)
