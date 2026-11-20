@@ -126,6 +126,9 @@ class McConnection(
 
     /** 주변 블록과 다른 플레이어 위치 (이동·미니맵용) */
     val world = World()
+
+    /** 설정 단계에서 받은 차원 종류 목록 순서대로 각 차원의 아래 끝 높이 (접속·리스폰 패킷이 이 목록의 번호를 알려 준다) */
+    private val dimensionMinY = ArrayList<Int?>()
     private val players = LinkedHashMap<UUID, PlayerInfo>()
     private val listedPlayers = HashSet<UUID>()
     private var tabHeader = ChatText(emptyList())
@@ -226,7 +229,17 @@ class McConnection(
         val buf = ch.alloc().buffer()
         buf.writeVarInt(id)
         body(buf)
-        ch.writeAndFlush(buf).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE)
+        ch.writeAndFlush(buf).addListener(ChannelFutureListener { f ->
+            if (f.isSuccess) return@ChannelFutureListener
+            val cause = f.cause()
+            // 접속 중(플레이 단계)에 보낸 패킷 하나가 ViaVersion 변환에서 실패한 것이면(아이템 사용·메뉴 클릭 등)
+            // 받는 쪽처럼 그 패킷만 버리고 잠수는 이어 간다. 네트워크 오류나 로그인 단계 실패는 예전처럼 연결을 닫는다
+            if (state == State.PLAY && cause !is IOException) {
+                log.w("보내는 패킷 0x${Integer.toHexString(id)} 변환 실패, 버리고 계속합니다", cause)
+            } else {
+                f.channel().pipeline().fireExceptionCaught(cause)
+            }
+        })
     }
 
     private inner class Handler : SimpleChannelInboundHandler<ByteBuf>() {
@@ -404,6 +417,7 @@ class McConnection(
                 send(ConfigOut.PONG) { it.writeInt(v) }
             }
             ConfigIn.RESOURCE_PACK_PUSH -> resourcePack(buf, ConfigOut.RESOURCE_PACK)
+            ConfigIn.REGISTRY_DATA -> readRegistry(buf)
             ConfigIn.TRANSFER -> transfer(buf)
             ConfigIn.SELECT_KNOWN_PACKS -> {
                 val count = buf.readVarInt()
@@ -428,6 +442,32 @@ class McConnection(
         }
     }
 
+    /**
+     * 차원 종류(dimension_type) 목록에서 각 차원의 아래 끝 높이(min_y)만 읽는다. 읽기만 하고 아무것도 보내지 않으므로
+     * 실패해도 접속에는 영향이 없다 (그때는 예전처럼 청크 섹션 수로 짐작).
+     * 바닐라 차원은 known pack 으로 내용이 생략돼 오므로 기본값을 쓴다.
+     */
+    private fun readRegistry(buf: ByteBuf) {
+        try {
+            if (buf.readMcString() != "minecraft:dimension_type") return
+            val entries = ArrayList<Int?>()
+            repeat(buf.readVarInt().coerceIn(0, 4096)) {
+                val name = buf.readMcString()
+                val tag = if (buf.readBoolean()) buf.readAnonymousTag() else null
+                val minY = (tag as? com.viaversion.nbt.tag.CompoundTag)?.getNumberTag("min_y")?.asInt() ?: VANILLA_MIN_Y[name]
+                entries.add(minY)
+            }
+            dimensionMinY.clear()
+            dimensionMinY.addAll(entries)
+        } catch (t: Exception) {
+            log.w("차원 정보를 읽지 못했습니다 (월드 높이는 짐작으로 처리)", t)
+        }
+    }
+
+    private fun applyDimension(type: Int?) {
+        world.setDimensionMinY(type?.let { dimensionMinY.getOrNull(it) })
+    }
+
     // ------------------------------------------------------------------ play
 
     private fun handlePlay(id: Int, buf: ByteBuf) {
@@ -439,7 +479,7 @@ class McConnection(
                     repeat(buf.readVarInt()) { buf.readMcString() } // 월드 목록
                     buf.readVarInt(); buf.readVarInt(); buf.readVarInt() // 최대 인원, 시야, 시뮬레이션 거리
                     buf.readBoolean(); buf.readBoolean(); buf.readBoolean()
-                    buf.readVarInt() // 차원 종류
+                    applyDimension(buf.readVarInt()) // 차원 종류 → 월드 아래 끝 높이
                     worldName = buf.readMcString()
                 } catch (_: Exception) {
                 }
@@ -484,12 +524,14 @@ class McConnection(
                 scheduleRespawn()
             }
             PlayIn.RESPAWN -> {
+                var dimType: Int? = null
                 try {
-                    buf.readVarInt()
+                    dimType = buf.readVarInt()
                     worldName = buf.readMcString()
                 } catch (_: Exception) {
                 }
                 world.clear()
+                applyDimension(dimType)
                 if (menuId > 0) clearMenu()
                 vy = 0.0
                 needPlayerLoaded = true
@@ -1279,10 +1321,19 @@ internal object ConfigIn {
     const val FINISH = 0x03
     const val KEEP_ALIVE = 0x04
     const val PING = 0x05
+    const val REGISTRY_DATA = 0x07
     const val RESOURCE_PACK_PUSH = 0x09
     const val TRANSFER = 0x0B
     const val SELECT_KNOWN_PACKS = 0x0E
 }
+
+/** known pack 으로 내용이 생략돼 오는 바닐라 차원의 아래 끝 높이 */
+internal val VANILLA_MIN_Y = mapOf(
+    "minecraft:overworld" to -64,
+    "minecraft:overworld_caves" to -64,
+    "minecraft:the_nether" to 0,
+    "minecraft:the_end" to 0,
+)
 
 internal object ConfigOut {
     const val CLIENT_INFORMATION = 0x00

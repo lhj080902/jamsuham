@@ -29,6 +29,14 @@ class World {
     @Volatile var version = 0L
         private set
 
+    /** 접속·리스폰 패킷의 차원 종류에서 알아낸 아래 끝 높이 (데이터팩으로 높이를 바꾼 월드 대응). 모르면 null */
+    @Volatile private var dimensionMinY: Int? = null
+
+    fun setDimensionMinY(y: Int?) {
+        dimensionMinY = y
+        if (y != null) minY = y
+    }
+
     fun clear() {
         version++
         chunks.clear()
@@ -63,7 +71,12 @@ class World {
         val c = chunks[key(bx shr 4, bz shr 4)] ?: return
         val si = (by - minY) shr 4
         if (by < minY || si >= c.sections.size) return
-        val sec = c.sections[si] ?: ShortArray(4096).also { c.sections[si] = it }
+        var sec = c.sections[si] ?: ShortArray(4096).also { c.sections[si] = it }
+        // 여러 섹션이 같이 쓰는 "한 가지 블록뿐인 섹션" 배열이면 고치기 전에 이 섹션만의 사본을 만든다
+        if (uniform[sec[0].toInt() and 0xFFFF] === sec) {
+            sec = sec.copyOf()
+            c.sections[si] = sec
+        }
         sec[(((by - minY) and 15) shl 8) or ((bz and 15) shl 4) or (bx and 15)] = state.toShort()
         version++
     }
@@ -76,15 +89,21 @@ class World {
     /** LEVEL_CHUNK_WITH_LIGHT 의 청크 데이터 부분 */
     fun loadChunk(cx: Int, cz: Int, data: ByteBuf) {
         val sections = ArrayList<ShortArray?>(24)
-        while (data.isReadable) {
-            if (data.readableBytes() < 3) break
-            val nonAir = data.readShort().toInt()
-            val blocks = readContainer(data, 4096, 4, 8)
-            readContainer(data, 64, 1, 3) // 바이옴은 버림
-            sections.add(if (nonAir == 0 && blocks == null) null else blocks)
+        try {
+            while (data.isReadable) {
+                if (data.readableBytes() < 3) break
+                val nonAir = data.readShort().toInt()
+                val blocks = readContainer(data, 4096, 4, 8, keep = true)
+                readContainer(data, 64, 1, 3, keep = false) // 바이옴은 버림
+                sections.add(if (nonAir == 0 && blocks == null) null else blocks)
+                if (sections.size > MAX_SECTIONS) throw IllegalArgumentException("섹션이 너무 많음")
+            }
+        } catch (t: Exception) {
+            // 이상한 청크 하나 때문에 잠수 연결이 끊기지 않도록 그 청크만 버린다 (미니맵·이동에 그 칸만 비어 보임)
+            return
         }
-        // 섹션 수로 세계 아래 끝을 짐작한다 (오버월드 24칸 = -64, 16칸 = 0)
-        minY = when (sections.size) {
+        // 서버가 알려 준 차원 높이가 있으면 그걸 쓰고, 없으면 섹션 수로 짐작한다 (오버월드 24칸 = -64, 16칸 = 0)
+        minY = dimensionMinY ?: when (sections.size) {
             24 -> -64
             16 -> 0
             else -> if (sections.size > 16) -64 else 0
@@ -93,24 +112,41 @@ class World {
         version++
     }
 
-    /** 팔레트 컨테이너를 읽어 값 배열로. 전부 공기(0)면 null */
-    private fun readContainer(buf: ByteBuf, size: Int, minIndirect: Int, maxIndirect: Int): ShortArray? {
+    /**
+     * 한 가지 블록으로만 된 섹션(전부 돌 등)은 블록 값마다 배열 하나를 만들어 모든 청크가 같이 쓴다.
+     * 섹션마다 8KB 씩 새로 만들면 주변 청크 수백 개 × 여러 서버 동시 잠수에서 메모리가 많이 든다. 고칠 때는 [setBlock] 이 사본을 만든다.
+     */
+    private val uniform = ConcurrentHashMap<Int, ShortArray>()
+
+    /** 서버가 보낸 개수를 그대로 배열 크기로 쓰기 전에 확인한다 (잘못된 값이면 큰 배열을 만들다 앱이 죽을 수 있음) */
+    private fun count(buf: ByteBuf, max: Int): Int {
+        val n = buf.readVarInt()
+        if (n < 0 || n > max) throw IllegalArgumentException("잘못된 개수 $n")
+        return n
+    }
+
+    /** 팔레트 컨테이너를 읽어 값 배열로. 전부 공기(0)이거나 [keep] 이 false 면 null */
+    private fun readContainer(buf: ByteBuf, size: Int, minIndirect: Int, maxIndirect: Int, keep: Boolean): ShortArray? {
         val bits = buf.readUnsignedByte().toInt()
         if (bits == 0) {
             val v = buf.readVarInt()
-            val len = buf.readVarInt()
+            val len = count(buf, size)
             buf.skipBytes(len * 8)
-            return if (v == 0) null else ShortArray(size) { v.toShort() }
+            if (!keep || v == 0) return null
+            val value = v and 0xFFFF
+            return uniform.getOrPut(value) { ShortArray(size) { value.toShort() } }
         }
+        if (bits > 32) throw IllegalArgumentException("잘못된 비트 수 $bits")
         var palette: IntArray? = null
         val bpe: Int
         if (bits <= maxIndirect) {
             bpe = maxOf(bits, minIndirect)
-            palette = IntArray(buf.readVarInt()) { buf.readVarInt() }
+            palette = IntArray(count(buf, size)) { buf.readVarInt() }
         } else {
             bpe = bits
         }
-        val longs = LongArray(buf.readVarInt()) { buf.readLong() }
+        val longs = LongArray(count(buf, size)) { buf.readLong() }
+        if (!keep) return null
         val perLong = 64 / bpe
         val mask = (1L shl bpe) - 1
         val out = ShortArray(size)
@@ -167,6 +203,8 @@ class World {
         const val HALF = 0.3
         const val HEIGHT = 1.8
         const val EPS = 1e-4
+        /** 세계 높이 최대 4064칸 = 254 섹션 */
+        private const val MAX_SECTIONS = 256
     }
 }
 

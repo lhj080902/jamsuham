@@ -59,6 +59,8 @@ object StatusPinger {
             val id = readVarInt(bin)
             if (id != 0x00) throw IOException("예상하지 못한 응답 패킷 $id")
             val jsonLen = readVarInt(bin)
+            // 잘못되거나 악의적인 서버가 엉뚱한 길이를 보내도 큰 배열을 만들지 않게 받은 크기 안에서만 읽는다
+            if (jsonLen < 0 || jsonLen > body.size) throw IOException("잘못된 응답 길이 $jsonLen")
             val jsonBytes = ByteArray(jsonLen)
             bin.readFully(jsonBytes)
             return parse(String(jsonBytes, Charsets.UTF_8), latency)

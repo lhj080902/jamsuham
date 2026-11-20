@@ -7,6 +7,9 @@ import java.util.UUID
 data class JoinCredentials(val name: String, val uuid: UUID, val accessToken: String?) {
     val online: Boolean get() = accessToken != null
 
+    /** 로그나 오류 보고에 토큰이 그대로 남지 않도록 가린다 (data class 기본 toString 은 토큰을 그대로 찍는다) */
+    override fun toString(): String = "JoinCredentials(name=$name, uuid=$uuid, accessToken=${if (accessToken != null) "***" else "없음"})"
+
     companion object {
         fun offline(name: String) = JoinCredentials(
             name,

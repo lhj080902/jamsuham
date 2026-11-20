@@ -194,7 +194,8 @@ class AfkSession(
 
             val transfer = transferTo
             val target = if (transfer != null) {
-                AddressResolver.resolve("${transfer.first}:${transfer.second}", null)
+                // 서버가 정해 준 주소·포트를 그대로 쓴다 ("주소:포트" 글자로 합쳤다 다시 나누면 IPv6 주소에서 포트가 사라진다)
+                ResolvedTarget(transfer.first, transfer.second, transfer.first, transfer.second)
             } else {
                 setStatus(SessionState.PREPARING, "서버 주소 확인 중…")
                 AddressResolver.resolve(config.address, dns)
