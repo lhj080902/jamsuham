@@ -67,7 +67,8 @@ public class ViaPatcher {
         "com/viaversion/viarewind/fabric/",
     };
 
-    static final Set<String> SKIP_FILES = Set.of("plugin.yml", "paper-plugin.yml", "bungee.yml", "velocity-plugin.json", "fabric.mod.json");
+    static final Set<String> SKIP_FILES = Set.of("plugin.yml", "paper-plugin.yml", "bungee.yml", "velocity-plugin.json", "fabric.mod.json",
+        "META-INF/sponge_plugins.json", "LICENSE");
 
     static int patchedClasses = 0;
     static int patchedCalls = 0;
