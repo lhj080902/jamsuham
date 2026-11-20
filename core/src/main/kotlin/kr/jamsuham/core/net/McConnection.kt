@@ -96,6 +96,16 @@ class McConnection(
     // 열린 메뉴
     @Volatile private var menuId = -1
 
+    /** 이 서버가 정품 인증(모장 세션 서버)을 요구했는지 */
+    @Volatile var usedSessionServer = false
+        private set
+
+    /** 지금 있는 월드 이름 (예: minecraft:overworld, 멀티버스 월드면 minecraft:월드이름) */
+    @Volatile var worldName: String = ""
+        private set
+    private var invStateId = 0
+    private var useSequence = 1
+
     /** 서버 메뉴(상자 창)가 열려 있는지. 열려 있는 동안에는 접속 후 자동 명령어를 미룬다 */
     val hasOpenMenu: Boolean get() = menuId > 0
 
@@ -325,6 +335,7 @@ class McConnection(
         blocking.execute {
             try {
                 if (doJoin) {
+                    usedSessionServer = true
                     joinSession(credentials, serverHash(serverId, secret, publicKeyBytes))
                 }
                 val rsa = Cipher.getInstance("RSA/ECB/PKCS1Padding")
@@ -342,7 +353,11 @@ class McConnection(
                     ch.pipeline().addBefore(Pipe.FRAME, Pipe.ENCRYPT, EncryptHandler(secret))
                 }
             } catch (e: SessionJoinException) {
-                closeReason = if (e.tokenProblem) CloseReason.AuthFailed(e.message ?: "인증 실패") else CloseReason.Lost(e.message ?: "인증 실패")
+                closeReason = when {
+                    e.tokenProblem -> CloseReason.AuthFailed(e.message ?: "인증 실패")
+                    e.serviceDown -> CloseReason.ServiceDown(e.message ?: "모장 인증 서버 장애")
+                    else -> CloseReason.Lost(e.message ?: "인증 실패")
+                }
                 ch.close()
             } catch (t: Throwable) {
                 log.e("암호화 처리 실패", t)
@@ -417,6 +432,16 @@ class McConnection(
     private fun handlePlay(id: Int, buf: ByteBuf) {
         when (id) {
             PlayIn.LOGIN -> {
+                try {
+                    buf.readInt() // 엔티티 번호
+                    buf.readBoolean() // 하드코어
+                    repeat(buf.readVarInt()) { buf.readMcString() } // 월드 목록
+                    buf.readVarInt(); buf.readVarInt(); buf.readVarInt() // 최대 인원, 시야, 시뮬레이션 거리
+                    buf.readBoolean(); buf.readBoolean(); buf.readBoolean()
+                    buf.readVarInt() // 차원 종류
+                    worldName = buf.readMcString()
+                } catch (_: Exception) {
+                }
                 if (!joined) {
                     joined = true
                     events.onJoined()
@@ -458,6 +483,11 @@ class McConnection(
                 scheduleRespawn()
             }
             PlayIn.RESPAWN -> {
+                try {
+                    buf.readVarInt()
+                    worldName = buf.readMcString()
+                } catch (_: Exception) {
+                }
                 world.clear()
                 if (menuId > 0) clearMenu()
                 vy = 0.0
@@ -553,6 +583,7 @@ class McConnection(
                     menuSlots = Array(n) { i -> readMenuItem(buf, i) }
                     scheduleMenuFlush()
                 } else if (wid == 0) {
+                    invStateId = stateId
                     val n = buf.readVarInt()
                     for (i in 0 until n) {
                         val item = readMenuItem(buf, i)
@@ -570,6 +601,7 @@ class McConnection(
                     menuSlots[slot] = readMenuItem(buf, slot)
                     scheduleMenuFlush()
                 } else if (wid == 0 && slot in invSlots.indices) {
+                    invStateId = stateId
                     invSlots[slot] = readMenuItem(buf, slot)
                     scheduleInventoryFlush()
                 }
@@ -794,6 +826,51 @@ class McConnection(
                 it.writeVarInt(0) // 바뀐 칸 없음 (서버가 다시 보내 줌)
                 it.writeVarInt(0) // 커서에 든 아이템 없음
             }
+        }
+        return true
+    }
+
+    /**
+     * 인벤토리 아이템 우클릭 사용. [slot] 은 인벤토리 창 칸 번호 (36~44 핫바, 9~35 가방, 45 왼손).
+     * 핫바면 그 칸을 손에 들고, 가방이면 지금 든 핫바 칸과 바꾼 뒤 사용한다. 아무 스레드에서나 불러도 된다.
+     */
+    fun useItem(slot: Int): Boolean {
+        val ch = channel ?: return false
+        if (state != State.PLAY) return false
+        ch.eventLoop().execute {
+            var hand = 0
+            when (slot) {
+                in 36..44 -> {
+                    val hotbar = slot - 36
+                    if (hotbar != heldSlot) {
+                        send(PlayOut.SET_CARRIED_ITEM) { it.writeShort(hotbar) }
+                        heldSlot = hotbar
+                    }
+                }
+                in 9..35 -> {
+                    // 가방 칸과 지금 든 핫바 칸 바꾸기 (숫자 키 누르기와 같음)
+                    send(PlayOut.CONTAINER_CLICK) {
+                        it.writeVarInt(0)
+                        it.writeVarInt(invStateId)
+                        it.writeShort(slot)
+                        it.writeByte(heldSlot)
+                        it.writeVarInt(2) // SWAP
+                        it.writeVarInt(0)
+                        it.writeVarInt(0)
+                    }
+                }
+                45 -> hand = 1
+                else -> return@execute
+            }
+            ch.eventLoop().schedule({
+                if (state != State.PLAY) return@schedule
+                send(PlayOut.USE_ITEM) {
+                    it.writeVarInt(hand)
+                    it.writeVarInt(useSequence++)
+                    it.writeFloat(currentYaw)
+                    it.writeFloat(0f)
+                }
+            }, 150, TimeUnit.MILLISECONDS)
         }
         return true
     }
@@ -1068,7 +1145,7 @@ class McConnection(
 
     // ------------------------------------------------------------------ session server
 
-    private class SessionJoinException(message: String, val tokenProblem: Boolean) : Exception(message)
+    private class SessionJoinException(message: String, val tokenProblem: Boolean, val serviceDown: Boolean = false) : Exception(message)
 
     private fun joinSession(c: JoinCredentials, hash: String) {
         val token = c.accessToken ?: throw SessionJoinException("정품 계정이 아닙니다", true)
@@ -1089,13 +1166,13 @@ class McConnection(
                 throw SessionJoinException("마이크로소프트 인증이 만료됐거나 거부됐습니다 ($code) - 다시 로그인해 주세요", true)
             }
             if (code == 429) {
-                throw SessionJoinException("모장 인증 서버가 잠깐 요청을 막았습니다 (429, 짧은 시간에 접속을 너무 자주 시도함) - 잠시 뒤 다시 시도합니다", false)
+                throw SessionJoinException("모장 인증 서버가 잠깐 요청을 막았습니다 (429, 짧은 시간에 접속을 너무 자주 시도함)", false, serviceDown = true)
             }
             // 오류 내용이 웹페이지(HTML)이면 길기만 하고 쓸모없으므로 상태 코드만 보여 준다
             val detail = if (err.trimStart().startsWith("<")) "" else " " + err.take(120)
-            throw SessionJoinException("모장 인증 서버 오류 ($code)$detail", false)
+            throw SessionJoinException("모장 인증 서버 오류 ($code)$detail", false, serviceDown = code >= 500)
         } catch (e: IOException) {
-            throw SessionJoinException("세션 서버에 연결하지 못했습니다: ${describe(e)}", false)
+            throw SessionJoinException("모장 인증 서버에 연결하지 못했습니다: ${describe(e)}", false, serviceDown = true)
         } finally {
             conn.disconnect()
         }
@@ -1261,6 +1338,8 @@ internal object PlayOut {
     const val COMMAND_SUGGESTION = 0x0D
     const val CONFIGURATION_ACKNOWLEDGED = 0x0E
     const val CONTAINER_CLICK = 0x10
+    const val SET_CARRIED_ITEM = 0x33
+    const val USE_ITEM = 0x3D
     const val CONTAINER_CLOSE = 0x11
     const val COOKIE_RESPONSE = 0x13
     const val KEEP_ALIVE = 0x1A

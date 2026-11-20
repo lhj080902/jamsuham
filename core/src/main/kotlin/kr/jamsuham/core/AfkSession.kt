@@ -4,6 +4,7 @@ import com.viaversion.viaversion.api.protocol.version.ProtocolVersion
 import kr.jamsuham.core.net.AddressResolver
 import kr.jamsuham.core.net.ConnectionEvents
 import kr.jamsuham.core.net.McConnection
+import kr.jamsuham.core.net.MojangStatus
 import kr.jamsuham.core.net.RawDnsQuery
 import kr.jamsuham.core.net.StatusPinger
 import kr.jamsuham.core.text.ChatText
@@ -71,6 +72,14 @@ class AfkSession(
     private var detectedVersion: ProtocolVersion? = null
     private var transferTo: Pair<String, Int>? = null
     private var authRetried = false
+
+    /** 서버가 꺼져 있어 핑만 하며 기다린 횟수 (0 = 켜져 있음) */
+    private var offlineChecks = 0
+    /** 이 서버가 정품 인증을 요구하는지 (한 번 접속해 보면 알게 됨) */
+    private var serverRequiresAuth = false
+    /** 모장 인증 서버 장애를 감지함 → 복구 확인 전까지 접속 안 함 */
+    private var mojangDown = false
+    private var mojangChecks = 0
     private var generation = 0
     private var status = SessionStatus(SessionState.IDLE)
 
@@ -79,6 +88,8 @@ class AfkSession(
     fun start() = submit {
         userStopped = false
         failures = 0
+        offlineChecks = 0
+        mojangChecks = 0
         attempt()
     }
 
@@ -113,6 +124,9 @@ class AfkSession(
 
     /** 열린 메뉴의 칸 클릭 (왼쪽 클릭) */
     fun clickMenu(slot: Int): Boolean = connection?.clickMenuSlot(slot) ?: false
+
+    /** 인벤토리 아이템 우클릭 사용 */
+    fun useItem(slot: Int): Boolean = if (status.state == SessionState.ONLINE) connection?.useItem(slot) ?: false else false
 
     /** 열린 메뉴 닫기 */
     fun closeMenu() {
@@ -182,6 +196,22 @@ class AfkSession(
                 throw e
             }
 
+            // 정품 인증이 필요한 서버인데 모장 인증 서버가 죽어 있으면 접속해 봐야 실패하므로 기다린다
+            if (creds.online && (mojangDown || serverRequiresAuth)) {
+                setStatus(SessionState.PREPARING, "모장 인증 서버 확인 중…", version.name)
+                if (!MojangStatus.sessionServerUp()) {
+                    mojangDown = true
+                    mojangChecks++
+                    if (mojangChecks == 1) line(LogLine.Kind.SYSTEM, "모장 인증 서버에 문제가 있어 보여 접속하지 않고 복구될 때까지 기다립니다")
+                    val wait = longArrayOf(30, 60, 120, 180, 300)[(mojangChecks - 1).coerceAtMost(4)]
+                    scheduleCheck(wait, "모장 인증 서버 장애 · ${wait}초 뒤 다시 확인")
+                    return
+                }
+                if (mojangDown) line(LogLine.Kind.SYSTEM, "모장 인증 서버가 정상입니다. 접속합니다")
+                mojangDown = false
+                mojangChecks = 0
+            }
+
             setStatus(SessionState.CONNECTING, "접속 중… (${target.connectHost}:${target.connectPort})", version.name)
             generation++
             val conn = McConnection(target, version, creds, Events(generation), log, transferIntent = transfer != null, autoClickRules = config.autoClickRules)
@@ -196,30 +226,45 @@ class AfkSession(
         }
     }
 
-    /** 고정 버전이 있으면 그것, 없으면 서버 핑으로 감지. 결정할 수 없으면 null (세션은 멈춘다) */
+    /**
+     * 서버가 켜져 있는지 핑으로 먼저 확인하고 버전을 정한다.
+     * 꺼져 있으면(연결 거부·시간 초과) 접속 시도 없이 기다렸다가 다시 핑만 한다. 결정할 수 없으면 null.
+     */
     private fun resolveVersion(target: ResolvedTarget): ProtocolVersion? {
-        val fixed = config.fixedVersion
-        if (fixed != null) {
-            val v = ViaSetup.versionByName(fixed)
-            if (v == null) {
-                stopWithError("지원하지 않는 버전입니다: $fixed")
+        val fixed = config.fixedVersion?.let { name ->
+            ViaSetup.versionByName(name) ?: run {
+                stopWithError("지원하지 않는 버전입니다: $name")
                 return null
             }
-            return v
         }
-        setStatus(SessionState.PREPARING, "서버 버전 확인 중…")
+        setStatus(SessionState.PREPARING, if (offlineChecks > 0) "서버가 켜졌는지 확인 중…" else "서버 확인 중…")
         val ping = try {
-            StatusPinger.ping(target, ViaSetup.newestProtocol())
+            StatusPinger.ping(target, fixed?.version ?: ViaSetup.newestProtocol())
         } catch (e: Exception) {
-            // 핑이 안 되면 서버가 꺼졌거나 네트워크 문제. 전에 감지한 버전이 있으면 그걸로 시도
-            val cached = detectedVersion
-            if (cached != null) {
-                log.w("핑 실패, 이전에 감지한 ${cached.name} 로 시도: ${e.message}")
-                return cached
+            if (isUnreachable(e)) {
+                offlineChecks++
+                if (offlineChecks == 1) {
+                    line(LogLine.Kind.SYSTEM, "서버가 꺼져 있거나 응답이 없습니다 (${McConnection.describe(e)}). 켜질 때까지 접속하지 않고 확인만 합니다")
+                }
+                val max = config.maxBackoffSec.coerceAtLeast(10).toLong()
+                val wait = longArrayOf(10, 15, 30, 60)[(offlineChecks - 1).coerceAtMost(3)].coerceAtMost(max)
+                scheduleCheck(wait, "서버 꺼짐 · ${wait}초 뒤 다시 확인")
+                return null
             }
-            handleClosed(CloseReason.Lost("서버에 연결할 수 없습니다: ${McConnection.describe(e)}"))
+            // 연결은 되는데 목록 응답만 이상한 서버: 아는 버전이 있으면 그걸로 접속
+            val known = fixed ?: detectedVersion
+            if (known != null) {
+                log.w("핑 응답 이상, ${known.name} 로 시도: ${e.message}")
+                return known
+            }
+            handleClosed(CloseReason.Lost("서버 버전을 확인하지 못했습니다: ${McConnection.describe(e)}"))
             return null
         }
+        if (offlineChecks > 0) {
+            line(LogLine.Kind.SYSTEM, "서버가 켜졌습니다. 접속합니다")
+            offlineChecks = 0
+        }
+        if (fixed != null) return fixed
         val v = ViaSetup.versionForProtocol(ping.protocol)
         if (v == null) {
             stopWithError(
@@ -235,10 +280,23 @@ class AfkSession(
         return v
     }
 
+    private fun isUnreachable(e: Throwable): Boolean {
+        var t: Throwable? = e
+        while (t != null) {
+            if (t is java.net.ConnectException || t is java.net.SocketTimeoutException ||
+                t is java.net.NoRouteToHostException || t is java.net.UnknownHostException ||
+                t is java.io.EOFException
+            ) return true
+            t = t.cause
+        }
+        return false
+    }
+
     private inner class Events(private val gen: Int) : ConnectionEvents {
         override fun onJoined() = submit {
             onlineSince = System.currentTimeMillis()
             authRetried = false
+            if (connection?.usedSessionServer == true) serverRequiresAuth = true
             line(LogLine.Kind.SYSTEM, "서버에 들어갔습니다")
             setStatus(SessionState.ONLINE, "접속 중", detectedVersion?.name ?: config.fixedVersion)
             // 1분 이상 버티면 실패 횟수 초기화
@@ -306,6 +364,7 @@ class AfkSession(
     }
 
     private fun handleClosed(reason: CloseReason) {
+        if (connection?.usedSessionServer == true) serverRequiresAuth = true
         connection = null
         listener.onPlayers(PlayerList.EMPTY)
         listener.onMenu(null)
@@ -336,6 +395,13 @@ class AfkSession(
                 }
                 return
             }
+            is CloseReason.ServiceDown -> {
+                serverRequiresAuth = true
+                mojangDown = true
+                mojangChecks = 0
+                schedule(30)
+                return
+            }
             is CloseReason.Transfer -> {
                 transferTo = reason.host to reason.port
                 line(LogLine.Kind.SYSTEM, "서버가 ${reason.host}:${reason.port} 로 이동시킵니다")
@@ -364,12 +430,12 @@ class AfkSession(
         schedule(backoffSeconds(reason, failures))
     }
 
-    private fun schedule(delaySec: Long) {
+    private fun schedule(delaySec: Long, message: String = "${delaySec}초 뒤 다시 접속합니다") {
         pending?.cancel(false)
         val at = System.currentTimeMillis() + delaySec * 1000
         status = status.copy(
             state = SessionState.WAITING_RECONNECT,
-            message = "${delaySec}초 뒤 다시 접속합니다",
+            message = message,
             nextAttemptAtMs = at,
             onlineSinceMs = null,
             reconnectCount = reconnectCount,
@@ -377,6 +443,11 @@ class AfkSession(
         )
         listener.onStatus(status)
         pending = exec.schedule({ attempt() }, delaySec, TimeUnit.SECONDS)
+    }
+
+    /** 접속은 하지 않고 확인만 다시 하는 대기 (서버 꺼짐·모장 장애) */
+    private fun scheduleCheck(delaySec: Long, message: String) {
+        schedule(delaySec, message)
     }
 
     private fun backoffSeconds(reason: CloseReason, n: Int): Long {
@@ -443,6 +514,7 @@ class AfkSession(
             is CloseReason.Transfer -> "서버 이동: ${reason.host}:${reason.port}"
             is CloseReason.Fatal -> reason.message
             is CloseReason.AuthFailed -> reason.message
+            is CloseReason.ServiceDown -> "${reason.message} → 모장 인증 서버가 복구될 때까지 기다립니다"
         }
     }
 }

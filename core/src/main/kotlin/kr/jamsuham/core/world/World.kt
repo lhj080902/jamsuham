@@ -25,7 +25,12 @@ class World {
 
     data class Entity(val id: Int, val uuid: UUID, @Volatile var x: Double, @Volatile var y: Double, @Volatile var z: Double)
 
+    /** 블록이 바뀔 때마다 1씩 오른다 (미니맵이 다시 그릴지 판단용) */
+    @Volatile var version = 0L
+        private set
+
     fun clear() {
+        version++
         chunks.clear()
         players.clear()
     }
@@ -60,10 +65,12 @@ class World {
         if (by < minY || si >= c.sections.size) return
         val sec = c.sections[si] ?: ShortArray(4096).also { c.sections[si] = it }
         sec[(((by - minY) and 15) shl 8) or ((bz and 15) shl 4) or (bx and 15)] = state.toShort()
+        version++
     }
 
     fun unload(cx: Int, cz: Int) {
         chunks.remove(key(cx, cz))
+        version++
     }
 
     /** LEVEL_CHUNK_WITH_LIGHT 의 청크 데이터 부분 */
@@ -83,6 +90,7 @@ class World {
             else -> if (sections.size > 16) -64 else 0
         }
         chunks[key(cx, cz)] = Chunk(sections.toTypedArray())
+        version++
     }
 
     /** 팔레트 컨테이너를 읽어 값 배열로. 전부 공기(0)면 null */
@@ -180,4 +188,25 @@ object Collision {
     }
 
     val loaded: Boolean get() = table.isNotEmpty()
+}
+
+/** 미니맵 색: 1.21.4 블록 상태 번호 → ARGB (0 = 투명, 위에서 내려다볼 때 지나침) */
+object BlockColors {
+    private val table: IntArray by lazy {
+        try {
+            BlockColors::class.java.getResourceAsStream("/jamsuham/colors-1.21.4.bin")!!.use { raw ->
+                val d = java.io.DataInputStream(GZIPInputStream(raw).buffered())
+                IntArray(d.readInt()) { d.readInt() }
+            }
+        } catch (t: Throwable) {
+            IntArray(0)
+        }
+    }
+
+    fun of(state: Int): Int {
+        val t = table
+        if (state <= 0) return 0
+        if (state >= t.size) return 0xFF808080.toInt()
+        return t[state]
+    }
 }

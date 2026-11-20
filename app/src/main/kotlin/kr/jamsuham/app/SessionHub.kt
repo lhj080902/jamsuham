@@ -77,6 +77,8 @@ object SessionHub {
 
     fun clickMenu(serverId: String, slot: Int): Boolean = entries[serverId]?.session?.clickMenu(slot) ?: false
 
+    fun useItem(serverId: String, slot: Int): Boolean = entries[serverId]?.session?.useItem(slot) ?: false
+
     fun closeMenu(serverId: String) {
         entries[serverId]?.session?.closeMenu()
     }

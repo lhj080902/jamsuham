@@ -151,7 +151,19 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         listPane.addView(scroll, ui.lp(Ui.MATCH, 0, 1f).apply { topMargin = ui.dp(10) })
 
         val footer = ui.horizontal().apply { setPadding(0, ui.dp(6), 0, 0) }
-        footer.addView(ui.text("빌드 ${Updater.currentBuild(this)}", 12f, ui.p.muted), ui.lp(0, Ui.WRAP, 1f))
+        val buildLabel = ui.text("빌드 ${Updater.currentBuild(this)}" + if (Plan.isPremium(this)) " · 프리미엄(테스트)" else "", 12f, ui.p.muted)
+        var taps = 0
+        buildLabel.setOnClickListener {
+            // 결제를 붙이기 전 테스트용: 7번 누르면 프리미엄 켜기/끄기
+            if (++taps >= 7) {
+                taps = 0
+                val on = !Plan.isPremium(this)
+                Plan.setPremiumTest(this, on)
+                buildLabel.text = "빌드 ${Updater.currentBuild(this)}" + if (on) " · 프리미엄(테스트)" else ""
+                toast(if (on) "테스트용 프리미엄을 켰습니다 (동시 잠수 제한 없음)" else "테스트용 프리미엄을 껐습니다")
+            }
+        }
+        footer.addView(buildLabel, ui.lp(0, Ui.WRAP, 1f))
         footer.addView(ui.button("업데이트 확인", "ghost") { checkUpdate(manual = true) }, ui.lp(Ui.WRAP, ui.dp(36)))
         listPane.addView(footer, ui.lp())
     }

@@ -37,6 +37,17 @@ data class ServerEntry(
     )
 }
 
+/** 미니맵 위치 표식. world = 서버가 알려 준 월드 이름 (멀티버스 등 여러 월드 구분) */
+data class Waypoint(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val world: String,
+    val x: Int,
+    val y: Int,
+    val z: Int,
+    val color: Int,
+)
+
 /** 서버 목록, 채팅 기록, 실행 상태 같은 앱 데이터 */
 class Store(context: Context) {
     private val app = context.applicationContext
@@ -66,7 +77,29 @@ class Store(context: Context) {
 
     fun deleteServer(id: String) {
         writeServers(servers().filter { it.id != id })
-        sp.edit().remove("history_$id").apply()
+        sp.edit().remove("history_$id").remove("waypoints_$id").apply()
+    }
+
+    // ------------------------------------------------------------ 웨이포인트 (서버별)
+
+    fun waypoints(serverId: String): List<Waypoint> {
+        val json = sp.getString("waypoints_$serverId", null) ?: return emptyList()
+        return try {
+            gson.fromJson<List<Waypoint>>(json, object : TypeToken<List<Waypoint>>() {}.type) ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    fun saveWaypoint(serverId: String, wp: Waypoint) {
+        val list = waypoints(serverId).toMutableList()
+        val i = list.indexOfFirst { it.id == wp.id }
+        if (i >= 0) list[i] = wp else list.add(wp)
+        sp.edit().putString("waypoints_$serverId", gson.toJson(list)).apply()
+    }
+
+    fun deleteWaypoint(serverId: String, id: String) {
+        sp.edit().putString("waypoints_$serverId", gson.toJson(waypoints(serverId).filter { it.id != id })).apply()
     }
 
     private fun writeServers(list: List<ServerEntry>) {

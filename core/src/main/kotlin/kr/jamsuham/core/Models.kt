@@ -50,6 +50,9 @@ sealed class CloseReason {
     /** 마이크로소프트 토큰이 거부됨 (토큰 갱신 후 한 번 더 시도) */
     data class AuthFailed(val message: String) : CloseReason()
 
+    /** 모장 인증(세션) 서버 장애·과부하. 복구될 때까지 접속하지 않고 기다린다 */
+    data class ServiceDown(val message: String) : CloseReason()
+
     /** 다시 시도해도 소용없는 문제 (정품 필요 등) */
     data class Fatal(val message: String) : CloseReason()
 }

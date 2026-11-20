@@ -11,7 +11,9 @@ import android.widget.Toast
 /** 잠수 시작에 필요한 공통 처리 (계정 확인, 알림 권한) */
 abstract class BaseActivity : Activity(), Starter {
 
-    override fun startServer(serverId: String): Boolean {
+    override fun startServer(serverId: String): Boolean = startServer(serverId, checkLimit = true)
+
+    private fun startServer(serverId: String, checkLimit: Boolean): Boolean {
         val store = Store(this)
         val server = store.server(serverId) ?: return false
         if (server.address.isBlank()) {
@@ -25,6 +27,21 @@ abstract class BaseActivity : Activity(), Starter {
                 .setTitle("계정이 필요합니다")
                 .setMessage("이 서버에 접속할 계정을 서버 설정에서 골라 주세요.")
                 .setPositiveButton("서버 설정") { _, _ -> openEditor(serverId) }
+                .setNegativeButton("취소", null)
+                .show()
+            return false
+        }
+        // 무료 버전: 동시에 잠수할 수 있는 서버 수 제한
+        val others = SessionHub.activeIds() - serverId
+        if (checkLimit && others.size >= Plan.maxConcurrent(this)) {
+            val names = others.mapNotNull { store.server(it)?.displayName }.joinToString(", ")
+            AlertDialog.Builder(this)
+                .setTitle("동시 잠수는 ${Plan.FREE_CONCURRENT}개 서버까지")
+                .setMessage("무료 버전은 한 번에 ${Plan.FREE_CONCURRENT}개 서버에만 잠수할 수 있습니다.\n지금 잠수 중: $names\n\n그 서버를 끊고 '${server.displayName}'(으)로 바꿀까요?\n(여러 서버 동시 잠수는 프리미엄에서 제공할 예정입니다)")
+                .setPositiveButton("바꾸기") { _, _ ->
+                    for (id in others) AfkService.stop(this, id)
+                    startServer(serverId, checkLimit = false)
+                }
                 .setNegativeButton("취소", null)
                 .show()
             return false

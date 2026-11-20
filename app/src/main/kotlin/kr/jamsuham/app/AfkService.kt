@@ -87,7 +87,7 @@ class AfkService : Service() {
                     return START_NOT_STICKY
                 }
                 if (!goForeground()) return START_NOT_STICKY
-                for (id in resume) {
+                for (id in resume.take(Plan.maxConcurrent(this))) {
                     SessionHub.note(id, "앱이 시스템에 의해 종료됐다가 다시 실행되어 이어서 접속합니다")
                     begin(id)
                 }

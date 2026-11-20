@@ -12,8 +12,8 @@ import kr.jamsuham.core.Inventory
 import kr.jamsuham.core.MenuItem
 import kr.jamsuham.core.text.ChatText
 
-/** 채팅 화면의 "인벤" 페이지: 내 인벤토리에 뭐가 있는지 보기만 한다 (버리기·사용 없음) */
-class InventoryPanel(private val activity: Activity, private val ui: Ui) : LinearLayout(activity) {
+/** 채팅 화면의 "인벤" 페이지: 내 인벤토리 보기 + 아이템 우클릭 사용 (버리기·옮기기 없음) */
+class InventoryPanel(private val activity: Activity, private val ui: Ui, private val serverId: String) : LinearLayout(activity) {
 
     private val p = ui.p
     private val countView: TextView
@@ -29,7 +29,7 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui) : Linea
         elevation = ui.dp(8).toFloat()
         countView = ui.text("인벤토리", 16f, p.accent, bold = true)
         addView(countView)
-        addView(ui.hint("보기 전용입니다. 아이템을 누르면 설명이 펼쳐집니다."))
+        addView(ui.hint("아이템을 누르면 설명과 [사용] 버튼이 나옵니다. 사용 = 손에 들고 우클릭 한 번 (가방 아이템은 지금 든 핫바 칸과 바뀝니다)."))
         box = ui.vertical()
         scrollView = ScrollView(activity).apply { addView(box) }
         addView(scrollView, ui.lp(Ui.MATCH, 0, 1f).apply { topMargin = ui.dp(6) })
@@ -84,6 +84,16 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui) : Linea
             details.addView(ui.text(spans(l), 12f, p.muted))
         }
         details.addView(ui.text(item.itemId, 11f, p.muted))
+        if (item.slot in 9..45) {
+            details.addView(ui.button("사용 (우클릭)", "primary") {
+                if (SessionHub.useItem(serverId, item.slot)) {
+                    SessionHub.note(serverId, "아이템 사용: ${item.name.plain}")
+                    android.widget.Toast.makeText(activity, "'${item.name.plain}' 사용", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    android.widget.Toast.makeText(activity, "접속 중일 때만 쓸 수 있습니다", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }, ui.lp(Ui.WRAP, ui.dp(38)).apply { topMargin = ui.dp(6) })
+        }
         details.visibility = if (item.slot in expanded) VISIBLE else GONE
         row.addView(details)
         row.isClickable = true

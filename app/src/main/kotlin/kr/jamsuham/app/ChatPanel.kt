@@ -154,7 +154,7 @@ class ChatPanel(
         chatPage.addView(logCard, ui.lp(Ui.MATCH, 0, 1f))
         mapPage = MapPanel(activity, ui, serverId)
         playerPanel = PlayerPanel(activity, ui)
-        invPanel = InventoryPanel(activity, ui)
+        invPanel = InventoryPanel(activity, ui, serverId)
         pages = FrameLayout(activity)
         listOf<View>(chatPage, mapPage, invPanel, playerPanel).forEachIndexed { i, v ->
             v.visibility = if (i == 0) VISIBLE else GONE
@@ -173,7 +173,7 @@ class ChatPanel(
         list.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
         playerPanel.listView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
         invPanel.scrollView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); false }
-        mapPage.mapView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); true }
+        mapPage.mapView.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev); mapPage.mapView.touch(ev); true }
         styleTabs()
 
         // --- 자동완성 칩
