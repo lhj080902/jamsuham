@@ -396,7 +396,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
                 val current = Updater.currentBuild(this)
                 if (release != null && release.build > current) {
                     updateBanner = banner(
-                        "새 버전이 있어요 (${Updater.versionLabel(this, release.build)})",
+                        "새 버전이 있어요 (${Updater.versionLabel(release)})",
                         "지금 버전: ${Updater.versionLabel(this)}. 누르면 받아서 바로 설치합니다.",
                         "업데이트",
                     ) { startUpdate(release) }

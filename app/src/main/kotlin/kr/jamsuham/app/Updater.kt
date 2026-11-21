@@ -23,25 +23,22 @@ import java.net.URL
 object Updater {
     const val REPO = "lhj080902/jamsuham"
 
-    data class Release(val build: Int, val apkUrl: String, val size: Long, val notes: String, val page: String)
+    /** [version] = 릴리스 제목의 "v1.2.0" 부분 (예전 릴리스는 없음) */
+    data class Release(val build: Int, val apkUrl: String, val size: Long, val notes: String, val page: String, val version: String? = null)
 
     fun currentBuild(context: Context): Long {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         return if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
     }
 
-    /** 화면에 보여 줄 지금 버전 (예: "v1.1.13"). build.gradle.kts 의 versionName 그대로 */
+    /** 화면에 보여 줄 지금 버전 (예: "v1.2.0"). gradle.properties 의 jamsuham.version */
     fun versionLabel(context: Context): String {
         val name = context.packageManager.getPackageInfo(context.packageName, 0).versionName
         return "v" + (name ?: currentBuild(context).toString())
     }
 
-    /** 빌드 번호로 그 빌드의 버전 이름을 만든다 (versionName = "앞자리.빌드번호" 이므로 마지막 자리만 바꾼다) */
-    fun versionLabel(context: Context, build: Number): String {
-        val name = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: return "빌드 $build"
-        val prefix = name.substringBeforeLast('.', "")
-        return if (prefix.isEmpty()) "빌드 $build" else "v$prefix.$build"
-    }
+    /** 새 릴리스의 버전 (릴리스 제목에 버전이 있으면 "v1.2.0", 없으면 "빌드 N") */
+    fun versionLabel(release: Release): String = release.version?.let { "v$it" } ?: "빌드 ${release.build}"
 
     /** 최신 릴리스 정보. 네트워크 사용 - 백그라운드에서 호출 */
     @Throws(IOException::class)
@@ -66,6 +63,8 @@ object Updater {
                 size = asset.get("size")?.asLong ?: 0L,
                 notes = json.get("body")?.takeIf { !it.isJsonNull }?.asString ?: "",
                 page = json.get("html_url")?.asString ?: "https://github.com/$REPO/releases",
+                version = json.get("name")?.takeIf { !it.isJsonNull }?.asString
+                    ?.let { Regex("v(\\d+\\.\\d+\\.\\d+)").find(it)?.groupValues?.get(1) },
             )
         } finally {
             conn.disconnect()

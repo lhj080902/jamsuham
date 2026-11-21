@@ -28,6 +28,9 @@
   github 전용 권한·UpdateReceiver 는 `app/src/github/AndroidManifest.xml`
 - `main` 에 푸시하면 GitHub Actions(`.github/workflows/build.yml`)가 GitHub 판 APK 를 릴리스 `build-N` 으로 올리고(main 에서만),
   Play 판 AAB 는 아티팩트로 만든다. versionCode = 실행 번호. 다른 브랜치는 workflow_dispatch 로 빌드만 시험 가능(릴리스 게시 안 함)
+- **버전 규칙(주.부.수)**: 보이는 버전은 `gradle.properties` 의 `jamsuham.version` 을 직접 고친다. 변경을 올릴 때 함께 올릴 것
+  - 주(맨 앞): 엔진·구조 변경 / 부(가운데): 큰 기능·대규모 패치(수는 0) / 수(맨 뒤): 버그 수정·작은 변경
+  - versionCode 는 GitHub Actions 실행 번호(자동). 릴리스 제목 "잠수함 vX.Y.Z (빌드 #N)" 에서 앱이 버전을 읽어 업데이트 배너에 표시
 - 서명: GitHub 판은 저장소의 `app/debug.keystore`(공개). Play 판 release 는 Secrets 업로드 키(`docs/RELEASE_KEY.md`), 없으면 디버그 키
 - 출시 문서: `docs/PLAYSTORE_PLAN.md`(전체 과정), `docs/store-listing.md`(Play Console 입력 초안), `docs/privacy-policy.md`, 앱 "정보" 화면 `AppInfo.kt`
 - 로컬: `./gradlew :app:assembleGithubDebug` / `:app:bundlePlayRelease` (JDK 17, Android SDK 필요)

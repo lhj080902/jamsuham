@@ -26,7 +26,7 @@ object AppInfo {
 
     fun show(activity: Activity, ui: Ui) {
         val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
-        box.addView(ui.text("잠수함 " + Updater.versionLabel(activity) + if (Flavor.PLAY) "" else " (GitHub 판)", 15f, bold = true))
+        box.addView(ui.text("잠수함 " + Updater.versionLabel(activity) + " (빌드 ${Updater.currentBuild(activity)})" + if (Flavor.PLAY) "" else " · GitHub 판", 15f, bold = true))
         box.addView(ui.hint(
             "마인크래프트 공식 제품이 아닙니다. Mojang 또는 Microsoft 가 승인하거나 관련된 앱이 아닙니다.\n" +
                 "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
