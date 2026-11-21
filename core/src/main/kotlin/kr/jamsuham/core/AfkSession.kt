@@ -32,6 +32,8 @@ data class SessionConfig(
     val joinCommands: List<String> = emptyList(),
     /** 접속 후 첫 명령어까지 기다릴 시간 */
     val joinCommandDelaySec: Int = 3,
+    /** 자동 명령어 사이 간격 (서버가 명령어를 너무 빨리 보내면 무시하는 경우가 많아서 서버마다 조절) */
+    val joinCommandIntervalSec: Int = 3,
     /** 메뉴 자동 클릭 규칙 */
     val autoClickRules: List<AutoClickRule> = emptyList(),
 )
@@ -422,7 +424,9 @@ class AfkSession(
             val cmd = commands[i]
             val ok = conn?.sendChat(cmd) == true
             line(LogLine.Kind.SYSTEM, if (ok) "자동 실행: $cmd" else "자동 실행 실패: $cmd")
-            exec.schedule({ step(i + 1) }, 1500, TimeUnit.MILLISECONDS)
+            // 다음 명령어까지 서버별 간격만큼 기다린다 (최소 0.5초)
+            val intervalMs = (config.joinCommandIntervalSec.coerceIn(0, 120) * 1000L).coerceAtLeast(500L)
+            exec.schedule({ step(i + 1) }, intervalMs, TimeUnit.MILLISECONDS)
         }
         exec.schedule({ step(0) }, (firstAt - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS)
     }

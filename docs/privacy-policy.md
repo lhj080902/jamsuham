@@ -49,7 +49,7 @@
 ## 7. 문의
 개인정보 관련 문의는 아래로 연락해 주세요.
 - 저장소 이슈: https://github.com/lhj080902/jamsuham/issues
-- 이메일: (Play Console 의 공개 개발자 이메일로 바꿔 넣기)
+- 이메일: limhj080902@naver.com
 
 ## 8. 방침 변경
 이 방침이 바뀌면 이 페이지에 시행일과 함께 알립니다.

@@ -19,6 +19,8 @@ data class ServerEntry(
     val accountId: String? = null,
     val joinCommands: List<String> = emptyList(),
     val joinDelaySec: Int = 3,
+    /** 자동 명령어 사이 간격(초) */
+    val joinIntervalSec: Int = 3,
     val autoReconnect: Boolean = true,
     val reconnectOnKick: Boolean = true,
     /** 메뉴 자동 클릭 규칙 ("제목 > 아이템") */
@@ -33,6 +35,7 @@ data class ServerEntry(
         reconnectOnKick = reconnectOnKick,
         joinCommands = joinCommands.map { it.trim() }.filter { it.isNotEmpty() }.take(10),
         joinCommandDelaySec = joinDelaySec.coerceIn(0, 120),
+        joinCommandIntervalSec = joinIntervalSec.coerceIn(0, 120),
         autoClickRules = (autoClickRules ?: emptyList()).mapNotNull { kr.jamsuham.core.AutoClickRule.parse(it) },
     )
 }

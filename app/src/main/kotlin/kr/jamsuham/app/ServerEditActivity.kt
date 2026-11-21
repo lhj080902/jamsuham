@@ -29,6 +29,7 @@ class ServerEditActivity : BaseActivity() {
     private lateinit var accountSpinner: Spinner
     private lateinit var commandsInput: EditText
     private lateinit var delayInput: EditText
+    private lateinit var intervalInput: EditText
     private lateinit var rulesInput: EditText
     private lateinit var autoReconnect: Switch
     private lateinit var reconnectOnKick: Switch
@@ -112,8 +113,19 @@ class ServerEditActivity : BaseActivity() {
         delayRow.addView(delayInput, ui.lp(ui.dp(70), Ui.WRAP))
         delayRow.addView(ui.text("초", 14f).apply { setPadding(ui.dp(6), 0, 0, 0) })
         cmdCard.addView(delayRow, ui.lp())
-        cmdCard.addView(ui.hint("한 줄에 하나씩 적으면 접속·재접속할 때마다 차례로 보냅니다(명령어 사이 1.5초). " +
-            "재접속하면 로비로 돌아가는 서버에서 잠수 서버로 다시 이동할 때 쓰세요."))
+        val intervalRow = ui.horizontal().apply { setPadding(0, ui.dp(6), 0, 0) }
+        intervalRow.addView(ui.text("명령어 사이 간격", 14f), ui.lp(0, Ui.WRAP, 1f))
+        intervalInput = ui.input("3").apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            gravity = Gravity.CENTER
+            setText(s.joinIntervalSec.toString())
+        }
+        intervalRow.addView(intervalInput, ui.lp(ui.dp(70), Ui.WRAP))
+        intervalRow.addView(ui.text("초", 14f).apply { setPadding(ui.dp(6), 0, 0, 0) })
+        cmdCard.addView(intervalRow, ui.lp())
+        cmdCard.addView(ui.hint("한 줄에 하나씩 적으면 접속·재접속할 때마다 위에서부터 차례로 보냅니다. " +
+            "재접속하면 로비로 돌아가는 서버에서 잠수 서버로 다시 이동할 때 쓰세요.\n" +
+            "명령어가 가끔 무시되면 서버가 너무 빠른 입력을 막는 것이니 '명령어 사이 간격'을 늘려 주세요 (예: 5초)."))
         form.addView(cmdCard, ui.gap(10))
 
         // 메뉴 자동 클릭
@@ -206,6 +218,7 @@ class ServerEditActivity : BaseActivity() {
             accountId = pendingAccountId,
             joinCommands = commandsInput.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }.take(10),
             joinDelaySec = delayInput.text.toString().toIntOrNull()?.coerceIn(0, 120) ?: 3,
+            joinIntervalSec = intervalInput.text.toString().toIntOrNull()?.coerceIn(0, 120) ?: 3,
             autoClickRules = rulesInput.text.toString().lines().map { it.trim() }.filter { it.contains('>') }.take(20),
             autoReconnect = autoReconnect.isChecked,
             reconnectOnKick = reconnectOnKick.isChecked,

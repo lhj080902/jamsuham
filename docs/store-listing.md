@@ -44,9 +44,9 @@ NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR 
 ```
 
 **카테고리**: 앱 → 도구 (또는 커뮤니케이션)
-**연락처 이메일**: (공개용 개발자 이메일)
+**연락처 이메일**: limhj080902@naver.com
 **개인정보처리방침 URL**: `https://github.com/lhj080902/jamsuham/blob/main/docs/privacy-policy.md`
-(문서 맨 아래 "이메일" 칸을 공개용 개발자 이메일로 바꿔 두세요.)
+
 
 **그래픽**
 - 아이콘 512×512 PNG
