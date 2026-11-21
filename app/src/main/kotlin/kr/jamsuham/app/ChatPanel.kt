@@ -114,8 +114,12 @@ class ChatPanel(
         row.addView(statusDot, ui.lp(ui.dp(10), ui.dp(10)).apply { rightMargin = ui.dp(8); leftMargin = ui.dp(4) })
         val titles = ui.vertical()
         titleView = ui.marquee(ui.text("", 17f, bold = true))
-        clockView = ui.text("", 12f, p.muted).apply { setSingleLine(true) }
-        detailView = ui.marquee(ui.text("", 12f, p.muted))
+        clockView = ui.text("", 12f, p.muted).apply { setSingleLine(true); visibility = GONE }
+        // 상태·시간·재접속 횟수·버전을 한 줄에: 흐르지 않고 넘치면 끝을 "…" 로 줄인다 (따로 흐르며 엇갈리지 않게)
+        detailView = ui.text("", 12f, p.muted).apply {
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         titles.addView(titleView)
         val detailRow = ui.horizontal()
         detailRow.addView(clockView, ui.lp(Ui.WRAP, Ui.WRAP))
@@ -482,15 +486,14 @@ class ChatPanel(
         val (label, color) = stateLabel(s.state)
         (statusDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
         val now = System.currentTimeMillis()
-        // 1초마다 바뀌는 시간은 따로 두고, 나머지는 바뀔 때만 갱신 (긴 글씨가 흐르다 처음으로 튀지 않게)
-        clockView.setTextIfChanged(
+        val parts = ArrayList<String>()
+        parts.add(
             when (s.state) {
-                SessionState.ONLINE -> s.onlineSinceMs?.let { "$label · ${Formats.clock(now - it)} · " } ?: "$label · "
-                SessionState.WAITING_RECONNECT -> "$label · ${(((s.nextAttemptAtMs ?: now) - now).coerceAtLeast(0) / 1000)}초 뒤 · "
-                else -> "$label · "
+                SessionState.ONLINE -> s.onlineSinceMs?.let { "$label · ${Formats.clock(now - it)}" } ?: label
+                SessionState.WAITING_RECONNECT -> "$label · ${(((s.nextAttemptAtMs ?: now) - now).coerceAtLeast(0) / 1000)}초 뒤"
+                else -> label
             },
         )
-        val parts = ArrayList<String>()
         if ((s.state == SessionState.PREPARING || s.state == SessionState.CONNECTING) && s.message.isNotBlank()) parts.add(s.message)
         if (s.reconnectCount > 0) parts.add("재접속 ${s.reconnectCount}회")
         s.serverVersion?.let { parts.add(it) }
@@ -588,7 +591,8 @@ class ChatPanel(
     private inner class ChatLinkSpan(val span: kr.jamsuham.core.text.ChatSpan) : ClickableSpan() {
         override fun onClick(widget: View) = onChatClick(span)
         override fun updateDrawState(ds: TextPaint) {
-            ds.isUnderlineText = true
+            // 링크만 밑줄. 서버가 거의 모든 채팅에 설명·귓속말 버튼을 붙이는 경우가 많아서, 다 밑줄을 그으면 읽기 어렵다
+            ds.isUnderlineText = span.click?.action == kr.jamsuham.core.text.ChatClick.Action.OPEN_URL
         }
     }
 
@@ -609,12 +613,20 @@ class ChatPanel(
         when (ev.action) {
             android.view.MotionEvent.ACTION_DOWN -> {
                 pressedLink = link
+                pressedAt = ev.eventTime
                 link != null
             }
             android.view.MotionEvent.ACTION_UP -> {
                 val hit = link != null && link === pressedLink
                 pressedLink = null
-                if (hit) link!!.onClick(tv)
+                if (hit) {
+                    val long = ev.eventTime - pressedAt >= LONG_PRESS_MS
+                    val hover = link!!.span.hover
+                    // 길게 누르면 설명 글, 짧게 누르면 클릭 동작 (클릭 동작이 없으면 짧게 눌러도 아무 일 없음)
+                    if (long && hover != null) showHover(link.span.text, hover)
+                    else if (!long && link.span.click != null) link.onClick(tv)
+                    else if (long) link.onClick(tv)
+                }
                 hit
             }
             android.view.MotionEvent.ACTION_CANCEL -> {
@@ -625,14 +637,12 @@ class ChatPanel(
         }
     }
     private var pressedLink: ChatLinkSpan? = null
+    private var pressedAt = 0L
+    private val LONG_PRESS_MS = 450L
 
     /** 채팅 글자를 눌렀을 때: 링크 열기(확인) · 명령어 보내기 · 입력창에 넣기 · 복사 · 설명 보기 */
     private fun onChatClick(span: kr.jamsuham.core.text.ChatSpan) {
-        val click = span.click
-        if (click == null) {
-            span.hover?.let { showHover(span.text, it) }
-            return
-        }
+        val click = span.click ?: return
         when (click.action) {
             kr.jamsuham.core.text.ChatClick.Action.OPEN_URL -> {
                 val url = click.value.trim()

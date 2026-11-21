@@ -12,7 +12,8 @@ object Plan {
 
     private fun prefs(c: Context) = c.getSharedPreferences("plan", Context.MODE_PRIVATE)
 
-    fun isPremium(c: Context): Boolean = prefs(c).getBoolean("premium_test", false)
+    // Play 판은 결제를 붙이기 전까지 테스트 토글을 쓰지 않는다 (예전에 켜 둔 값도 무시)
+    fun isPremium(c: Context): Boolean = !Flavor.PLAY && prefs(c).getBoolean("premium_test", false)
 
     fun setPremiumTest(c: Context, on: Boolean) {
         prefs(c).edit().putBoolean("premium_test", on).apply()

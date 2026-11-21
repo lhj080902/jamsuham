@@ -20,21 +20,38 @@ android {
     }
 
     signingConfigs {
-        // 고정 디버그 키: 빌드할 때마다 키가 바뀌면 새 버전을 덮어 설치할 수 없어서 저장소에 넣어 둔다
+        // 고정 디버그 키: 빌드할 때마다 키가 바뀌면 새 버전을 덮어 설치할 수 없어서 저장소에 넣어 둔다 (GitHub 판 전용)
         getByName("debug") {
             storeFile = file("debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Play 업로드 키: 저장소에 넣지 않고 GitHub Actions Secrets 로 받는다 (docs/RELEASE_KEY.md)
+        val uploadStore = System.getenv("JAMSUHAM_UPLOAD_STORE")
+        if (!uploadStore.isNullOrBlank() && file(uploadStore).exists()) {
+            create("upload") {
+                storeFile = file(uploadStore)
+                storePassword = System.getenv("JAMSUHAM_UPLOAD_STORE_PASSWORD")
+                keyAlias = System.getenv("JAMSUHAM_UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("JAMSUHAM_UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+
+    // github = 지금처럼 GitHub 릴리스로 배포 (앱 안 업데이트 포함) / play = Google Play 용 (앱 안 업데이트·설치 권한 없음)
+    flavorDimensions += "store"
+    productFlavors {
+        create("github") { dimension = "store" }
+        create("play") { dimension = "store" }
     }
 
     buildTypes {
         release {
             // ViaVersion 은 리플렉션/리소스를 많이 써서 코드 축소를 끈다
             isMinifyEnabled = false
-            // 개인용 빌드: 디버그 키로 서명 (스토어 배포 시 별도 키로 바꿀 것)
-            signingConfig = signingConfigs.getByName("debug")
+            // 업로드 키가 있으면 그걸로, 없으면 디버그 키로 (디버그 키로 서명한 AAB 는 Play 에 올릴 수 없음)
+            signingConfig = signingConfigs.findByName("upload") ?: signingConfigs.getByName("debug")
         }
     }
 

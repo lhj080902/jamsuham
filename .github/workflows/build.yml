@@ -11,6 +11,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Play 업로드 키 Secrets 가 등록돼 있으면 Play 판 AAB 를 그 키로 서명한다 (docs/RELEASE_KEY.md)
+      HAS_UPLOAD_KEY: ${{ secrets.UPLOAD_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,22 +24,45 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build APK
+      - name: Build APK (GitHub 판)
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+          ./gradlew --no-daemon --stacktrace :app:assembleGithubDebug
 
-      - name: Upload artifact
+      - name: Upload artifact (GitHub 판 APK)
         uses: actions/upload-artifact@v4
         with:
           name: jamsuham-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/github/debug/*.apk
+
+      - name: Prepare upload key (Play 판)
+        if: env.HAS_UPLOAD_KEY == 'true'
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+        run: echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+
+      - name: Build AAB (Play 판)
+        env:
+          JAMSUHAM_UPLOAD_STORE: ${{ env.HAS_UPLOAD_KEY == 'true' && format('{0}/upload.jks', runner.temp) || '' }}
+          JAMSUHAM_UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          JAMSUHAM_UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          JAMSUHAM_UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon --stacktrace :app:bundlePlayRelease
+
+      - name: Upload artifact (Play 판 AAB)
+        uses: actions/upload-artifact@v4
+        with:
+          # 업로드 키가 없으면 디버그 키로 서명돼 Play 에는 올릴 수 없다 (빌드 확인용)
+          name: ${{ env.HAS_UPLOAD_KEY == 'true' && 'jamsuham-play-aab' || 'jamsuham-play-aab-UNSIGNED-debugkey' }}
+          path: app/build/outputs/bundle/playRelease/*.aab
 
       - name: Publish to Releases
+        # 다른 브랜치에서 수동 실행했을 때 폰들이 그 빌드로 업데이트되지 않도록 main 에서만 게시
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk jamsuham.apk
+          cp app/build/outputs/apk/github/debug/app-github-debug.apk jamsuham.apk
           TAG="build-${{ github.run_number }}"
           gh release create "$TAG" jamsuham.apk \
             --target "${{ github.sha }}" \

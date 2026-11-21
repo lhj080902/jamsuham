@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GitHub 판 전용: 앱 안 업데이트(설치 권한·설치 결과 수신)와 배터리 최적화 예외 직접 요청. Play 판에는 들어가지 않는다 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application>
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
+    </application>
+</manifest>

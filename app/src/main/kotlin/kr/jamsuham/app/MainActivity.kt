@@ -156,7 +156,8 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         val buildLabel = ui.text(version + if (Plan.isPremium(this)) " · 프리미엄(테스트)" else "", 11f, ui.p.muted)
         var taps = 0
         buildLabel.setOnClickListener {
-            // 결제를 붙이기 전 테스트용: 7번 누르면 프리미엄 켜기/끄기
+            // 결제를 붙이기 전 테스트용: 7번 누르면 프리미엄 켜기/끄기 (GitHub 판만. Play 판에는 없음)
+            if (Flavor.PLAY) return@setOnClickListener
             if (++taps >= 7) {
                 taps = 0
                 val on = !Plan.isPremium(this)
@@ -166,7 +167,9 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             }
         }
         footer.addView(buildLabel, ui.lp(0, Ui.WRAP, 1f))
-        footer.addView(ui.button("업데이트 확인", "ghost") { checkUpdate(manual = true) }, ui.lp(Ui.WRAP, ui.dp(36)))
+        footer.addView(ui.button("정보", "ghost") { AppInfo.show(this, ui) }, ui.lp(Ui.WRAP, ui.dp(36)))
+        // Play 판은 Play 스토어가 업데이트하므로 앱 안 업데이트 버튼이 없다
+        if (!Flavor.PLAY) footer.addView(ui.button("업데이트 확인", "ghost") { checkUpdate(manual = true) }, ui.lp(Ui.WRAP, ui.dp(36)))
         listPane.addView(footer, ui.lp())
     }
 
@@ -354,6 +357,16 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
     }
 
     private fun requestBatteryExemption() {
+        if (Flavor.PLAY) {
+            // Play 판: 예외를 직접 요청하지 않고 설정 화면으로 안내만 한다 (Play 정책상 직접 요청은 허용 용도가 제한됨)
+            toast("목록에서 '잠수함'을 찾아 '최적화 안 함'(또는 '제한 없음')으로 바꿔 주세요")
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (_: Throwable) {
+                toast("설정 화면을 열 수 없습니다")
+            }
+            return
+        }
         try {
             @Suppress("BatteryLife")
             startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
@@ -367,6 +380,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
     }
 
     private fun checkUpdate(manual: Boolean) {
+        if (Flavor.PLAY) return
         val now = System.currentTimeMillis()
         if (!manual && now - store.lastUpdateCheck < 10 * 60 * 1000) return
         store.lastUpdateCheck = now
