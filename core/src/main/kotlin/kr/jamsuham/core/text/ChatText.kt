@@ -84,7 +84,8 @@ data class ChatText(val spans: List<ChatSpan>) {
         )
 
         /** 글 속의 http(s) 주소 (서버가 클릭 동작을 안 붙여도 눌러서 열 수 있게) */
-        private val URL_REGEX = Regex("https?://[^\\s<>\"]+[^\\s<>\".,;:!?)\\]}'\u3002]")
+        // URL 에 쓰는 ASCII 문자만 (뒤에 붙은 한글 "…에서" 같은 글자가 주소에 섞이지 않게), 끝의 문장부호는 뺀다
+        private val URL_REGEX = Regex("https?://[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]*[A-Za-z0-9\\-_~/#=&%+@]")
 
         /** 스타일을 붙여 한 조각 추가. 클릭 동작이 없는 글은 http 주소 부분만 링크로 나눈다 */
         private fun addSpan(text: String, style: Style, out: MutableList<ChatSpan>) {
@@ -172,7 +173,7 @@ data class ChatText(val spans: List<ChatSpan>) {
             val fallback = obj.get("fallback")?.asStringSafe()
             val args: JsonArray = obj.getAsJsonArray("with") ?: obj.getAsJsonArray("args") ?: JsonArray()
             // 번역표에 없는 사망 메시지는 "누구님이 무엇에 의해 사망했습니다 (원인)" 으로 만든다 (키가 그대로 보이지 않게)
-            if (key.startsWith("death.") && Translations.get(key) == null) {
+            if ((key.startsWith("death.attack.") || key.startsWith("death.fell.")) && !key.endsWith(".link") && Translations.get(key) == null) {
                 val plains = (0 until args.size()).map { i ->
                     val tmp = ArrayList<ChatSpan>()
                     val a = args[i]
@@ -326,6 +327,7 @@ object Translations {
         "disconnect.genericReason" to "%s",
         "disconnect.disconnected" to "서버와 연결이 끊어졌습니다",
         "chat.square_brackets" to "[%s]",
+        "death.attack.badRespawnPoint.link" to "의도적인 게임 디자인",
         "chat.disabled.missingProfileKey" to "채팅이 꺼져 있습니다: 이 서버는 서명된 채팅이 필요합니다 (명령어는 사용 가능)",
         "chat.disabled.options" to "채팅이 꺼져 있습니다",
     )

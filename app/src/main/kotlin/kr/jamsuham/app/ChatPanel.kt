@@ -88,6 +88,8 @@ class ChatPanel(
     private val chipRow: LinearLayout
     private val input: EditText
     private val adapter = LineAdapter()
+    /** 좌우로 밀어 페이지 넘기기 (링크 위에서 밀어도 넘어가도록 링크 터치 처리에서도 같이 씀) */
+    private lateinit var swipe: GestureDetector
 
     private var historyIndex = -1 // -1 = 입력 중인 새 글
     private var draft = ""
@@ -192,7 +194,7 @@ class ChatPanel(
         }
         addView(pages, ui.lp(Ui.MATCH, 0, 1f).apply { topMargin = ui.dp(8) })
 
-        val swipe = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
+        swipe = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 if (abs(vx) < ui.dp(400) || abs(vx) < abs(vy) * 1.5f) return false
@@ -602,6 +604,8 @@ class ChatPanel(
      */
     private val LinkTouch = View.OnTouchListener { v, ev ->
         val tv = v as TextView
+        // 줄이 터치를 가져가도 좌우 넘기기는 되게 한다
+        if (::swipe.isInitialized) swipe.onTouchEvent(ev)
         val text = tv.text as? Spanned ?: return@OnTouchListener false
         val layout = tv.layout ?: return@OnTouchListener false
         val x = ev.x.toInt() - tv.totalPaddingLeft + tv.scrollX
@@ -614,10 +618,15 @@ class ChatPanel(
             android.view.MotionEvent.ACTION_DOWN -> {
                 pressedLink = link
                 pressedAt = ev.eventTime
+                downX = ev.x
+                downY = ev.y
                 link != null
             }
             android.view.MotionEvent.ACTION_UP -> {
-                val hit = link != null && link === pressedLink
+                // 손가락을 움직였으면(밀기) 누른 것으로 보지 않는다
+                val slop = android.view.ViewConfiguration.get(tv.context).scaledTouchSlop
+                val moved = abs(ev.x - downX) > slop || abs(ev.y - downY) > slop
+                val hit = link != null && link === pressedLink && !moved
                 pressedLink = null
                 if (hit) {
                     val long = ev.eventTime - pressedAt >= LONG_PRESS_MS
@@ -637,6 +646,8 @@ class ChatPanel(
         }
     }
     private var pressedLink: ChatLinkSpan? = null
+    private var downX = 0f
+    private var downY = 0f
     private var pressedAt = 0L
     private val LONG_PRESS_MS = 450L
 

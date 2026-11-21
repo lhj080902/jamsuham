@@ -551,6 +551,7 @@ class McConnection(
                     13 -> if (buf.readBoolean()) buf.skipBytes(16)
                     16 -> buf.readAnonymousTag()
                     30 -> buf.skipBytes(16) // 쿼터니언
+                    18 -> if (buf.readVarInt() != 0) return // 효과 입자 목록: 빈 목록(효과가 끝남)만 건너뛸 수 있음
                     else -> return
                 }
             }
@@ -619,7 +620,9 @@ class McConnection(
             PlayIn.PLAYER_COMBAT_KILL -> {
                 buf.readVarInt()
                 val death = DeathMessages.parse(buf.readAnonymousTag())
-                events.onInfo("☠ 사망했습니다 · ${death.describe()}")
+                // 바닐라 서버는 같은 사망 메시지를 채팅으로도 보내므로, 서버가 메시지를 비워 보낸 경우에만 안내 줄을 남긴다
+                // (자세한 내용은 화면 위 사망 알림 줄·상태 탭에 나옴)
+                if (death.message.isNullOrBlank()) events.onInfo("☠ 사망했습니다 · ${death.describe()}")
                 events.onDeath(death)
                 scheduleRespawn()
             }
@@ -632,6 +635,8 @@ class McConnection(
                 }
                 world.clear()
                 applyDimension(dimType)
+                // 리스폰하면 새 캐릭터라 흡수 체력(노란 하트)은 0 에서 시작한다 (서버는 기본값 0 을 따로 보내지 않음)
+                if (vitalsKnown && vitals.absorption > 0f) publishVitals(vitals.copy(absorption = 0f))
                 if (menuId > 0) clearMenu()
                 vy = 0.0
                 needPlayerLoaded = true

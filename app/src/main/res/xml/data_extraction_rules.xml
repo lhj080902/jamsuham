@@ -3,15 +3,18 @@
     안드로이드 12+ 백업·기기 이전 규칙.
     마이크로소프트 로그인 토큰(files/accounts/)과 계정 목록은 클라우드 백업·새 폰 이전 모두에서 뺀다.
     (토큰은 이 기기의 Keystore 키로 암호화돼 있어 다른 기기로 옮겨도 열 수 없고, 평문 토큰이 새어 나가는 것도 막는다)
+    채팅 기록(files/chatlogs/)도 개인정보이고 용량이 커서(자동 백업은 25MB 를 넘으면 앱 백업 전체를 건너뜀) 뺀다.
     서버 목록 같은 일반 설정은 새 폰으로 그대로 옮겨진다.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="accounts/" />
+        <exclude domain="file" path="chatlogs/" />
         <exclude domain="sharedpref" path="jamsuham_accounts.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="accounts/" />
+        <exclude domain="file" path="chatlogs/" />
         <exclude domain="sharedpref" path="jamsuham_accounts.xml" />
     </device-transfer>
 </data-extraction-rules>

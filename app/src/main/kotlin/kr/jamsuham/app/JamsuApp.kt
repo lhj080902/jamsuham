@@ -76,6 +76,42 @@ object MenuNotifier {
     }
 }
 
+/** 앱을 안 보고 있을 때 죽으면 알림. 누르면 그 서버 채팅 화면이 열린다 */
+object DeathNotifier {
+    private const val CHANNEL = "death"
+
+    private fun id(serverId: String) = 200_000 + (serverId.hashCode() and 0xffff) // 메뉴 알림·업데이트 알림과 겹치지 않게
+
+    fun show(context: Context, serverId: String, death: kr.jamsuham.core.DeathInfo) {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "사망 알림", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "잠수 중 캐릭터가 죽었을 때"
+        })
+        val name = Store(context).server(serverId)?.displayName ?: "서버"
+        val open = PendingIntent.getActivities(
+            context, id(serverId),
+            arrayOf(
+                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                Intent(context, ChatActivity::class.java).putExtra(ChatActivity.EXTRA_ID, serverId),
+            ),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val icon = context.resources.getIdentifier("ic_stat_afk", "drawable", context.packageName).takeIf { it != 0 }
+            ?: android.R.drawable.stat_notify_error
+        val n = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(icon)
+            .setContentTitle("$name · 사망했습니다")
+            .setContentText(death.describe())
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        try {
+            nm.notify(id(serverId), n)
+        } catch (_: SecurityException) {
+        }
+    }
+}
+
 object Formats {
     fun duration(ms: Long): String {
         val total = (ms / 1000).coerceAtLeast(0)

@@ -124,6 +124,18 @@ object SessionHub {
         e.token = myToken
         e.session?.shutdown()
         e.lines.clear()
+        // 이전 세션의 체력·메뉴·인벤·접속자가 새 접속에 남아 보이지 않게 비운다
+        // (토큰을 먼저 바꿔서 이전 세션의 "비움" 알림은 무시되므로 여기서 직접 비움)
+        e.vitals = null
+        e.menu = null
+        e.inventory = Inventory.EMPTY
+        e.players = PlayerList.EMPTY
+        for (o in observers.toList()) {
+            o.onVitals(serverId, null)
+            o.onMenu(serverId, null)
+            o.onInventory(serverId, Inventory.EMPTY)
+            o.onPlayers(serverId, PlayerList.EMPTY)
+        }
         val listener = object : SessionListener {
             override fun onStatus(status: SessionStatus) {
                 main.post { if (e.token === myToken) publishStatus(serverId, status) }
@@ -175,6 +187,8 @@ object SessionHub {
                     if (e.token === myToken) {
                         e.lastDeath = death
                         for (o in observers.toList()) o.onDeath(serverId, death)
+                        // 앱을 안 보고 있을 때 죽으면 알림으로 알려 준다
+                        if (!JamsuApp.inForeground) DeathNotifier.show(appContext, serverId, death)
                     }
                 }
             }

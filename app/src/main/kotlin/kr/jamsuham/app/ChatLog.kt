@@ -28,12 +28,20 @@ object ChatLog {
 
     private fun dir(serverId: String) = File(root, serverId.replace(Regex("[^A-Za-z0-9_-]"), "_"))
 
+    /** 마지막으로 쓴 날짜 (날짜가 바뀌면 오래된 기록을 정리. 앱이 몇 주씩 켜져 있어도 30일 규칙이 지켜지게) */
+    private var lastDay = ""
+
     fun append(serverId: String, line: LogLine) {
         if (!::root.isInitialized) return
         writer.execute {
             try {
+                val day = dayFmt.get()!!.format(Date(line.timeMs))
+                if (day != lastDay) {
+                    if (lastDay.isNotEmpty()) cleanup()
+                    lastDay = day
+                }
                 val d = dir(serverId).apply { mkdirs() }
-                val f = File(d, dayFmt.get()!!.format(Date(line.timeMs)) + ".txt")
+                val f = File(d, "$day.txt")
                 f.appendText(format(line) + "\n", Charsets.UTF_8)
             } catch (t: Throwable) {
                 SessionHub.log.w("채팅 기록 저장 실패", t)
