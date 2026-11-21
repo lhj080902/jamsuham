@@ -23,10 +23,14 @@
     `AccountStore`(MS 토큰은 files/accounts/ 에 Keystore AES-GCM 으로 암호화 저장 `TokenCrypto`, 예전 평문도 읽음. 백업·기기 이전에서 제외 `res/xml/data_extraction_rules.xml`), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
 
 ## 빌드·배포
-- `main` 에 푸시하면 GitHub Actions(`.github/workflows/build.yml`)가 APK 를 만들고 릴리스 `build-N` 으로 올린다.
-  versionCode = 실행 번호. 폰의 앱은 시작할 때 최신 릴리스를 확인해 업데이트 배너를 띄운다.
-- 서명은 저장소의 `app/debug.keystore` (업데이트가 덮어써지도록 고정). 플레이스토어 출시 때는 비공개 키로 바꿔야 함
-- 로컬: `./gradlew :app:assembleDebug` (JDK 17, Android SDK 필요)
+- 빌드 종류(productFlavors): **github**(GitHub 릴리스 배포, 앱 안 업데이트·배터리 예외 직접 요청·프리미엄 테스트 토글 있음)
+  / **play**(Google Play 용, 위 기능 없음). 판별은 `Flavor.PLAY` (`app/src/<flavor>/kotlin/.../Flavor.kt`),
+  github 전용 권한·UpdateReceiver 는 `app/src/github/AndroidManifest.xml`
+- `main` 에 푸시하면 GitHub Actions(`.github/workflows/build.yml`)가 GitHub 판 APK 를 릴리스 `build-N` 으로 올리고(main 에서만),
+  Play 판 AAB 는 아티팩트로 만든다. versionCode = 실행 번호. 다른 브랜치는 workflow_dispatch 로 빌드만 시험 가능(릴리스 게시 안 함)
+- 서명: GitHub 판은 저장소의 `app/debug.keystore`(공개). Play 판 release 는 Secrets 업로드 키(`docs/RELEASE_KEY.md`), 없으면 디버그 키
+- 출시 문서: `docs/PLAYSTORE_PLAN.md`(전체 과정), `docs/store-listing.md`(Play Console 입력 초안), `docs/privacy-policy.md`, 앱 "정보" 화면 `AppInfo.kt`
+- 로컬: `./gradlew :app:assembleGithubDebug` / `:app:bundlePlayRelease` (JDK 17, Android SDK 필요)
 
 ## 테스트 (PC)
 - `tools/test-server/server.js <버전> <포트>` — node-minecraft-protocol 가짜 서버 (`npm install` 후).
@@ -47,7 +51,8 @@
 ## 해결 못 한 것 / 다음 할 일
 - **도스온라인 리소스팩 창**: 실제 클라이언트에는 상자 창이 뜨는데 앱에는 "서버 메뉴 열림" 이 안 온다. 접속 직후 채팅 로그 확인 필요
 - **플레이스토어 출시 준비**: 개발자 계정(만 18세 이상 명의), 테스터 12명·14일, 비공개 서명 키, 앱 안 업데이트(REQUEST_INSTALL_PACKAGES) 빼기,
-  개인정보처리방침, 포그라운드 서비스 신고, Play 결제로 `Plan.isPremium` 연결 (지금은 첫 화면 아래 버전 글씨 "v1.1.N" 을 7번 누르면 켜지는 테스트 토글 → 출시 전에 제거)
+  포그라운드 서비스 신고(문구는 store-listing.md), Play 결제로 `Plan.isPremium` 연결 (GitHub 판만 버전 글씨 7번 테스트 토글, Play 판은 항상 무료),
+  자체 MS client ID(Mojang 승인) — Play 판 빌드 분리·정보 화면·개인정보처리방침은 완료
 - **라이선스**: ViaVersion 은 GPL-3.0 → 앱에 넣어 배포하면 앱 소스도 GPL 로 공개해야 함
 - **iOS**: 아이폰은 백그라운드에서 연결을 유지할 수 없어서, 클라우드 서버가 접속을 유지하고 앱은 화면만 보여 주는 구조가 필요
   (core 를 서버 쪽에 두면 GPL 배포 문제도 줄어듦)
