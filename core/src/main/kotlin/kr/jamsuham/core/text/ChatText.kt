@@ -9,7 +9,29 @@ import com.viaversion.nbt.tag.Tag
 import com.viaversion.viaversion.util.ComponentUtil
 
 /** 화면에 그릴 수 있게 정리한 한 줄의 채팅. color 는 0xRRGGBB, 없으면 null. */
-data class ChatSpan(val text: String, val color: Int? = null, val bold: Boolean = false, val italic: Boolean = false)
+/** 채팅 글자를 눌렀을 때 할 일 (서버가 보낸 clickEvent, 또는 글 속 http 주소) */
+data class ChatClick(val action: Action, val value: String) {
+    enum class Action {
+        /** 브라우저로 주소 열기 */
+        OPEN_URL,
+        /** 명령어(또는 채팅) 바로 보내기 */
+        RUN_COMMAND,
+        /** 입력창에 넣어 두기 */
+        SUGGEST_COMMAND,
+        /** 클립보드에 복사 */
+        COPY,
+    }
+}
+
+/** [click] 누르면 할 일, [hover] 마우스를 올리면 보이는 설명 글(앱에서는 눌러서 봄) */
+data class ChatSpan(
+    val text: String,
+    val color: Int? = null,
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val click: ChatClick? = null,
+    val hover: String? = null,
+)
 
 data class ChatText(val spans: List<ChatSpan>) {
     val plain: String get() = spans.joinToString("") { it.text }
@@ -52,7 +74,59 @@ data class ChatText(val spans: List<ChatSpan>) {
         }
 
         /** hidden = 서버 리소스팩 전용 글꼴(아이콘 등). 앱에는 그 글꼴이 없어 깨진 글자로 보이므로 숨긴다 */
-        private data class Style(val color: Int? = null, val bold: Boolean = false, val italic: Boolean = false, val hidden: Boolean = false)
+        private data class Style(
+            val color: Int? = null,
+            val bold: Boolean = false,
+            val italic: Boolean = false,
+            val hidden: Boolean = false,
+            val click: ChatClick? = null,
+            val hover: String? = null,
+        )
+
+        /** 글 속의 http(s) 주소 (서버가 클릭 동작을 안 붙여도 눌러서 열 수 있게) */
+        private val URL_REGEX = Regex("https?://[^\\s<>\"]+[^\\s<>\".,;:!?)\\]}'\u3002]")
+
+        /** 스타일을 붙여 한 조각 추가. 클릭 동작이 없는 글은 http 주소 부분만 링크로 나눈다 */
+        private fun addSpan(text: String, style: Style, out: MutableList<ChatSpan>) {
+            if (text.isEmpty()) return
+            if (style.click != null || !text.contains("http")) {
+                out.add(ChatSpan(text, style.color, style.bold, style.italic, style.click, style.hover))
+                return
+            }
+            var last = 0
+            for (m in URL_REGEX.findAll(text)) {
+                if (m.range.first > last) out.add(ChatSpan(text.substring(last, m.range.first), style.color, style.bold, style.italic, null, style.hover))
+                out.add(ChatSpan(m.value, style.color, style.bold, style.italic, ChatClick(ChatClick.Action.OPEN_URL, m.value), style.hover))
+                last = m.range.last + 1
+            }
+            if (last < text.length) out.add(ChatSpan(text.substring(last), style.color, style.bold, style.italic, null, style.hover))
+        }
+
+        /** clickEvent (1.21.4 이하 형식) / click_event (1.21.5+ 형식) */
+        private fun clickOf(obj: JsonObject): ChatClick? {
+            val ev = (obj.get("clickEvent") ?: obj.get("click_event"))?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+            val action = ev.get("action")?.takeIf { it.isJsonPrimitive }?.asString ?: return null
+            fun str(vararg keys: String): String? = keys.firstNotNullOfOrNull { k -> ev.get(k)?.takeIf { it.isJsonPrimitive }?.asString }
+            return when (action) {
+                "open_url" -> str("value", "url")?.let { ChatClick(ChatClick.Action.OPEN_URL, it) }
+                "run_command" -> str("value", "command")?.let { ChatClick(ChatClick.Action.RUN_COMMAND, it) }
+                "suggest_command" -> str("value", "command")?.let { ChatClick(ChatClick.Action.SUGGEST_COMMAND, it) }
+                "copy_to_clipboard" -> str("value")?.let { ChatClick(ChatClick.Action.COPY, it) }
+                else -> null // change_page, open_file 등은 앱에서 쓸 일이 없음
+            }
+        }
+
+        /** hoverEvent show_text 의 글 (1.21.4: contents 또는 예전 value / 1.21.5+: hover_event 의 value) */
+        private fun hoverOf(obj: JsonObject): String? {
+            val ev = (obj.get("hoverEvent") ?: obj.get("hover_event"))?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+            if (ev.get("action")?.takeIf { it.isJsonPrimitive }?.asString != "show_text") return null
+            val content = ev.get("contents") ?: ev.get("value") ?: ev.get("text") ?: return null
+            return try {
+                fromJson(content.toString()).plain.trim().ifBlank { null }
+            } catch (_: Throwable) {
+                null
+            }
+        }
 
         private val STANDARD_FONTS = setOf("minecraft:default", "default", "minecraft:uniform", "uniform")
 
@@ -135,6 +209,8 @@ data class ChatText(val spans: List<ChatSpan>) {
             obj.get("bold")?.let { b -> if (b.isJsonPrimitive) s = s.copy(bold = b.asBooleanLoose()) }
             obj.get("italic")?.let { b -> if (b.isJsonPrimitive) s = s.copy(italic = b.asBooleanLoose()) }
             obj.get("font")?.let { f -> if (f.isJsonPrimitive) s = s.copy(hidden = f.asString !in STANDARD_FONTS) }
+            clickOf(obj)?.let { s = s.copy(click = it) }
+            hoverOf(obj)?.let { s = s.copy(hover = it) }
             return s
         }
 
@@ -167,7 +243,7 @@ data class ChatText(val spans: List<ChatSpan>) {
             if (text.isEmpty() || base.hidden) return
             if (text.indexOf('§') < 0) {
                 val clean = stripPrivateUse(text)
-                if (clean.isNotEmpty()) out.add(ChatSpan(clean, base.color, base.bold, base.italic))
+                addSpan(clean, base, out)
                 return
             }
             var style = base
@@ -177,12 +253,13 @@ data class ChatText(val spans: List<ChatSpan>) {
                 val ch = text[i]
                 if (ch == '§' && i + 1 < text.length) {
                     if (sb.isNotEmpty()) {
-                        out.add(ChatSpan(stripPrivateUse(sb.toString()), style.color, style.bold, style.italic))
+                        addSpan(stripPrivateUse(sb.toString()), style, out)
                         sb.setLength(0)
                     }
                     val code = text[i + 1].lowercaseChar()
                     style = when {
-                        LEGACY.containsKey(code) -> Style(LEGACY[code])
+                        // 색 코드는 굵게·기울임을 풀지만, 이 조각의 클릭 동작·설명은 그대로 둔다
+                        LEGACY.containsKey(code) -> base.copy(color = LEGACY[code], bold = false, italic = false)
                         code == 'l' -> style.copy(bold = true)
                         code == 'o' -> style.copy(italic = true)
                         code == 'r' -> base
@@ -194,7 +271,7 @@ data class ChatText(val spans: List<ChatSpan>) {
                 sb.append(ch)
                 i++
             }
-            if (sb.isNotEmpty()) out.add(ChatSpan(stripPrivateUse(sb.toString()), style.color, style.bold, style.italic))
+            if (sb.isNotEmpty()) addSpan(stripPrivateUse(sb.toString()), style, out)
         }
 
         /** 개인 사용 영역 문자(서버 전용 아이콘 글꼴에 흔히 쓰임)는 앱 글꼴에 없으니 뺀다 */
@@ -208,7 +285,9 @@ data class ChatText(val spans: List<ChatSpan>) {
             for (s in spans) {
                 if (s.text.isEmpty()) continue
                 val last = out.lastOrNull()
-                if (last != null && last.color == s.color && last.bold == s.bold && last.italic == s.italic) {
+                if (last != null && last.color == s.color && last.bold == s.bold && last.italic == s.italic &&
+                    last.click == s.click && last.hover == s.hover
+                ) {
                     out[out.size - 1] = last.copy(text = last.text + s.text)
                 } else {
                     out.add(s)

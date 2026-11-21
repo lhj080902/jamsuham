@@ -11,7 +11,7 @@
   - `AfkSession.kt` 접속·재접속·대기(서버 꺼짐 핑 대기, 모장 장애 대기, 백오프), 자동 명령어(메뉴 열려 있으면 미룸)
   - `net/McConnection.kt` 실제 패킷 처리 (네티 파이프라인: timeout → decrypt/encrypt → frame → (de)compress → via-codec → handler).
     1.21.4 패킷 번호는 파일 아래쪽 `PlayIn`/`PlayOut`/`ConfigIn` 상수. 상태 전환은 ACK 보내기 **전에** 바꿔야 함
-  - `text/ChatText.kt` 채팅 JSON/NBT → 색 있는 글자 (리소스팩 전용 글꼴 글자는 숨김), `text/ItemNames.kt` 아이템 한국어 이름,
+  - `text/ChatText.kt` 채팅 JSON/NBT → 색 있는 글자 + 클릭 동작(clickEvent/click_event)·설명(hoverEvent), 글 속 http 주소 자동 링크 (리소스팩 전용 글꼴 글자는 숨김), `text/ItemNames.kt` 아이템 한국어 이름,
     `text/DeathMessages.kt` 사망 메시지(death.* 번역 키) → 누구·원인·무기. 체력은 SET_HEALTH + 속성 0x7C(max_health=18) + 엔티티 정보 0x5D(흡수=15번)
   - `world/World.kt` 청크·충돌(이동 물리용), `BlockColors`(미니맵 색), 리소스 `core/src/main/resources/jamsuham/`
 - `app/` — 안드로이드 UI (XML 없이 코드로 화면 구성, `Ui.kt` 도우미). minSdk 26, target/compile 36
@@ -32,7 +32,7 @@
 - `tools/test-server/server.js <버전> <포트>` — node-minecraft-protocol 가짜 서버 (`npm install` 후).
   리소스팩 요청, 강제 텔레포트, 상자 메뉴(13번 칸 = 적용), 인벤토리, 1.21.6+ 대화창 등을 보낸다.
   주의: 대화창(show_dialog)은 node 쪽 라이브러리가 첫 바이트를 가끔 쓰레기 값으로 보내 가끔 실패한다(앱 문제 아님)
-  시나리오: `full`(이미 접속 킥 → 소켓 끊김 → 밴), `stay`(유지), `dupe`(중복 로그인 킥 → 앱이 멈춰야 함), `authkick`(정품 인증 실패 킥 → 2번 재시도 후 멈춤), `vitals`(1.21.4: 체력 31.5/최대 40/흡수 4 → 좀비에게 사망)
+  시나리오: `full`(이미 접속 킥 → 소켓 끊김 → 밴), `stay`(유지), `dupe`(중복 로그인 킥 → 앱이 멈춰야 함), `authkick`(정품 인증 실패 킥 → 2번 재시도 후 멈춤), `vitals`(1.21.4: 체력 31.5/최대 40/흡수 4 → 좀비에게 사망), `click`(누를 수 있는 채팅: [수락] 명령어 버튼 + 설명, 링크)
 - core 는 JVM 에서 `AfkSession(...)` 을 직접 만들어 테스트 서버에 붙여 보는 식으로 검증해 왔다
 - 클라우드(Claude Code 웹) 환경은 dl.google.com 이 막혀 안드로이드 플러그인을 못 받는다 → 루트 빌드 대신
   임시 폴더에 core 만 include 한 Gradle 설정을 만들어 컴파일·테스트하고, app 코드는 Maven Central 의

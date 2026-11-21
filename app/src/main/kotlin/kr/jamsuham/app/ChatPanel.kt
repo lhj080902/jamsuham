@@ -10,7 +10,9 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextWatcher
 import android.text.style.ForegroundColorSpan
+import android.text.style.ClickableSpan
 import android.text.style.StyleSpan
+import android.text.TextPaint
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.Gravity
@@ -582,6 +584,115 @@ class ChatPanel(
 
     // ------------------------------------------------------------ 목록
 
+    /** 채팅 속 누를 수 있는 글자 (색은 원래대로 두고 밑줄만) */
+    private inner class ChatLinkSpan(val span: kr.jamsuham.core.text.ChatSpan) : ClickableSpan() {
+        override fun onClick(widget: View) = onChatClick(span)
+        override fun updateDrawState(ds: TextPaint) {
+            ds.isUnderlineText = true
+        }
+    }
+
+    /**
+     * 목록 줄 안의 링크만 눌리게 하는 터치 처리. LinkMovementMethod 를 쓰면 줄 전체가 터치를 가져가
+     * 목록 스크롤·좌우 넘기기가 어색해지므로, 손가락 아래에 링크가 있을 때만 터치를 받는다.
+     */
+    private val LinkTouch = View.OnTouchListener { v, ev ->
+        val tv = v as TextView
+        val text = tv.text as? Spanned ?: return@OnTouchListener false
+        val layout = tv.layout ?: return@OnTouchListener false
+        val x = ev.x.toInt() - tv.totalPaddingLeft + tv.scrollX
+        val y = ev.y.toInt() - tv.totalPaddingTop + tv.scrollY
+        val lineIdx = layout.getLineForVertical(y)
+        val inLine = x >= layout.getLineLeft(lineIdx) && x <= layout.getLineRight(lineIdx)
+        val off = layout.getOffsetForHorizontal(lineIdx, x.toFloat())
+        val link = if (inLine) text.getSpans(off, off, ChatLinkSpan::class.java).firstOrNull() else null
+        when (ev.action) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                pressedLink = link
+                link != null
+            }
+            android.view.MotionEvent.ACTION_UP -> {
+                val hit = link != null && link === pressedLink
+                pressedLink = null
+                if (hit) link!!.onClick(tv)
+                hit
+            }
+            android.view.MotionEvent.ACTION_CANCEL -> {
+                pressedLink = null
+                false
+            }
+            else -> pressedLink != null
+        }
+    }
+    private var pressedLink: ChatLinkSpan? = null
+
+    /** 채팅 글자를 눌렀을 때: 링크 열기(확인) · 명령어 보내기 · 입력창에 넣기 · 복사 · 설명 보기 */
+    private fun onChatClick(span: kr.jamsuham.core.text.ChatSpan) {
+        val click = span.click
+        if (click == null) {
+            span.hover?.let { showHover(span.text, it) }
+            return
+        }
+        when (click.action) {
+            kr.jamsuham.core.text.ChatClick.Action.OPEN_URL -> {
+                val url = click.value.trim()
+                val uri = android.net.Uri.parse(url)
+                if (uri.scheme?.lowercase() !in setOf("http", "https")) {
+                    Toast.makeText(activity, "열 수 없는 주소입니다", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                // 서버가 보낸 링크라 어디로 가는지 먼저 보여 준다
+                android.app.AlertDialog.Builder(activity)
+                    .setTitle("링크 열기")
+                    .setMessage(url + (span.hover?.let { "\n\n$it" } ?: ""))
+                    .setPositiveButton("열기") { _, _ ->
+                        try {
+                            activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                        } catch (_: Throwable) {
+                            Toast.makeText(activity, "링크를 열 앱이 없습니다", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNeutralButton("복사") { _, _ -> copyText(url) }
+                    .setNegativeButton("취소", null)
+                    .show()
+            }
+            kr.jamsuham.core.text.ChatClick.Action.RUN_COMMAND -> {
+                val cmd = click.value.trim()
+                if (cmd.isEmpty()) return
+                if (SessionHub.status(serverId).state != SessionState.ONLINE) {
+                    Toast.makeText(activity, "서버에 접속한 뒤에 누를 수 있습니다", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                // 바닐라처럼 바로 보낸다 ([수락]·[거절] 같은 버튼)
+                if (SessionHub.sendChat(serverId, cmd)) SessionHub.note(serverId, "눌러서 실행: $cmd")
+                else Toast.makeText(activity, "보내지 못했습니다", Toast.LENGTH_SHORT).show()
+            }
+            kr.jamsuham.core.text.ChatClick.Action.SUGGEST_COMMAND -> {
+                if (page != 0) showPage(0)
+                input.setText(click.value)
+                input.setSelection(input.text.length)
+                input.requestFocus()
+                (activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                    .showSoftInput(input, 0)
+            }
+            kr.jamsuham.core.text.ChatClick.Action.COPY -> copyText(click.value)
+        }
+    }
+
+    private fun copyText(s: String) {
+        val cm = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("잠수함", s))
+        Toast.makeText(activity, "복사했습니다", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showHover(title: String, text: String) {
+        android.app.AlertDialog.Builder(activity)
+            .setTitle(title.trim().take(40).ifBlank { "설명" })
+            .setMessage(text)
+            .setPositiveButton("닫기", null)
+            .show()
+    }
+
     private inner class LineAdapter : BaseAdapter() {
         private val items = ArrayList<LogLine>()
         private val time = SimpleDateFormat("HH:mm", Locale.KOREA)
@@ -617,9 +728,15 @@ class ChatPanel(
             }
             for (span in line.text.spans) {
                 val c = if (line.kind == LogLine.Kind.CHAT && span.color != null) p.readable(span.color!!) else base
+                val start = sb.length
                 append(sb, span.text, c, span.bold)
+                // 서버가 붙인 클릭 동작(링크·명령어 버튼 등)이나 설명 글이 있으면 누를 수 있게 밑줄
+                if (span.click != null || span.hover != null) {
+                    sb.setSpan(ChatLinkSpan(span), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
             }
             tv.text = sb
+            tv.setOnTouchListener(LinkTouch)
             return tv
         }
 
