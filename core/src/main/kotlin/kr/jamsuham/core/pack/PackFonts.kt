@@ -43,8 +43,20 @@ object PackFonts {
     )
 
     /** 글꼴 id("minecraft:default", "server:rank" …) → (코드 포인트 → 그림 글자) + 그림 파일 */
-    class FontSet(val fonts: Map<String, Map<Int, Glyph>>, val images: Map<String, ByteArray>, val report: String? = null) {
+    /**
+     * [spaces] "space" 공급자의 글자별 가로 이동(픽셀, 음수 = 뒤로 당김). 서버는 배경 띠 그림 뒤에 음수 빈칸을 넣어
+     * 그 위에 글자를 겹쳐 쓴다 → 앱은 겹쳐 그릴 수 없으므로 이런 배경 그림을 알아보고 건너뛰는 데 쓴다.
+     */
+    class FontSet(
+        val fonts: Map<String, Map<Int, Glyph>>,
+        val images: Map<String, ByteArray>,
+        val report: String? = null,
+        val spaces: Map<String, Map<Int, Float>> = emptyMap(),
+    ) {
         val glyphCount: Int get() = fonts.values.sumOf { it.size }
+
+        /** [font] 의 [cp] 가 빈칸 글자면 가로 이동(음수 = 뒤로), 아니면 null */
+        fun advance(font: String?, cp: Int): Float? = spaces[font ?: DEFAULT_FONT]?.get(cp)
 
         fun glyph(font: String?, cp: Int): Glyph? = fonts[font ?: DEFAULT_FONT]?.get(cp)
 
@@ -68,7 +80,9 @@ object PackFonts {
                 if (sets.size == 1) return sets[0]
                 val fonts = HashMap<String, HashMap<Int, Glyph>>()
                 val images = HashMap<String, ByteArray>()
+                val spaces = HashMap<String, HashMap<Int, Float>>()
                 sets.forEachIndexed { i, set ->
+                    for ((font, map) in set.spaces) spaces.getOrPut(font) { HashMap() }.putAll(map)
                     // 다른 팩의 같은 경로 그림과 섞이지 않게 팩 번호를 붙인다
                     for ((path, bytes) in set.images) images["$i/$path"] = bytes
                     for ((font, map) in set.fonts) {
@@ -76,13 +90,13 @@ object PackFonts {
                         for ((cp, g) in map) m[cp] = g.copy(image = "$i/${g.image}")
                     }
                 }
-                return FontSet(fonts, images)
+                return FontSet(fonts, images, null, spaces)
             }
         }
     }
 
     const val DEFAULT_FONT = "minecraft:default"
-    private const val CACHE_VERSION = 5
+    private const val CACHE_VERSION = 6
 
     /** 부분 다운로드로 받는 양의 상한 (글꼴 json + png 합계) */
     private const val MAX_RANGED_BYTES = 40L * 1024 * 1024
@@ -116,7 +130,7 @@ object PackFonts {
             // 부분 다운로드로 zip 목록을 하나도 못 읽었으면(보호된 팩 등), 받을 수 있는 크기일 때 통째로 받아
             // 자바 zip 읽기(마인크래프트와 같은 방식)로 다시 시도한다
             if (source is RangedZip && source.empty && source.total > maxFullBytes) {
-                set = FontSet(set.fonts, set.images, set.report + tr("\n통째로 받기: ", "\nFull download: ") +
+                set = FontSet(set.fonts, set.images, spaces = set.spaces, report = set.report + tr("\n통째로 받기: ", "\nFull download: ") +
                     if (maxFullBytes <= 0) tr("와이파이에서만 받기라서 건너뜀 (와이파이에서 다시 접속하면 시도)", "skipped: Wi-Fi only (will try when you reconnect on Wi-Fi)") else tr("너무 커서 건너뜀 (${source.total / 1048576}MB)", "skipped: too large (${source.total / 1048576}MB)"))
             }
             if (source is RangedZip && source.empty && source.total <= maxFullBytes) {
@@ -124,20 +138,20 @@ object PackFonts {
                 val full = try {
                     FullZip.download(open(url, null), maxFullBytes, File(cacheDir, "$key.download"))
                 } catch (t: Throwable) {
-                    set = FontSet(set.fonts, set.images, set.report + tr("\n통째로 받기 실패: ${t.message ?: t.javaClass.simpleName}", "\nFull download failed: ${t.message ?: t.javaClass.simpleName}"))
+                    set = FontSet(set.fonts, set.images, spaces = set.spaces, report = set.report + tr("\n통째로 받기 실패: ${t.message ?: t.javaClass.simpleName}", "\nFull download failed: ${t.message ?: t.javaClass.simpleName}"))
                     null
                 }
                 if (full != null) {
                     try {
                         val again = extract(full, log)
-                        set = FontSet(again.fonts, again.images, tr("통째로 받아 다시 읽음\n", "Downloaded in full and re-read\n") + again.report + tr("\n[부분 다운로드 때]\n", "\n[With partial download]\n") + set.report)
+                        set = FontSet(again.fonts, again.images, spaces = again.spaces, report = tr("통째로 받아 다시 읽음\n", "Downloaded in full and re-read\n") + again.report + tr("\n[부분 다운로드 때]\n", "\n[With partial download]\n") + set.report)
                     } finally {
                         full.close()
                     }
                 }
             }
             val secs = (System.currentTimeMillis() - started) / 1000.0
-            set = FontSet(set.fonts, set.images, (set.report ?: "") + tr("\n받는 데 ${"%.1f".format(secs)}초", "\nDownload took ${"%.1f".format(secs)}s") + (source.stats?.let { " ($it)" } ?: ""))
+            set = FontSet(set.fonts, set.images, spaces = set.spaces, report = (set.report ?: "") + tr("\n받는 데 ${"%.1f".format(secs)}초", "\nDownload took ${"%.1f".format(secs)}s") + (source.stats?.let { " ($it)" } ?: ""))
             log.i("리소스팩 그림 글자 ${set.glyphCount}개, ${"%.1f".format(secs)}초 ${source.stats ?: ""}")
             // 그림 글자가 없으면 저장하지 않는다 (읽는 방법을 고친 뒤에도 실패한 결과를 계속 보여 주지 않게, 다음 접속 때 다시 시도)
             if (set.glyphCount > 0) writeCache(dir, set)
@@ -182,13 +196,13 @@ object PackFonts {
                 .filter { it in nameSet }.toSet(),
         )
 
-        fun addProviders(target: MutableMap<Int, Glyph>, list: List<JsonObject>, depth: Int) {
+        fun addProviders(target: MutableMap<Int, Glyph>, spaceTarget: MutableMap<Int, Float>, list: List<JsonObject>, depth: Int) {
             if (depth > 8) return
             for (p in list) {
                 val type = p.get("type")?.asString ?: "?"
                 if (depth == 0) types[type] = (types[type] ?: 0) + 1
                 when (type) {
-                    "reference" -> providers[normalize(p.get("id")?.asString ?: continue)]?.let { addProviders(target, it, depth + 1) }
+                    "reference" -> providers[normalize(p.get("id")?.asString ?: continue)]?.let { addProviders(target, spaceTarget, it, depth + 1) }
                     "bitmap" -> {
                         val file = p.get("file")?.asString ?: continue
                         val path = texturePath(file)
@@ -223,14 +237,27 @@ object PackFonts {
                             }
                         }
                     }
-                    else -> {} // space, ttf, unihex 등은 그림이 아니라 건너뜀
+                    "space" -> {
+                        // 빈칸 글자의 가로 이동 (먼저 나온 공급자가 우선)
+                        val adv = p.getAsJsonObject("advances") ?: continue
+                        for ((k, v) in adv.entrySet()) {
+                            if (k.isEmpty()) continue
+                            val cp = k.codePointAt(0)
+                            val a = try { v.asFloat } catch (_: Throwable) { continue }
+                            if (cp !in spaceTarget) spaceTarget[cp] = a
+                        }
+                    }
+                    else -> {} // ttf, unihex 등은 그림이 아니라 건너뜀
                 }
             }
         }
 
+        val spaces = HashMap<String, Map<Int, Float>>()
         for ((id, list) in providers) {
             val target = HashMap<Int, Glyph>()
-            addProviders(target, list, 0)
+            val spaceTarget = HashMap<Int, Float>()
+            addProviders(target, spaceTarget, list, 0)
+            if (spaceTarget.isNotEmpty()) spaces[id] = spaceTarget
             // 그림을 못 읽은 글자는 뺀다
             target.entries.removeIf { it.value.image !in images }
             if (target.isNotEmpty()) fonts[id] = target
@@ -251,7 +278,7 @@ object PackFonts {
                 if (jsons.isNotEmpty()) append(tr("\n글꼴처럼 보이는 파일: ", "\nFiles that look like fonts: ") + jsons.joinToString())
             }
         }
-        return FontSet(fonts, images, report)
+        return FontSet(fonts, images, report, spaces)
     }
 
     private fun cacheKey(url: String, hash: String?): String =
@@ -356,7 +383,11 @@ object PackFonts {
 
     // ------------------------------------------------------------ 캐시
 
-    private class CacheIndex(val fonts: Map<String, Map<String, Glyph>> = emptyMap(), val report: String? = null)
+    private class CacheIndex(
+        val fonts: Map<String, Map<String, Glyph>> = emptyMap(),
+        val report: String? = null,
+        val spaces: Map<String, Map<String, Float>>? = null,
+    )
 
     private fun readCache(dir: File): FontSet? {
         val index = File(dir, "fonts.json")
@@ -369,7 +400,8 @@ object PackFonts {
                     if (g.image !in images) images[g.image] = File(dir, "img/" + safeName(g.image)).readBytes()
                 }
             }
-            FontSet(fonts, images, data.report)
+            val spaces = data.spaces.orEmpty().mapValues { (_, m) -> m.mapKeys { it.key.toInt() } }
+            FontSet(fonts, images, data.report, spaces)
         } catch (_: Throwable) {
             null
         }
@@ -379,7 +411,11 @@ object PackFonts {
         try {
             File(dir, "img").mkdirs()
             for ((path, bytes) in set.images) File(dir, "img/" + safeName(path)).writeBytes(bytes)
-            val index = CacheIndex(set.fonts.mapValues { (_, m) -> m.mapKeys { it.key.toString() } }, set.report)
+            val index = CacheIndex(
+                set.fonts.mapValues { (_, m) -> m.mapKeys { it.key.toString() } },
+                set.report,
+                set.spaces.mapValues { (_, m) -> m.mapKeys { it.key.toString() } },
+            )
             File(dir, "fonts.json").writeText(gson.toJson(index))
         } catch (_: Throwable) {
         }

@@ -814,11 +814,13 @@ class ChatPanel(
                 LogLine.Kind.SYSTEM -> p.info
                 LogLine.Kind.ERROR -> p.err
             }
-            for (span in line.text.spans) {
+            // 배경으로 깔리는 그림 글자(뒤에 음수 빈칸이 오는 것)는 건너뛴다
+            val skip = Glyphs.backgroundMarks(line.text.spans, glyphs)
+            for ((spanIndex, span) in line.text.spans.withIndex()) {
                 val c = if (line.kind == LogLine.Kind.CHAT && span.color != null) p.readable(span.color!!) else base
                 val start = sb.length
                 // 글자 + 리소스팩 그림 글자 (그림이 없으면 숨김)
-                Glyphs.append(sb, span, c, tv.textSize, glyphs)
+                Glyphs.append(sb, span, c, tv.textSize, glyphs, skip = skip, spanIndex = spanIndex)
                 // 서버가 붙인 클릭 동작(링크·명령어 버튼 등)이나 설명 글이 있으면 누를 수 있게 (빈 조각은 건너뜀)
                 if ((span.click != null || span.hover != null) && sb.length > start) {
                     sb.setSpan(ChatLinkSpan(span), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)

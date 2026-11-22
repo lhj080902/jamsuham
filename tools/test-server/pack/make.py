@@ -64,3 +64,11 @@ with zipfile.ZipFile('many.zip','w',zipfile.ZIP_DEFLATED) as z:
         z.writestr(zipfile.ZipInfo(f'assets/many/sounds/s{i}.ogg'),os.urandom(30*1024),compress_type=zipfile.ZIP_STORED)
         z.writestr(f'assets/many/textures/font/i{i}.png',icons)
 print('many', os.path.getsize('many.zip'))
+# space.zip: 배경 띠 그림(U+E010) 뒤에 음수 빈칸(U+E011 = -40) — 앱이 배경 그림을 알아보는지 확인용
+with zipfile.ZipFile('space.zip','w',zipfile.ZIP_DEFLATED) as z:
+    z.writestr('pack.mcmeta',json.dumps({"pack":{"pack_format":46,"description":"space"}}))
+    z.writestr('assets/minecraft/font/default.json',json.dumps({"providers":[
+        {"type":"space","advances":{"":-40,"":-1}},
+        {"type":"bitmap","file":"minecraft:font/icons.png","ascent":7,"height":8,"chars":[""]}]}))
+    z.writestr('assets/minecraft/textures/font/icons.png',icons)
+print('space ok')

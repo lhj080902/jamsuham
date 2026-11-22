@@ -126,6 +126,20 @@ object Glyphs {
 
     /** "그림|열|행" → 잘라 낸 글자 비트맵 (오른쪽 빈 칸은 잘라 냄, 바닐라와 같음) */
     private val cells = LruCache<String, Bitmap>(512)
+    private val solids = java.util.WeakHashMap<Bitmap, Boolean>()
+
+    /** 보이는 픽셀이 75% 이상인 꽉 찬 그림인지 (긴 칭호는 글자 사이가 비어 있어서 아님) */
+    private fun isSolid(bmp: Bitmap): Boolean = synchronized(solids) {
+        solids.getOrPut(bmp) {
+            val w = bmp.width
+            val h = bmp.height
+            if (w * h == 0) return@getOrPut false
+            val px = IntArray(w * h)
+            bmp.getPixels(px, 0, w, 0, 0, w, h)
+            px.count { (it ushr 24) >= 128 } >= w * h * 0.75
+        }
+    }
+
     /** (글자 비트맵, 칠할 색) → "한 가지 색으로 꽉 찬 띠"인지 (공지 배경 조각, 한 번만 계산) */
     private val flatBars = java.util.WeakHashMap<Bitmap, HashMap<Int, Boolean>>()
 
@@ -166,8 +180,8 @@ object Glyphs {
             }
             if (opaque == 0) return@getOrPut true
             val top = counts.values.maxOrNull() ?: 0
-            // 보이는 부분의 90% 이상이 한 색 + 꽉 찬 행이 있음(속이 빈 글자 모양이 아님) → 배경 띠
-            top >= opaque * 0.9 && fullRows >= 1 && opaque >= w * 2
+            // 거의 빈틈 없이 꽉 찬 사각형(80% 이상)이고 그 90% 이상이 한 색일 때만 배경 띠 (글자 칭호는 글자 사이가 비어 있음)
+            top >= opaque * 0.9 && opaque >= w * h * 0.8 && fullRows >= h * 0.6
         }
     }
 
@@ -210,7 +224,66 @@ object Glyphs {
      * [set] 이 없거나 그 글자의 그림이 없으면 그림 글자는 숨긴다(예전과 같음). [textPx] 글자 크기(px).
      * 빈 조각은 건너뛴다 (길이 0 구간에 서식을 걸면 안드로이드가 예외를 낸다).
      */
-    fun append(sb: SpannableStringBuilder, span: ChatSpan, color: Int, textPx: Float, set: PackFonts.FontSet?, tintColor: Int? = span.color) {
+    /** 위치 열쇠: 조각 번호 · 글자 부분(0 = text, 1 = glyphs) · 그 안의 글자 위치 */
+    private fun key(span: Int, part: Int, offset: Int): Long = (span.toLong() shl 32) or (part.toLong() shl 31) or offset.toLong()
+
+    /** 그 글자의 그림 (지정 글꼴에 없으면 개인 사용 영역 글자는 다른 글꼴에서) */
+    private fun glyphOf(set: PackFonts.FontSet, font: String?, cp: Int): PackFonts.Glyph? =
+        set.glyph(font, cp) ?: if (ChatText.isPrivateUse(cp)) set.glyphAny(cp) else null
+
+    /**
+     * 한 줄(조각들)에서 **배경으로 깔리는 그림 글자**의 위치를 찾는다.
+     * 마인크래프트 서버는 배경 띠 그림 뒤에 "뒤로 당기는 빈칸"(space 공급자의 음수 가로 이동)을 넣어 그 위에 글자를 겹쳐 쓴다.
+     * 채팅 앱은 겹쳐 그릴 수 없으므로, 큰 음수 빈칸 바로 앞에 이어진 그림들을 배경으로 보고 건너뛴다.
+     * (-1~-2 같은 작은 음수는 글자 사이 좁히기라서 무시: 뒤로 당기는 거리가 앞 그림 폭의 절반 이상일 때만)
+     */
+    fun backgroundMarks(spans: List<ChatSpan>, set: PackFonts.FontSet?): Set<Long> {
+        if (set == null || set.spaces.isEmpty()) return emptySet()
+        class E(val key: Long, val font: String?, val cp: Int)
+        val seq = ArrayList<E>()
+        spans.forEachIndexed { si, sp ->
+            var i = 0
+            while (i < sp.text.length) { val cp = sp.text.codePointAt(i); seq += E(key(si, 0, i), sp.font, cp); i += Character.charCount(cp) }
+            val gl = sp.glyphs ?: ""
+            i = 0
+            while (i < gl.length) { val cp = gl.codePointAt(i); seq += E(key(si, 1, i), sp.font, cp); i += Character.charCount(cp) }
+        }
+        val marks = HashSet<Long>()
+        for ((idx, e) in seq.withIndex()) {
+            val adv = set.advance(e.font, e.cp) ?: continue
+            if (adv >= 0) continue
+            // 바로 앞에 이어진 그림 글자들
+            var j = idx - 1
+            var width = 0f
+            val run = ArrayList<Long>()
+            while (j >= 0) {
+                val p = seq[j]
+                val g = glyphOf(set, p.font, p.cp) ?: break
+                width += glyphAdvance(set, g)
+                run += p.key
+                j--
+            }
+            if (run.isNotEmpty() && -adv >= width * 0.5f) marks += run
+        }
+        return marks
+    }
+
+    /** 그림 글자의 마인크래프트 가로 이동(픽셀, 대략): 잘라 낸 폭을 글자 높이에 맞춘 값 + 1 */
+    private fun glyphAdvance(set: PackFonts.FontSet, g: PackFonts.Glyph): Float {
+        val bmp = cell(set, g) ?: return 0f
+        return bmp.width * (g.height.toFloat() / bmp.height.coerceAtLeast(1)) + 1f
+    }
+
+    /**
+     * 채팅 조각 하나를 [sb] 에 붙인다: 글자는 [color] 색(·굵게), 그림 글자는 그림으로.
+     * [set] 이 없거나 그 글자의 그림이 없으면 그림 글자는 숨긴다(예전과 같음). [textPx] 글자 크기(px).
+     * [skip] 은 [backgroundMarks] 결과, [spanIndex] 는 이 조각의 줄 안 번호 (배경 그림 건너뛰기용).
+     * 빈 조각은 건너뛴다 (길이 0 구간에 서식을 걸면 안드로이드가 예외를 낸다).
+     */
+    fun append(
+        sb: SpannableStringBuilder, span: ChatSpan, color: Int, textPx: Float, set: PackFonts.FontSet?,
+        tintColor: Int? = span.color, skip: Set<Long> = emptySet(), spanIndex: Int = 0,
+    ) {
         val text = span.text
         if (text.isNotEmpty()) {
             if (set == null || set.fonts[span.font ?: PackFonts.DEFAULT_FONT].isNullOrEmpty()) {
@@ -222,7 +295,9 @@ object Glyphs {
                 while (i < text.length) {
                     val cp = text.codePointAt(i)
                     val g = set.glyph(span.font, cp)
-                    if (g != null && appendGlyph(sb, set, g, textPx, tintColor, flush = { if (run.isNotEmpty()) { appendText(sb, run.toString(), color, span.bold); run.setLength(0) } })) {
+                    if (key(spanIndex, 0, i) in skip) {
+                        // 배경 그림: 건너뜀
+                    } else if (g != null && appendGlyph(sb, set, g, textPx, tintColor, flush = { if (run.isNotEmpty()) { appendText(sb, run.toString(), color, span.bold); run.setLength(0) } })) {
                         // 그림으로 넣음
                     } else if (ChatText.isPrivateUse(cp)) {
                         // 그리지 못한 개인 사용 영역 글자는 앱 글꼴로 깨지므로 넣지 않는다
@@ -239,9 +314,12 @@ object Glyphs {
         var i = 0
         while (i < glyphs.length) {
             val cp = glyphs.codePointAt(i)
-            // 지정된 글꼴에 없으면, 개인 사용 영역 글자는 팩의 다른 글꼴에서 찾는다 (서버가 글꼴 지정을 빼먹는 경우)
-            val g = set.glyph(span.font, cp) ?: if (ChatText.isPrivateUse(cp)) set.glyphAny(cp) else null
-            if (g == null) miss(span.font, cp) else appendGlyph(sb, set, g, textPx, tintColor, flush = {})
+            if (key(spanIndex, 1, i) !in skip) {
+                // 지정된 글꼴에 없으면, 개인 사용 영역 글자는 팩의 다른 글꼴에서 찾는다 (서버가 글꼴 지정을 빼먹는 경우)
+                val g = glyphOf(set, span.font, cp)
+                if (g != null) appendGlyph(sb, set, g, textPx, tintColor, flush = {})
+                else if (set.advance(span.font, cp) == null) miss(span.font, cp) // 빈칸 글자는 원래 그림이 없음
+            }
             i += Character.charCount(cp)
         }
     }
@@ -249,7 +327,8 @@ object Glyphs {
     /** [text] 전체를 화면용 글자로 (메뉴·인벤·접속자 목록용) */
     fun build(text: ChatText, colorOf: (ChatSpan) -> Int, textPx: Float, set: PackFonts.FontSet?): SpannableStringBuilder {
         val sb = SpannableStringBuilder()
-        for (s in text.spans) append(sb, s, colorOf(s), textPx, set)
+        val skip = backgroundMarks(text.spans, set)
+        text.spans.forEachIndexed { i, s -> append(sb, s, colorOf(s), textPx, set, skip = skip, spanIndex = i) }
         return sb
     }
 
@@ -272,7 +351,7 @@ object Glyphs {
     private fun appendGlyph(sb: SpannableStringBuilder, set: PackFonts.FontSet, g: PackFonts.Glyph, textPx: Float, tint: Int?, flush: () -> Unit): Boolean {
         val bmp = cell(set, g) ?: return false
         val drawTint = if (tint != null && tint != 0xFFFFFF) tint else null
-        if (bmp.width > bmp.height * BACKGROUND_ASPECT || isFlatBar(bmp, drawTint)) return true
+        if ((bmp.width > bmp.height * BACKGROUND_ASPECT && isSolid(bmp)) || isFlatBar(bmp, drawTint)) return true
         flush()
         // 바닐라 기본 글자 높이 8 = 글자 크기 정도. 너무 큰 그림은 줄 높이의 2.5배로 제한
         val targetH = (textPx * 0.95f * g.height / 8f).coerceIn(textPx * 0.4f, textPx * 2.5f)
