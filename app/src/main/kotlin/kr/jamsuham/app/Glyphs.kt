@@ -126,34 +126,48 @@ object Glyphs {
 
     /** "그림|열|행" → 잘라 낸 글자 비트맵 (오른쪽 빈 칸은 잘라 냄, 바닐라와 같음) */
     private val cells = LruCache<String, Bitmap>(512)
-    /** 잘라 낸 글자 비트맵 → "한 가지 색으로 꽉 찬 띠"인지 (공지 배경 조각, 한 번만 계산) */
-    private val flatBars = java.util.WeakHashMap<Bitmap, Boolean>()
+    /** (글자 비트맵, 칠할 색) → "한 가지 색으로 꽉 찬 띠"인지 (공지 배경 조각, 한 번만 계산) */
+    private val flatBars = java.util.WeakHashMap<Bitmap, HashMap<Int, Boolean>>()
 
     /**
-     * 가로가 세로보다 길고, 대부분 한 가지 색으로 꽉 찬 사각형이면 배경 띠 조각으로 본다.
+     * 가로가 세로보다 길고, **실제로 그려질 색**(글자 색을 곱한 뒤)이 대부분 한 가지 색으로 꽉 찬 사각형이면 배경 띠 조각으로 본다.
+     * 원본은 여러 색이어도 서버가 검은색으로 칠하면 검은 막대가 되므로 곱한 뒤의 색으로 판단한다.
      * (칭호·아이콘은 글자 모양·여러 색이 있어서 해당하지 않음)
      */
-    private fun isFlatBar(bmp: Bitmap): Boolean = synchronized(flatBars) {
-        flatBars.getOrPut(bmp) {
+    private fun isFlatBar(bmp: Bitmap, tint: Int?): Boolean = synchronized(flatBars) {
+        val key = tint ?: -1
+        flatBars.getOrPut(bmp) { HashMap() }.getOrPut(key) {
             val w = bmp.width
             val h = bmp.height
             if (w < h * 2 || w * h == 0) return@getOrPut false
             val px = IntArray(w * h)
             bmp.getPixels(px, 0, w, 0, 0, w, h)
+            val tr = if (tint == null) 255 else (tint shr 16) and 0xFF
+            val tg = if (tint == null) 255 else (tint shr 8) and 0xFF
+            val tb = if (tint == null) 255 else tint and 0xFF
             var opaque = 0
             val counts = HashMap<Int, Int>()
-            for (c in px) {
-                if ((c ushr 24) < 128) continue
-                opaque++
-                // 비슷한 색은 같은 색으로 (채널당 상위 4비트)
-                val q = c and 0xF0F0F0
-                counts[q] = (counts[q] ?: 0) + 1
+            var fullRows = 0
+            for (y in 0 until h) {
+                var rowOpaque = 0
+                for (x in 0 until w) {
+                    val c = px[y * w + x]
+                    if ((c ushr 24) < 128) continue
+                    opaque++
+                    rowOpaque++
+                    // 글자 색을 곱한 실제 색, 비슷한 색은 같은 색으로 (채널당 상위 3비트)
+                    val r = (((c shr 16) and 0xFF) * tr / 255) and 0xE0
+                    val g = (((c shr 8) and 0xFF) * tg / 255) and 0xE0
+                    val b = ((c and 0xFF) * tb / 255) and 0xE0
+                    val q = (r shl 16) or (g shl 8) or b
+                    counts[q] = (counts[q] ?: 0) + 1
+                }
+                if (rowOpaque >= w * 0.8) fullRows++
             }
             if (opaque == 0) return@getOrPut true
             val top = counts.values.maxOrNull() ?: 0
-            // 보이는 부분의 90% 이상이 한 색이고, 띠의 행 중 대부분이 차 있으면(속이 빈 글자 모양이 아님) 배경 띠
-            val filledRows = (0 until h).count { y -> (0 until w).count { x -> (px[y * w + x] ushr 24) >= 128 } >= w * 0.8 }
-            top >= opaque * 0.9 && filledRows >= 1 && opaque >= w * 2
+            // 보이는 부분의 90% 이상이 한 색 + 꽉 찬 행이 있음(속이 빈 글자 모양이 아님) → 배경 띠
+            top >= opaque * 0.9 && fullRows >= 1 && opaque >= w * 2
         }
     }
 
@@ -257,7 +271,8 @@ object Glyphs {
      */
     private fun appendGlyph(sb: SpannableStringBuilder, set: PackFonts.FontSet, g: PackFonts.Glyph, textPx: Float, tint: Int?, flush: () -> Unit): Boolean {
         val bmp = cell(set, g) ?: return false
-        if (bmp.width > bmp.height * BACKGROUND_ASPECT || isFlatBar(bmp)) return true
+        val drawTint = if (tint != null && tint != 0xFFFFFF) tint else null
+        if (bmp.width > bmp.height * BACKGROUND_ASPECT || isFlatBar(bmp, drawTint)) return true
         flush()
         // 바닐라 기본 글자 높이 8 = 글자 크기 정도. 너무 큰 그림은 줄 높이의 2.5배로 제한
         val targetH = (textPx * 0.95f * g.height / 8f).coerceIn(textPx * 0.4f, textPx * 2.5f)
