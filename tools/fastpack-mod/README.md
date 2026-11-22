@@ -1,0 +1,39 @@
+# FastPack (잠수크래프트) — 서버 리소스팩 빨리 받기 모드
+
+마인크래프트 자바 에디션 **1.21.4** 용 클라이언트 전용 Fabric 모드입니다. (비공식 모드이며 Mojang·Microsoft 와 관계없습니다.)
+
+## 하는 일
+서버에 들어갈 때 받는 **서버 리소스팩의 다운로드만** 빠르게 합니다.
+
+- 바닐라는 팩을 HTTP 연결 하나로 처음부터 끝까지 받습니다.
+- 이 모드는 서버가 HTTP Range(이어받기)를 지원하고 팩이 **8MB 보다 크면**, 4MB 조각으로 나눠 **연결 6개로 동시에** 받습니다.
+- 다 받은 파일은 바닐라와 똑같이 처리합니다: 같은 폴더·같은 파일 이름(SHA-1), 같은 SHA-1 검사, 같은 크기 제한.
+  바닐라가 넘겨주는 프록시와 헤더(User-Agent 등)도 그대로 씁니다.
+- 팩 내용은 **한 바이트도 바꾸지 않습니다** (풀거나 다시 압축하지 않음). 보호된(protected) 팩도 그대로 받습니다.
+- 진행 막대도 바닐라 것이 그대로 움직입니다.
+
+**바뀌지 않는 것:** 다 받은 뒤 팩을 적용(리소스 다시 불러오기)하는 시간은 그대로입니다.
+파일이 아주 많은 팩(수만 개)은 이 단계가 더 오래 걸릴 수 있는데, 그 부분은 [ModernFix](https://modrinth.com/mod/modernfix) 같은 최적화 모드가 도움이 됩니다.
+
+## 설치
+1. [Fabric Loader](https://fabricmc.net/use/) 를 마인크래프트 1.21.4 용으로 설치합니다. (Fabric API 는 필요 없습니다.)
+2. `fastpack-0.1.0.jar` 를 `.minecraft/mods` 폴더에 넣습니다.
+3. Fabric 프로필로 실행합니다. 로그에 `[FastPack]` 줄이 보이면 동작한 것입니다.
+
+## 안 될 때 (바닐라로 넘어감)
+아래 경우에는 아무것도 하지 않고 **바닐라 방식으로 그대로** 받습니다. 접속이 막히는 일은 없습니다.
+
+- 서버가 Range 를 지원하지 않음 (`bytes=0-0` 시험 요청에 206 이 아닌 응답)
+- 팩이 8MB 이하이거나, 크기 제한보다 큼
+- 이미 받아 둔 같은 해시의 팩이 있음 (바닐라 캐시 사용)
+- 조각 받기가 3번 다시 시도해도 실패, 서버 쪽 파일이 중간에 바뀜(If-Range), 받은 크기나 SHA-1 이 맞지 않음, 그 밖의 모든 예외
+
+## 빌드
+저장소의 GitHub Actions(`.github/workflows/mod.yml`)가 빌드해서 `fastpack-mod` 아티팩트로 올립니다.
+로컬에서는 JDK 21 로 이 폴더에서 `./gradlew build` → `build/libs/fastpack-0.1.0.jar`.
+
+기술 메모: Mixin 으로 `net.minecraft.util.HttpUtil.downloadFile(Path, URL, Map, HashFunction, HashCode, int, Proxy, DownloadProgressListener)`
+맨 앞에 끼어들어, 나눠 받기에 성공했을 때만 결과를 돌려줍니다. 대상을 못 찾으면 CI 가 실패하도록 해 두었습니다.
+
+## 라이선스
+GPL-3.0 (저장소 [LICENSE](../../LICENSE) 와 같음).
