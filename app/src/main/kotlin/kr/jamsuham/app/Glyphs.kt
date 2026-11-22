@@ -82,6 +82,8 @@ object Glyphs {
     /** 받아 둔 그림 글자를 지운다 (지금 접속 중인 서버는 다음 접속 때 다시 받음) */
     fun clearCache(context: Context) {
         loaded.clear()
+        broken.clear()
+        missing.clear()
         bitmaps.evictAll()
         cells.evictAll()
         File(context.filesDir, "packfonts").deleteRecursively()
@@ -91,6 +93,16 @@ object Glyphs {
 
     /** 그림 파일 → 풀어 둔 비트맵 (메모리를 너무 쓰지 않게 개수 제한) */
     private val bitmaps = LruCache<String, Bitmap>(64)
+    /** 채팅에 나왔는데 팩에서 못 찾은 그림 글자 ("글꼴 U+XXXX", 진단용, 최대 50개) */
+    val missing: MutableSet<String> = java.util.Collections.synchronizedSet(LinkedHashSet())
+
+    private fun miss(font: String?, cp: Int) {
+        if (missing.size < 50) missing.add("${font ?: PackFonts.DEFAULT_FONT} U+%04X".format(cp))
+    }
+
+    /** 고쳐도 읽지 못한 그림 (매번 다시 시도하지 않게, 상태 탭에 개수를 보여 줌) */
+    val broken: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+
     /** "그림|열|행" → 잘라 낸 글자 비트맵 (오른쪽 빈 칸은 잘라 냄, 바닐라와 같음) */
     private val cells = LruCache<String, Bitmap>(512)
 
@@ -98,9 +110,17 @@ object Glyphs {
         val key = "${g.image}|${g.col}|${g.row}"
         cells.get(key)?.let { return it }
         val sheet = bitmaps.get(g.image) ?: run {
+            if (g.image in broken) return null
             val bytes = set.images[g.image] ?: return null
             val opts = BitmapFactory.Options().apply { inScaled = false }
-            (BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return null).also { bitmaps.put(g.image, it) }
+            // 보호된 팩은 PNG 검사값을 망가뜨려 둔다: 안드로이드가 못 읽으면 고쳐서 다시 읽는다
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                ?: PackFonts.repairPng(bytes)?.let { BitmapFactory.decodeByteArray(it, 0, it.size, opts) }
+            if (bmp == null) {
+                broken.add(g.image)
+                return null
+            }
+            bmp.also { bitmaps.put(g.image, it) }
         }
         val cw = sheet.width / g.cols
         val ch = sheet.height / g.rows
@@ -152,7 +172,8 @@ object Glyphs {
         var i = 0
         while (i < glyphs.length) {
             val cp = glyphs.codePointAt(i)
-            set.glyph(span.font, cp)?.let { appendGlyph(sb, set, it, textPx, tintColor, flush = {}) }
+            val g = set.glyph(span.font, cp)
+            if (g == null) miss(span.font, cp) else appendGlyph(sb, set, g, textPx, tintColor, flush = {})
             i += Character.charCount(cp)
         }
     }

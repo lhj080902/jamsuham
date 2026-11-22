@@ -160,7 +160,11 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
                 else -> "리소스팩에 그림 글자가 없습니다"
             },
         )
-        packSub.setTextIfChanged(
+        val diag = buildString {
+            if (Glyphs.broken.isNotEmpty()) append("\n읽지 못한 그림 ${Glyphs.broken.size}개: " + Glyphs.broken.take(3).joinToString { it.substringAfterLast('/') })
+            if (Glyphs.missing.isNotEmpty()) append("\n팩에 없는 글자 ${Glyphs.missing.size}개: " + Glyphs.missing.take(4).joinToString())
+        }
+        packSub.setTextIfChanged(diag.trimStart() + (if (diag.isNotEmpty()) "\n" else "") +
             packs.joinToString("\n") { s ->
                 val state = when {
                     s.skipped -> "꺼짐"

@@ -341,6 +341,80 @@ object PackFonts {
     private fun sha1(s: String): String =
         MessageDigest.getInstance("SHA-1").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
+    /**
+     * 보호된 리소스팩의 망가뜨린 PNG 를 표준 PNG 로 고친다 (안드로이드가 읽을 수 있게).
+     * 마인크래프트의 그림 읽기(stb_image)는 조각 검사값(CRC)·압축 검사값(adler32)을 보지 않아서, 보호 도구가 이 값들을
+     * 틀리게 바꿔도 게임에서는 열리지만 안드로이드(libpng)는 거부한다. 조각을 다시 모아 IDAT 를 풀었다 다시 묶고 검사값을 새로 쓴다.
+     * 고칠 수 없으면 null.
+     */
+    fun repairPng(png: ByteArray): ByteArray? {
+        try {
+            if (png.size < 8 || png[1] != 'P'.code.toByte() || png[2] != 'N'.code.toByte() || png[3] != 'G'.code.toByte()) return null
+            fun int(o: Int) = ((png[o].toInt() and 0xFF) shl 24) or ((png[o + 1].toInt() and 0xFF) shl 16) or
+                ((png[o + 2].toInt() and 0xFF) shl 8) or (png[o + 3].toInt() and 0xFF)
+            val chunks = ArrayList<Pair<String, ByteArray>>()
+            val idat = ByteArrayOutputStream()
+            var p = 8
+            while (p + 8 <= png.size) {
+                val len = int(p)
+                if (len < 0 || p + 8 + len > png.size) break
+                val type = String(png, p + 4, 4, Charsets.ISO_8859_1)
+                val data = png.copyOfRange(p + 8, p + 8 + len)
+                when (type) {
+                    "IDAT" -> idat.write(data)
+                    "IEND" -> {}
+                    // 그림에 꼭 필요한 조각만 남긴다 (이상한 보조 조각이 문제를 일으키지 않게)
+                    "IHDR", "PLTE", "tRNS" -> chunks += type to data
+                }
+                if (type == "IEND") break
+                p += 12 + len
+            }
+            if (chunks.firstOrNull()?.first != "IHDR" || idat.size() < 2) return null
+            // zlib 머리(2바이트)를 건너뛰고 deflate 만 푼다 (끝의 adler32 는 검사하지 않음)
+            val z = idat.toByteArray()
+            val raw = ByteArrayOutputStream()
+            val inf = Inflater(true)
+            try {
+                inf.setInput(z, 2, z.size - 2)
+                val buf = ByteArray(64 * 1024)
+                while (!inf.finished()) {
+                    val n = inf.inflate(buf)
+                    if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break
+                    raw.write(buf, 0, n)
+                    if (raw.size() > 64 * 1024 * 1024) return null
+                }
+            } finally {
+                inf.end()
+            }
+            val def = java.util.zip.Deflater()
+            val packed = ByteArrayOutputStream()
+            try {
+                def.setInput(raw.toByteArray())
+                def.finish()
+                val buf = ByteArray(64 * 1024)
+                while (!def.finished()) packed.write(buf, 0, def.deflate(buf))
+            } finally {
+                def.end()
+            }
+            val out = ByteArrayOutputStream()
+            out.write(png, 0, 8)
+            fun chunk(type: String, data: ByteArray) {
+                val t = type.toByteArray(Charsets.ISO_8859_1)
+                out.write(java.nio.ByteBuffer.allocate(4).putInt(data.size).array())
+                out.write(t)
+                out.write(data)
+                val crc = java.util.zip.CRC32().apply { update(t); update(data) }
+                out.write(java.nio.ByteBuffer.allocate(4).putInt(crc.value.toInt()).array())
+            }
+            for ((t, d) in chunks) chunk(t, d)
+            chunk("IDAT", packed.toByteArray())
+            chunk("IEND", ByteArray(0))
+            return out.toByteArray()
+        } catch (_: Throwable) {
+            return null
+        }
+    }
+
     /** PNG 의 가로·세로 (IHDR). 그림을 풀지 않고 크기만 안다 */
     fun pngSize(png: ByteArray): Pair<Int, Int>? {
         if (png.size < 24 || png[1] != 'P'.code.toByte() || png[2] != 'N'.code.toByte()) return null
