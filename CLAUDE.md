@@ -33,6 +33,11 @@
     데이터 사용량은 `SessionHub.ratePerHour`(AfkService 가 1분마다 refreshRates) 하나를 알림과 상태 탭이 같이 씀,
     `AccountStore`(MS 토큰은 files/accounts/ 에 Keystore AES-GCM 으로 암호화 저장 `TokenCrypto`, 예전 평문도 읽음. 백업·기기 이전에서 제외 `res/xml/data_extraction_rules.xml`), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
 
+## PC 모드 (tools/fastpack-mod)
+- FastPack: 마인크래프트 1.21.4 Fabric 클라이언트 모드. 서버 리소스팩을 HTTP Range 로 6개 연결·4MB 조각으로 나눠 받고
+  바닐라와 같은 해시 검사·같은 경로로 넘김(팩 바이트는 그대로). 실패하면 바닐라 다운로드로. `HttpUtil.downloadFile` 에 Mixin(공식 매핑).
+- 빌드는 GitHub Actions `.github/workflows/mod.yml` 만 (이 클라우드 환경은 Fabric·Mojang 서버가 막힘). 산출물 `fastpack-mod`
+
 ## 빌드·배포
 - 빌드 종류(productFlavors): **github**(GitHub 릴리스 배포, 앱 안 업데이트·배터리 예외 직접 요청·프리미엄 테스트 토글 있음)
   / **play**(Google Play 용, 위 기능 없음). 판별은 `Flavor.PLAY` (`app/src/<flavor>/kotlin/.../Flavor.kt`),
