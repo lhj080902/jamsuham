@@ -36,6 +36,8 @@ data class SessionConfig(
     val joinCommandIntervalSec: Int = 3,
     /** 메뉴 자동 클릭 규칙 */
     val autoClickRules: List<AutoClickRule> = emptyList(),
+    /** 들어가면 한두 걸음 걸었다가 돌아오기 (움직이지 않으면 채팅·명령어를 막는 서버용) */
+    val walkOnJoin: Boolean = true,
 )
 
 /**
@@ -49,6 +51,8 @@ data class SessionConfig(
  *  - 차단/화이트리스트 킥: 계속 두드리면 안 되므로 멈춘다.
  */
 private const val MENU_WAIT_MAX_MS = 120_000L
+/** 접속 걷기: 한쪽으로 걷는 시간 (초당 4.3칸이라 약 1.5칸) */
+private const val WALK_STEP_MS = 350L
 
 class AfkSession(
     private val dataDir: File,
@@ -358,6 +362,7 @@ class AfkSession(
                     authKicks = 0
                 }
             }, 60, TimeUnit.SECONDS)
+            if (config.walkOnJoin) scheduleJoinWalk(gen)
             scheduleJoinCommands(gen)
         }
 
@@ -433,6 +438,36 @@ class AfkSession(
             exec.schedule({ step(i + 1) }, intervalMs, TimeUnit.MILLISECONDS)
         }
         exec.schedule({ step(0) }, (firstAt - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS)
+    }
+
+    /**
+     * 들어가서 한 번도 움직이지 않으면 채팅·명령어를 막거나 화면을 안 띄우는 서버가 있어서, 접속할 때마다
+     * 북쪽으로 약 1.5칸 걸었다가 남쪽으로 되돌아온다. 발밑 청크가 아직 없으면(걸어도 서버에 안 보냄) 준비될 때까지,
+     * 서버 메뉴(리소스팩 창 등)가 열려 있으면 닫힐 때까지 기다린다. 사용자가 직접 움직이는 중이면 하지 않는다.
+     */
+    private fun scheduleJoinWalk(gen: Int) {
+        val start = System.currentTimeMillis()
+        fun alive() = generation == gen && status.state == SessionState.ONLINE && !userStopped
+
+        fun step() {
+            if (!alive()) return
+            val conn = connection ?: return
+            val waited = System.currentTimeMillis() - start
+            if ((conn.hasOpenMenu || !conn.canWalk) && waited < MENU_WAIT_MAX_MS) {
+                exec.schedule({ step() }, 500, TimeUnit.MILLISECONDS)
+                return
+            }
+            if (!conn.canWalk || conn.movementInput != 0) return
+            conn.movementInput = 1 // 북
+            exec.schedule({
+                if (alive() && connection === conn && conn.movementInput == 1) conn.movementInput = 2 // 남 (되돌아오기)
+                exec.schedule({
+                    if (connection === conn && conn.movementInput == 2) conn.movementInput = 0
+                    if (alive()) line(LogLine.Kind.SYSTEM, "움직여야 하는 서버를 위해 한두 걸음 걸었다가 돌아왔습니다")
+                }, WALK_STEP_MS, TimeUnit.MILLISECONDS)
+            }, WALK_STEP_MS, TimeUnit.MILLISECONDS)
+        }
+        exec.schedule({ step() }, 1500, TimeUnit.MILLISECONDS)
     }
 
     private fun handleClosed(reason: CloseReason) {

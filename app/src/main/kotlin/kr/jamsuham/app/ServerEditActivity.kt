@@ -38,6 +38,7 @@ class ServerEditActivity : BaseActivity() {
     private lateinit var reconnectOnKick: Switch
     private lateinit var packGlyphs: Switch
     private lateinit var resumeOnBoot: Switch
+    private lateinit var walkOnJoin: Switch
     private lateinit var packWifiOnly: Switch
 
     private val versionNames = ArrayList<String>()
@@ -164,7 +165,10 @@ class ServerEditActivity : BaseActivity() {
         optCard.addView(reconnectOnKick)
         resumeOnBoot = ui.switch("폰을 다시 켜거나 앱이 업데이트되면 이어서 잠수").apply { isChecked = s.resumeOnBoot }
         optCard.addView(resumeOnBoot)
-        optCard.addView(ui.hint("직접 '끊기'를 누른 경우에는 다시 접속하지 않습니다. 폰 전원이 꺼져 있는 동안은 끊기지만, 위 옵션을 켜 두면 다시 켰을 때 이어서 접속합니다. " +
+        walkOnJoin = ui.switch("들어가면 한두 걸음 걸었다가 돌아오기").apply { isChecked = s.walkOnJoin }
+        optCard.addView(walkOnJoin)
+        optCard.addView(ui.hint("한 번도 움직이지 않으면 채팅·명령어를 막는 서버가 있어서, 걷기를 켜 두면 접속할 때마다 약 1.5칸 걸었다가 제자리로 돌아옵니다. " +
+            "직접 '끊기'를 누른 경우에는 다시 접속하지 않습니다. 폰 전원이 꺼져 있는 동안은 끊기지만, 위 옵션을 켜 두면 다시 켰을 때 이어서 접속합니다. " +
             "\"이미 프록시에 접속 중\"이라고 나오면 서버가 예전 접속을 정리할 때까지 기다렸다 다시 시도합니다."))
         form.addView(optCard, ui.gap(10))
 
@@ -250,6 +254,7 @@ class ServerEditActivity : BaseActivity() {
             reconnectOnKick = reconnectOnKick.isChecked,
             packGlyphs = packGlyphs.isChecked,
             resumeOnBoot = resumeOnBoot.isChecked,
+            walkOnJoin = walkOnJoin.isChecked,
             packWifiOnly = packWifiOnly.isChecked,
         )
         store.saveServer(entry)

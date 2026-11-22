@@ -31,6 +31,8 @@ data class ServerEntry(
     val packGlyphs: Boolean = true,
     /** 통째로 받아야 하는 리소스팩은 와이파이에서만 받기 (부분 다운로드가 되는 팩은 모바일 데이터에서도 필요한 부분만 받음) */
     val packWifiOnly: Boolean = true,
+    /** 들어가면 한두 걸음 걸었다가 돌아오기 (움직여야 채팅이 되는 서버용) */
+    val walkOnJoin: Boolean = true,
 ) {
     val displayName: String get() = name.ifBlank { address.ifBlank { "이름 없는 서버" } }
 
@@ -43,6 +45,7 @@ data class ServerEntry(
         joinCommandDelaySec = joinDelaySec.coerceIn(0, 120),
         joinCommandIntervalSec = joinIntervalSec.coerceIn(0, 120),
         autoClickRules = (autoClickRules ?: emptyList()).mapNotNull { kr.jamsuham.core.AutoClickRule.parse(it) },
+        walkOnJoin = walkOnJoin,
     )
 }
 

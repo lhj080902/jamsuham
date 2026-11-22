@@ -59,6 +59,13 @@ server.on('playerJoin', (client) => {
   } catch (e) {
     log('login write failed', e.stack)
   }
+  if (scenario === 'walk') {
+    // 접속 걷기 시험: 평평한 땅(y 63 까지 돌)만 보내고 메뉴·텔포 없이 유지 (1.21.4 전용)
+    safe(() => sendFlatChunks(client))
+    client.on('position', (d) => log('pos', d.x.toFixed(2), d.y.toFixed(2), d.z.toFixed(2)))
+    client.on('position_look', (d) => log('pos', d.x.toFixed(2), d.y.toFixed(2), d.z.toFixed(2)))
+    return
+  }
   setTimeout(() => safe(() => sendChat(client, '§a어서오세요 §e테스트 서버입니다')), 300)
   setTimeout(() => safe(() => sendPlayerChat(client, 'Steve', '반가워요')), 500)
   setTimeout(() => safe(() => sendResourcePack(client)), 700)
@@ -175,6 +182,19 @@ function sendLogin (client) {
     client.write('login', {
       entityId: client.id, gameMode: 0, dimension: 0, difficulty: 1, maxPlayers: 20, levelType: 'default', reducedDebugInfo: false
     })
+  }
+}
+
+function varint (v) { const b = []; do { let x = v & 0x7f; v >>>= 7; if (v) x |= 0x80; b.push(x) } while (v); return b }
+/** 1.21.4 청크: 구역 24개, 아래 8개(y -64~63)는 돌(1번), 나머지는 공기. 팔레트 한 가지 값 형식 */
+function sendFlatChunks (client) {
+  const sec = (block) => [...(block ? [0x10, 0x00] : [0, 0]), 0, ...varint(block), 0, 0, ...varint(0), 0]
+  const data = []
+  for (let i = 0; i < 24; i++) data.push(...sec(i < 8 ? 1 : 0))
+  const buf = Buffer.from(data)
+  for (let cx = -2; cx <= 2; cx++) for (let cz = -2; cz <= 2; cz++) {
+    client.write('map_chunk', { x: cx, z: cz, heightmaps: { type: 'compound', name: '', value: {} }, chunkData: buf, blockEntities: [],
+      skyLightMask: [], blockLightMask: [], emptySkyLightMask: [], emptyBlockLightMask: [], skyLight: [], blockLight: [] })
   }
 }
 

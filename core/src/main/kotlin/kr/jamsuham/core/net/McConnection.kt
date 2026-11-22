@@ -1107,6 +1107,10 @@ class McConnection(
     private var vy = 0.0
     private var onGround = true
 
+    /** 지금 걸을 수 있는지 (위치를 받았고, 발밑 청크와 블록 충돌 정보가 준비됨) */
+    val canWalk: Boolean
+        get() = hasPosition && Collision.loaded && world.isLoaded(kotlin.math.floor(x).toInt(), kotlin.math.floor(z).toInt())
+
     /** 이동 입력 (비트: 1 북, 2 남, 4 서, 8 동, 16 점프). 화면에서 아무 스레드나 불러도 된다. */
     @Volatile var movementInput = 0
         set(value) {
