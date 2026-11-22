@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
  * 조금이라도 이상하면 null 을 돌려주고, 그러면 바닐라가 원래 방식으로 받는다. 예외를 밖으로 던지지 않는다.
  */
 public final class ParallelDownload {
-    private static final Logger LOG = LoggerFactory.getLogger("fastpack");
+    static final Logger LOG = LoggerFactory.getLogger("fastpack");
 
     /** 이보다 작은 파일은 나눠 받을 이득이 적어 바닐라에 맡긴다 */
     private static final long MIN_SIZE = 8L * 1024 * 1024;

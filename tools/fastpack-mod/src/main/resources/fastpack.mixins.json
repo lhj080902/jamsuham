@@ -3,7 +3,10 @@
   "minVersion": "0.8",
   "package": "kr.jamsuham.fastpack.mixin",
   "compatibilityLevel": "JAVA_21",
-  "client": ["HttpUtilMixin"],
+  "client": [
+    "HttpUtilMixin",
+    "MinecraftMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

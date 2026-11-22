@@ -29,6 +29,7 @@ public abstract class HttpUtilMixin {
                                           HashCode requestedHash, int maxSize, Proxy proxy,
                                           HttpUtil.DownloadProgressListener listener,
                                           CallbackInfoReturnable<Path> cir) {
+        System.out.println("[FastPack] 리소스팩 다운로드 가로채기 동작: " + url);
         Path result = ParallelDownload.tryDownload(saveDir, url, headers, hashFunction, requestedHash, maxSize, proxy,
                 new ParallelDownload.Progress() {
                     @Override public void requestStart() { listener.requestStart(); }
