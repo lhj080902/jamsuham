@@ -373,7 +373,7 @@ class ChatPanel(
     private fun fillMenu(menu: Menu) {
         val box = menuDialogBox ?: return
         box.removeAllViews()
-        box.addView(ui.hint("누르면 그 칸을 클릭합니다. 길게 누르면 자동 클릭 규칙에 추가합니다."))
+        box.addView(ui.hint("누르면 설명이 보이고, 그 창의 '클릭'을 눌러야 실제로 누릅니다 (구매 등). 길게 누르면 자동 클릭 규칙에 추가합니다."))
         val items = menu.items.filter { it.slot < menu.containerSlots }.sortedBy { it.slot }
         if (items.isEmpty()) box.addView(ui.text("빈 메뉴입니다", 14f, p.muted).apply { setPadding(0, ui.dp(12), 0, 0) })
         for (item in items) {
@@ -381,10 +381,8 @@ class ChatPanel(
                 background = ui.rounded(p.input, 10)
                 setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
                 isClickable = true
-                setOnClickListener {
-                    SessionHub.clickMenu(serverId, item.slot)
-                    SessionHub.note(serverId, "메뉴 클릭: ${item.slot}번 칸 '${item.name.plain}'")
-                }
+                // 바로 누르지 않고 설명(가격 등)을 먼저 보여 준다 — PC 에서 마우스를 올려 보는 것과 같음
+                setOnClickListener { showMenuItem(menu, item) }
                 setOnLongClickListener { addRule(menu, item); true }
             }
             val head = ui.horizontal()
@@ -392,12 +390,48 @@ class ChatPanel(
             head.addView(ui.marquee(ui.text(spans(item.name), 15f, bold = true)), ui.lp(0, Ui.WRAP, 1f))
             if (item.count > 1) head.addView(ui.text("x${item.count}", 12f, p.muted))
             row.addView(head)
-            for (l in item.lore.take(6)) {
-                if (l.plain.isBlank()) continue
-                row.addView(ui.text(spans(l), 12f, p.muted).apply { setPadding(ui.dp(40), 0, 0, 0) })
+            // 목록에는 설명을 2줄만 미리 보여 주고, 전체는 눌러서 본다
+            val lore = item.lore.filter { it.plain.isNotBlank() }
+            for (l in lore.take(2)) {
+                row.addView(ui.text(spans(l), 12f, p.muted).apply { setPadding(ui.dp(40), 0, 0, 0); maxLines = 1 })
             }
+            if (lore.size > 2) row.addView(ui.text("… 설명 ${lore.size - 2}줄 더 (눌러서 보기)", 11f, p.muted).apply { setPadding(ui.dp(40), 0, 0, 0) })
             box.addView(row, ui.lp().apply { topMargin = ui.dp(6) })
         }
+    }
+
+    /** 메뉴 아이템 설명 창: 이름·개수·설명 전체. '클릭'을 눌러야 서버에 실제로 클릭을 보낸다 */
+    private fun showMenuItem(menu: Menu, item: kr.jamsuham.core.MenuItem) {
+        val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
+        box.addView(ui.text(spans(item.name).ifEmpty { item.itemId }, 17f, bold = true))
+        val info = buildString {
+            append("#${item.slot}번 칸")
+            if (item.count > 1) append(" · ${item.count}개")
+            if (item.itemId.isNotBlank()) append(" · ").append(kr.jamsuham.core.text.ItemNames.name(item.itemId))
+        }
+        box.addView(ui.text(info, 12f, p.muted).apply { setPadding(0, ui.dp(2), 0, ui.dp(8)) })
+        val lore = item.lore
+        if (lore.none { it.plain.isNotBlank() }) {
+            box.addView(ui.text("설명이 없습니다", 13f, p.muted))
+        } else {
+            for (l in lore) box.addView(ui.text(spans(l).ifEmpty { " " }, 14f))
+        }
+        android.app.AlertDialog.Builder(activity)
+            .setView(android.widget.ScrollView(activity).apply { addView(box) })
+            .setPositiveButton("클릭") { _, _ ->
+                // 설명을 보는 사이 메뉴가 닫혔거나 바뀌었으면 누르지 않는다
+                val now = SessionHub.menu(serverId)
+                if (now == null || now.windowId != menu.windowId) {
+                    Toast.makeText(activity, "메뉴가 닫혔거나 바뀌어서 누르지 않았습니다", Toast.LENGTH_SHORT).show()
+                } else if (SessionHub.clickMenu(serverId, item.slot)) {
+                    SessionHub.note(serverId, "메뉴 클릭: ${item.slot}번 칸 '${item.name.plain}'")
+                } else {
+                    Toast.makeText(activity, "누르지 못했습니다", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNeutralButton("자동 클릭 규칙") { _, _ -> addRule(menu, item) }
+            .setNegativeButton("닫기", null)
+            .show()
     }
 
     private fun spans(t: kr.jamsuham.core.text.ChatText): CharSequence {
