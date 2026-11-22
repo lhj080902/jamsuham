@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  앱 아이콘: 배너의 바닷속 노란 잠수함 그림 (drawable-nodpi/ic_launcher_bg.png, 432×432 = 108dp × 4).
+  런처는 가운데 72dp 만 보여 주므로 잠수함이 가운데 원 안에 들어가게 잘라 둠.
+  테마 아이콘(안드로이드 13+ 단색)은 예전 픽셀 잠수함 벡터 실루엣을 그대로 씀.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/icon_bg" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <background android:drawable="@drawable/ic_launcher_bg" />
+    <foreground android:drawable="@drawable/ic_launcher_fg_empty" />
     <monochrome android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>
