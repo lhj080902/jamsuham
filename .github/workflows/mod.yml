@@ -66,6 +66,14 @@ jobs:
                    net.minecraft.client.resources.server.PackLoadFeedback net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl; do
             echo "===== $C"; javap -p -cp "$FOUND" "$C" || true
           done
+          # 바이트코드(재접속 때 리로드 생략 기능 설계용)
+          for C in net.minecraft.client.resources.server.DownloadedPackSource net.minecraft.client.resources.server.ServerPackManager \
+                   'net.minecraft.client.resources.server.PackReloadConfig$Callbacks' 'net.minecraft.client.resources.server.PackReloadConfig$IdAndPath' \
+                   'net.minecraft.client.resources.server.DownloadedPackSource$4' 'net.minecraft.client.resources.server.DownloadedPackSource$5'; do
+            echo "##### BYTECODE $C"; javap -c -p -cp "$FOUND" "$C" || true
+          done
+          javap -p -cp "$FOUND" net.minecraft.client.Minecraft | grep -i "reload\|resourcepack\|packrepository\|downloadedpack" || true
+          unzip -l "$FOUND" | grep 'client/resources/server/' || true
 
       - uses: actions/upload-artifact@v4
         with:
