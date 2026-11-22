@@ -126,6 +126,36 @@ object Glyphs {
 
     /** "그림|열|행" → 잘라 낸 글자 비트맵 (오른쪽 빈 칸은 잘라 냄, 바닐라와 같음) */
     private val cells = LruCache<String, Bitmap>(512)
+    /** 잘라 낸 글자 비트맵 → "한 가지 색으로 꽉 찬 띠"인지 (공지 배경 조각, 한 번만 계산) */
+    private val flatBars = java.util.WeakHashMap<Bitmap, Boolean>()
+
+    /**
+     * 가로가 세로보다 길고, 대부분 한 가지 색으로 꽉 찬 사각형이면 배경 띠 조각으로 본다.
+     * (칭호·아이콘은 글자 모양·여러 색이 있어서 해당하지 않음)
+     */
+    private fun isFlatBar(bmp: Bitmap): Boolean = synchronized(flatBars) {
+        flatBars.getOrPut(bmp) {
+            val w = bmp.width
+            val h = bmp.height
+            if (w < h * 2 || w * h == 0) return@getOrPut false
+            val px = IntArray(w * h)
+            bmp.getPixels(px, 0, w, 0, 0, w, h)
+            var opaque = 0
+            val counts = HashMap<Int, Int>()
+            for (c in px) {
+                if ((c ushr 24) < 128) continue
+                opaque++
+                // 비슷한 색은 같은 색으로 (채널당 상위 4비트)
+                val q = c and 0xF0F0F0
+                counts[q] = (counts[q] ?: 0) + 1
+            }
+            if (opaque == 0) return@getOrPut true
+            val top = counts.values.maxOrNull() ?: 0
+            // 보이는 부분의 90% 이상이 한 색이고, 띠의 행 중 대부분이 차 있으면(속이 빈 글자 모양이 아님) 배경 띠
+            val filledRows = (0 until h).count { y -> (0 until w).count { x -> (px[y * w + x] ushr 24) >= 128 } >= w * 0.8 }
+            top >= opaque * 0.9 && filledRows >= 1 && opaque >= w * 2
+        }
+    }
 
     private fun cell(set: PackFonts.FontSet, g: PackFonts.Glyph): Bitmap? {
         val key = "${g.image}|${g.col}|${g.row}"
@@ -222,12 +252,12 @@ object Glyphs {
 
     /**
      * 그림 글자 하나를 붙인다. 못 그리면 false.
-     * 가로로 아주 긴 그림(공지 배경 띠, 밑줄 등)은 마인크래프트에서 "뒤로 당기는 빈칸 글자"로 글자 밑에 겹쳐 깔리는데,
+     * 가로로 아주 긴 그림(공지 배경 띠, 밑줄 등)이나 한 가지 색으로 꽉 찬 띠 조각은 마인크래프트에서 "뒤로 당기는 빈칸 글자"로 글자 밑에 겹쳐 깔리는데,
      * 채팅 앱은 겹쳐 그릴 수 없어서 긴 막대만 남는다 → 그리지 않고 건너뛴다 (true 를 돌려 글자로도 넣지 않음).
      */
     private fun appendGlyph(sb: SpannableStringBuilder, set: PackFonts.FontSet, g: PackFonts.Glyph, textPx: Float, tint: Int?, flush: () -> Unit): Boolean {
         val bmp = cell(set, g) ?: return false
-        if (bmp.width > bmp.height * BACKGROUND_ASPECT) return true
+        if (bmp.width > bmp.height * BACKGROUND_ASPECT || isFlatBar(bmp)) return true
         flush()
         // 바닐라 기본 글자 높이 8 = 글자 크기 정도. 너무 큰 그림은 줄 높이의 2.5배로 제한
         val targetH = (textPx * 0.95f * g.height / 8f).coerceIn(textPx * 0.4f, textPx * 2.5f)
