@@ -198,7 +198,9 @@ class ChatPanel(
             override fun onDown(e: MotionEvent): Boolean = true
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 if (abs(vx) < ui.dp(400) || abs(vx) < abs(vy) * 1.5f) return false
-                showPage(page + if (vx < 0) 1 else -1)
+                // 끝에서 더 넘기면 처음으로, 처음에서 거꾸로 넘기면 끝으로 (한 바퀴 돎)
+                val step = if (vx < 0) 1 else -1
+                showPage(page + step, step)
                 return true
             }
         })
@@ -254,13 +256,19 @@ class ChatPanel(
         chatPage.addView(inputRow, ui.lp().apply { topMargin = ui.dp(6) })
     }
 
-    private fun showPage(target: Int) {
-        val next = target.coerceIn(0, 4)
-        if (next == page) return
+    /**
+     * [target] 페이지로 넘긴다. 범위를 넘으면 반대쪽 끝으로 돈다 (상태 → 채팅, 채팅 → 상태).
+     * [swipeDir] 밀어서 넘긴 방향(+1 = 다음, -1 = 이전). 한 바퀴 돌 때도 민 방향대로 화면이 움직이게 쓴다.
+     */
+    private fun showPage(target: Int, swipeDir: Int = 0) {
         val views = listOf<View>(chatPage, mapPage, invPanel, playerPanel, statusPanel)
+        val next = ((target % views.size) + views.size) % views.size
+        if (next == page) return
+        // 채팅 입력 중에 다른 페이지로 넘기면 키보드를 닫는다 (키보드가 열린 채로 지도·인벤이 가려지지 않게)
+        if (page == 0) hideKeyboard()
         val from = views[page]
         val to = views[next]
-        val dir = if (next > page) 1 else -1
+        val dir = if (swipeDir != 0) swipeDir else if (next > page) 1 else -1
         val w = pages.width.toFloat().takeIf { it > 0 } ?: ui.dp(360).toFloat()
         if (page == 1) mapPage.stopMoving()
         page = next
@@ -275,6 +283,13 @@ class ChatPanel(
         if (next == 3) playerPanel.show(SessionHub.players(serverId))
         if (next == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
         styleTabs()
+    }
+
+    private fun hideKeyboard() {
+        val imm = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(input.windowToken, 0)
+        input.clearFocus()
+        hideChips()
     }
 
     private fun styleTabs() {
