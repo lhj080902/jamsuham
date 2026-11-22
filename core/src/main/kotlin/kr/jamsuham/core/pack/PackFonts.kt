@@ -68,7 +68,7 @@ object PackFonts {
     }
 
     const val DEFAULT_FONT = "minecraft:default"
-    private const val CACHE_VERSION = 3
+    private const val CACHE_VERSION = 4
 
     /** 부분 다운로드로 받는 양의 상한 (글꼴 json + png 합계) */
     private const val MAX_RANGED_BYTES = 40L * 1024 * 1024
@@ -97,8 +97,32 @@ object PackFonts {
             throw IOException("리소스팩을 열지 못했습니다: ${t.message}", t)
         }
         try {
-            val set = extract(source, log)
-            writeCache(dir, set)
+            var set = extract(source, log)
+            // 부분 다운로드로 zip 목록을 하나도 못 읽었으면(보호된 팩 등), 받을 수 있는 크기일 때 통째로 받아
+            // 자바 zip 읽기(마인크래프트와 같은 방식)로 다시 시도한다
+            if (source is RangedZip && source.empty && source.total > maxFullBytes) {
+                set = FontSet(set.fonts, set.images, set.report + "\n통째로 받기: " +
+                    if (maxFullBytes <= 0) "와이파이에서만 받기라서 건너뜀 (와이파이에서 다시 접속하면 시도)" else "너무 커서 건너뜀 (${source.total / 1048576}MB)")
+            }
+            if (source is RangedZip && source.empty && source.total <= maxFullBytes) {
+                log.i("부분 다운로드로 zip 목록을 읽지 못해 리소스팩을 통째로 받습니다 (${source.total / 1048576}MB)")
+                val full = try {
+                    FullZip.download(open(url, null), maxFullBytes, File(cacheDir, "$key.download"))
+                } catch (t: Throwable) {
+                    set = FontSet(set.fonts, set.images, set.report + "\n통째로 받기 실패: ${t.message ?: t.javaClass.simpleName}")
+                    null
+                }
+                if (full != null) {
+                    try {
+                        val again = extract(full, log)
+                        set = FontSet(again.fonts, again.images, "통째로 받아 다시 읽음\n" + again.report + "\n[부분 다운로드 때]\n" + set.report)
+                    } finally {
+                        full.close()
+                    }
+                }
+            }
+            // 그림 글자가 없으면 저장하지 않는다 (읽는 방법을 고친 뒤에도 실패한 결과를 계속 보여 주지 않게, 다음 접속 때 다시 시도)
+            if (set.glyphCount > 0) writeCache(dir, set)
             return set
         } finally {
             source.close()
@@ -367,7 +391,7 @@ object PackFonts {
     }
 
     /** HTTP Range 로 필요한 부분만 받는 zip */
-    private class RangedZip(private val url: String, private val total: Long) : ZipSource {
+    private class RangedZip(private val url: String, val total: Long) : ZipSource {
         /** [offset] 바로잡은 위치, [rawOffset] 목록에 적힌 위치 (바로잡은 곳에 파일이 없으면 이쪽을 시도) */
         private class Entry(val method: Int, val compSize: Long, val size: Long, val offset: Long, val rawOffset: Long = offset)
 
@@ -376,6 +400,9 @@ object PackFonts {
         override var note: String? = null
 
         override fun names(): List<String> = entries.keys.toList()
+
+        /** 목록을 하나도 못 읽음 */
+        val empty: Boolean get() = entries.isEmpty()
 
         override fun read(name: String, max: Long): ByteArray {
             val e = entries[name] ?: throw IOException("없음: $name")
@@ -426,6 +453,7 @@ object PackFonts {
             val tail = range(total - tailLen, total - 1)
             val tailStart = total - tailLen
             var lastDeclared = 0
+            val tried = ArrayList<String>()
             for (eocd in tail.size - 22 downTo 0) {
                 if (u32(tail, eocd) != 0x06054b50L) continue
                 val declared = u16(tail, eocd + 10)
@@ -435,19 +463,21 @@ object PackFonts {
                 if (cdOffset == 0xFFFFFFFFL || cdSize == 0xFFFFFFFFL) throw IOException("ZIP64 는 부분 다운로드를 지원하지 않습니다")
                 val eocdAbs = tailStart + eocd
                 // 실제 위치(자바 방식) → 안 되면 적힌 위치
+                tried += "끝기록@$eocdAbs 목록크기 $cdSize 위치 $cdOffset"
                 for (cdStart in listOf(eocdAbs - cdSize, cdOffset).distinct()) {
-                    if (cdStart < 0 || cdStart + cdSize > eocdAbs || cdSize < 46) continue
+                    if (cdStart < 0 || cdStart + cdSize > eocdAbs || cdSize < 46) { tried += "  @$cdStart 범위 밖"; continue }
                     val cd = if (cdStart >= tailStart) {
                         tail.copyOfRange((cdStart - tailStart).toInt(), (cdStart - tailStart + cdSize).toInt())
                     } else {
                         // 목록 첫 부분만 먼저 확인해서 엉뚱한 곳을 몇 MB 씩 받지 않게
-                        if (u32(range(cdStart, cdStart + 3), 0) != 0x02014b50L) continue
+                        val sig = range(cdStart, cdStart + 3)
+                        if (u32(sig, 0) != 0x02014b50L) { tried += "  @$cdStart 시작 " + sig.joinToString(" ") { "%02X".format(it) }; continue }
                         range(cdStart, cdStart + cdSize - 1)
                     }
-                    if (u32(cd, 0) != 0x02014b50L) continue
+                    if (u32(cd, 0) != 0x02014b50L) { tried += "  @$cdStart 시작 " + cd.take(4).joinToString(" ") { "%02X".format(it) }; continue }
                     val delta = cdStart - cdOffset
                     val parsed = parseDirectory(cd, delta)
-                    if (parsed == 0) continue
+                    if (parsed == 0) { tried += "  @$cdStart 항목 0개"; continue }
                     note = when {
                         parsed < declared -> "zip 목록 ${declared}개 중 ${parsed}개만 읽음 (보호된 팩일 수 있음)"
                         delta != 0L -> "보호된 팩: zip 목록 위치를 바로잡아 읽음"
@@ -457,7 +487,7 @@ object PackFonts {
                 }
             }
             if (lastDeclared > 0) {
-                note = "zip 목록 ${lastDeclared}개 중 0개만 읽음 (보호된 팩일 수 있음)"
+                note = "zip 목록 ${lastDeclared}개 중 0개만 읽음 (보호된 팩일 수 있음)\n파일 크기 $total\n" + tried.take(6).joinToString("\n")
                 return
             }
             throw IOException("zip 목록을 찾지 못했습니다")
