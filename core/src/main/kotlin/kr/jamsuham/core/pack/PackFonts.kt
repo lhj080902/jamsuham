@@ -100,6 +100,7 @@ object PackFonts {
         val dir = File(cacheDir, "$key-v$CACHE_VERSION")
         readCache(dir)?.let { return it }
 
+        val started = System.currentTimeMillis()
         val source: ZipSource = try {
             RangedZip.open(url, maxFullBytes, File(cacheDir, "$key.download"))
         } catch (e: IOException) {
@@ -132,6 +133,9 @@ object PackFonts {
                     }
                 }
             }
+            val secs = (System.currentTimeMillis() - started) / 1000.0
+            set = FontSet(set.fonts, set.images, (set.report ?: "") + "\n받는 데 ${"%.1f".format(secs)}초" + (source.stats?.let { " ($it)" } ?: ""))
+            log.i("리소스팩 그림 글자 ${set.glyphCount}개, ${"%.1f".format(secs)}초 ${source.stats ?: ""}")
             // 그림 글자가 없으면 저장하지 않는다 (읽는 방법을 고친 뒤에도 실패한 결과를 계속 보여 주지 않게, 다음 접속 때 다시 시도)
             if (set.glyphCount > 0) writeCache(dir, set)
             return set
@@ -152,6 +156,8 @@ object PackFonts {
         val errors = ArrayList<String>()
         val missing = LinkedHashSet<String>()
         val types = java.util.TreeMap<String, Int>()
+        // 글꼴 설정들을 한꺼번에 미리 받는다
+        zip.prefetch(names.filter { fontRe.containsMatchIn(it) })
         for (name in names) {
             val m = fontRe.find(name) ?: continue
             val id = "${m.groupValues[1]}:${m.groupValues[2]}"
@@ -166,6 +172,12 @@ object PackFonts {
         val fonts = HashMap<String, MutableMap<Int, Glyph>>()
         val images = HashMap<String, ByteArray>()
         val nameSet = names.toHashSet()
+        // 그림 글자 공급자가 쓰는 그림들도 한꺼번에 미리 받는다
+        zip.prefetch(
+            providers.values.flatten().filter { it.get("type")?.asString == "bitmap" }
+                .mapNotNull { p -> p.get("file")?.takeIf { it.isJsonPrimitive }?.asString?.let { texturePath(it) } }
+                .filter { it in nameSet }.toSet(),
+        )
 
         fun addProviders(target: MutableMap<Int, Glyph>, list: List<JsonObject>, depth: Int) {
             if (depth > 8) return
@@ -284,6 +296,8 @@ object PackFonts {
                 override fun names(): List<String> = map.keys.toList()
                 override fun read(name: String, max: Long): ByteArray = zip.read(map[name] ?: name, max)
                 override fun close() = zip.close()
+                override fun prefetch(names: Collection<String>) = zip.prefetch(names.map { map[it] ?: it })
+                override val stats: String? get() = zip.stats
             }
         }
 
@@ -442,6 +456,10 @@ object PackFonts {
         fun close()
         /** 목록을 읽다 생긴 이상한 점 (진단용) */
         val note: String? get() = null
+        /** 곧 읽을 파일들을 미리 한꺼번에 받아 둔다 (부분 다운로드일 때만 의미 있음) */
+        fun prefetch(names: Collection<String>) {}
+        /** 받은 양·요청 수 (진단용) */
+        val stats: String? get() = null
     }
 
     /** 전체를 받아 파일로 둔 zip */
@@ -481,7 +499,58 @@ object PackFonts {
         private class Entry(val method: Int, val compSize: Long, val size: Long, val offset: Long, val rawOffset: Long = offset)
 
         private val entries = LinkedHashMap<String, Entry>()
-        private var fetched = 0L
+        private val fetched = java.util.concurrent.atomic.AtomicLong()
+        private val requests = java.util.concurrent.atomic.AtomicInteger()
+        /** 미리 받아 둔 구간 (시작 위치, 내용) */
+        private val blocks = java.util.concurrent.CopyOnWriteArrayList<Pair<Long, ByteArray>>()
+
+        override val stats: String get() = "요청 ${requests.get()}번, ${"%.1f".format(fetched.get() / 1048576.0)}MB"
+
+        /**
+         * 파일마다 따로 요청하면 왕복 시간 × 수백 번이 걸린다. 팩 안에서 가까이 붙은 파일들은 한 요청으로 묶고(사이 간격 64KB 이하,
+         * 한 묶음 4MB 이하), 묶음들을 동시에 6개씩 받는다. 실패한 묶음은 나중에 파일별로 다시 받는다.
+         */
+        override fun prefetch(names: Collection<String>) {
+            val spans = names.mapNotNull { entries[it] }
+                .map { it.offset to (it.offset + 30 + 1024 + it.compSize).coerceAtMost(total) }
+                .filter { (a, b) -> blocks.none { (s, d) -> a >= s && b <= s + d.size } }
+                .sortedBy { it.first }
+            if (spans.isEmpty()) return
+            fun group(gap: Long): List<LongArray> {
+                val groups = ArrayList<LongArray>()
+                for ((a, b) in spans) {
+                    val last = groups.lastOrNull()
+                    if (last != null && a - last[1] <= gap && b - last[0] <= 4L * 1024 * 1024) last[1] = maxOf(last[1], b)
+                    else groups += longArrayOf(a, b)
+                }
+                return groups
+            }
+            // 묶느라 사이의 필요 없는 부분까지 너무 많이 받게 되면(16MB 넘게) 간격을 줄여 거의 필요한 부분만 받는다
+            val budget = 16L * 1024 * 1024
+            var groups = group(64 * 1024)
+            if (groups.sumOf { it[1] - it[0] } > budget) groups = group(4 * 1024)
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(minOf(6, groups.size))
+            try {
+                for (g in groups) pool.execute {
+                    try {
+                        blocks += g[0] to range(g[0], g[1] - 1)
+                    } catch (_: Throwable) {
+                    }
+                }
+            } finally {
+                pool.shutdown()
+                pool.awaitTermination(3, java.util.concurrent.TimeUnit.MINUTES)
+            }
+        }
+
+        /** [from]~[to] 를 미리 받아 둔 구간에서 꺼내고, 없으면 새로 받는다 */
+        private fun bytes(from: Long, to: Long): ByteArray {
+            val end = to.coerceAtMost(total - 1)
+            for ((s, d) in blocks) {
+                if (from >= s && end < s + d.size) return d.copyOfRange((from - s).toInt(), (end - s + 1).toInt())
+            }
+            return range(from, end)
+        }
         override var note: String? = null
 
         override fun names(): List<String> = entries.keys.toList()
@@ -495,7 +564,7 @@ object PackFonts {
             if (e.compSize > max) throw IOException("너무 큼: $name")
             // 로컬 헤더(30바이트 + 이름 + extra) 뒤에 압축 데이터. extra 길이를 모르니 넉넉히 받는다
             var at = e.offset
-            var head = range(at, at + 30 + 1024 + e.compSize - 1)
+            var head = bytes(at, at + 30 + 1024 + e.compSize - 1)
             if (u32(head, 0) != 0x04034b50L && e.rawOffset != e.offset) {
                 at = e.rawOffset
                 head = range(at, at + 30 + 1024 + e.compSize - 1)
@@ -503,7 +572,7 @@ object PackFonts {
             if (u32(head, 0) != 0x04034b50L) throw IOException("zip 형식이 이상합니다: $name")
             val start = 30 + u16(head, 26) + u16(head, 28)
             // 보호된 팩은 로컬 헤더에 큰 extra 를 넣기도 한다: 모자라면 정확한 길이로 다시 받는다
-            if (start + e.compSize > head.size) head = range(at, at + start + e.compSize - 1)
+            if (start + e.compSize > head.size) head = bytes(at, at + start + e.compSize - 1)
             val data = head.copyOfRange(start, (start + e.compSize).toInt().coerceAtMost(head.size))
             return when (e.method) {
                 0 -> data
@@ -512,12 +581,14 @@ object PackFonts {
             }
         }
 
-        override fun close() {}
+        override fun close() {
+            blocks.clear()
+        }
 
         private fun range(from: Long, to: Long): ByteArray {
             val end = to.coerceAtMost(total - 1)
-            fetched += end - from + 1
-            if (fetched > MAX_RANGED_BYTES) throw IOException("받을 양이 너무 많습니다")
+            requests.incrementAndGet()
+            if (fetched.addAndGet(end - from + 1) > MAX_RANGED_BYTES) throw IOException("받을 양이 너무 많습니다")
             val conn = open(url, "bytes=$from-$end")
             try {
                 if (conn.responseCode != 206) throw IOException("부분 다운로드 실패 (HTTP ${conn.responseCode})")

@@ -170,7 +170,8 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
                     s.skipped -> "꺼짐"
                     s.error != null -> "실패: ${s.error}"
                     s.glyphs == null -> "받는 중"
-                    else -> "글자 ${s.glyphs}개 · 글꼴 ${s.fonts}개"
+                    else -> "글자 ${s.glyphs}개 · 글꼴 ${s.fonts}개" +
+                        (s.report?.lines()?.firstOrNull { it.startsWith("받는 데") }?.let { " · $it" } ?: "")
                 }
                 "• $state\n  ${s.url}" + (s.report?.takeIf { s.glyphs == 0 || Glyphs.missing.isNotEmpty() }?.let { "\n  [팩 안 모습]\n  " + it.replace("\n", "\n  ") } ?: "")
             },

@@ -55,3 +55,12 @@ while True:
         lo=_st.unpack('<I',d[p+42:p+46])[0]; d[lo+22:lo+26]=_st.pack('<I',10)
     p+=4
 open('fakesize.zip','wb').write(bytes(d))
+# many.zip: 글꼴 120개 + 그림 120개 사이사이에 30KB 짜리 다른 파일 (묶어 받기·동시 받기 확인용, DELAY= 로 왕복 지연)
+with zipfile.ZipFile('many.zip','w',zipfile.ZIP_DEFLATED) as z:
+    z.writestr('pack.mcmeta',json.dumps({"pack":{"pack_format":46,"description":"many"}}))
+    for i in range(120):
+        cp=0xE000+i
+        z.writestr(f'assets/many/font/f{i}.json',json.dumps({"providers":[{"type":"bitmap","file":f"many:font/i{i}.png","ascent":7,"height":8,"chars":[chr(cp)]}]}))
+        z.writestr(zipfile.ZipInfo(f'assets/many/sounds/s{i}.ogg'),os.urandom(30*1024),compress_type=zipfile.ZIP_STORED)
+        z.writestr(f'assets/many/textures/font/i{i}.png',icons)
+print('many', os.path.getsize('many.zip'))
