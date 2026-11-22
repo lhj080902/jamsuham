@@ -4,6 +4,9 @@
 GitHub 배포에서는 동작하지만, Play 스토어에 올리려면 **우리 앱 이름으로 된 client ID** 를 만들고 Mojang 의 승인을 받아야 한다.
 코드는 이미 준비되어 있어서, 승인받은 ID 를 GitHub 에 등록하기만 하면 다음 빌드부터 자동으로 바뀐다.
 
+> **진행 상황 (2026-11-22)**: Azure 앱 등록 완료 — 이름 Jamsucraft, client ID `9f60141c-29ac-4d71-8fa1-f89e32a085e7`,
+> 테넌트 `befd22ca-7836-40d4-9a88-440c1d6ad0d4`, 개인 계정만. Mojang 승인 신청 제출함 → **승인 메일 기다리는 중** (아직 MS_CLIENT_ID 등록하지 말 것)
+
 > 순서: ① Azure 에 앱 등록 → ② Mojang 에 승인 신청 → ③ 승인 메일을 받으면 GitHub 에 ID 등록
 > 승인 전에 ③ 을 하면 로그인이 마지막 단계에서 실패한다(403 "Invalid app registration"). 반드시 승인 뒤에 등록할 것.
 
