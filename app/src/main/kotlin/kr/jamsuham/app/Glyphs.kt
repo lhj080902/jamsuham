@@ -172,7 +172,8 @@ object Glyphs {
         var i = 0
         while (i < glyphs.length) {
             val cp = glyphs.codePointAt(i)
-            val g = set.glyph(span.font, cp)
+            // 지정된 글꼴에 없으면, 개인 사용 영역 글자는 팩의 다른 글꼴에서 찾는다 (서버가 글꼴 지정을 빼먹는 경우)
+            val g = set.glyph(span.font, cp) ?: if (ChatText.isPrivateUse(cp)) set.glyphAny(cp) else null
             if (g == null) miss(span.font, cp) else appendGlyph(sb, set, g, textPx, tintColor, flush = {})
             i += Character.charCount(cp)
         }

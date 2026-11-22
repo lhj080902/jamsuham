@@ -45,6 +45,17 @@ object PackFonts {
 
         fun glyph(font: String?, cp: Int): Glyph? = fonts[font ?: DEFAULT_FONT]?.get(cp)
 
+        /** 모든 글꼴을 합친 표 (기본 글꼴 우선). 개인 사용 영역 글자는 팩 안에서 보통 하나뿐이라, 글꼴이 안 맞을 때 찾아 쓴다 */
+        private val any: Map<Int, Glyph> by lazy {
+            val m = HashMap<Int, Glyph>()
+            fonts[DEFAULT_FONT]?.let { m.putAll(it) }
+            for ((id, f) in fonts) if (id != DEFAULT_FONT) for ((cp, g) in f) m.putIfAbsent(cp, g)
+            m
+        }
+
+        /** [cp] 가 들어 있는 아무 글꼴의 그림 글자 */
+        fun glyphAny(cp: Int): Glyph? = any[cp]
+
         companion object {
             val EMPTY = FontSet(emptyMap(), emptyMap())
 
@@ -215,7 +226,7 @@ object PackFonts {
             val tops = names.map { it.substringBefore('/') }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(5)
             append(" (" + tops.joinToString { "${it.key} ${it.value}" } + ")")
             notes.forEach { append("\n").append(it) }
-            append("\n글꼴 설정 ${providers.size}개")
+            append("\n글꼴 설정 ${providers.size}개, 기본 글꼴 그림 글자 ${fonts[DEFAULT_FONT]?.size ?: 0}개")
             if (providers.isNotEmpty()) append(": " + providers.keys.sorted().take(8).joinToString() + if (providers.size > 8) " …" else "")
             if (types.isNotEmpty()) append("\n공급자 종류: " + types.entries.joinToString { "${it.key} ${it.value}" })
             if (missing.isNotEmpty()) append("\n없는 그림 ${missing.size}개: " + missing.take(3).joinToString() + if (missing.size > 3) " …" else "")
