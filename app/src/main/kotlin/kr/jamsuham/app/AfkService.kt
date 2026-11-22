@@ -91,16 +91,23 @@ class AfkService : Service() {
                 }
             }
             else -> {
-                // 시스템이 앱을 정리했다가 서비스를 다시 살린 경우 (intent == null)
-                val resume = store.activeToResume()
+                // ACTION_RESUME: 폰이 다시 켜졌거나 앱이 업데이트됨 (BootReceiver) / intent == null: 시스템이 앱을 정리했다가 다시 살림
+                val fromBoot = intent?.action == ACTION_RESUME
+                val resume = if (fromBoot) {
+                    intent?.getStringArrayExtra(EXTRA_SERVERS)?.toSet() ?: emptySet()
+                } else {
+                    store.activeToResume()
+                }
                 if (resume.isEmpty() || SessionHub.anyActive) {
-                    if (!SessionHub.anyActive) stopSelf()
+                    // startForegroundService 로 시작된 경우(ACTION_RESUME)는 일단 포그라운드로 올렸다가 정리해야 앱이 강제 종료되지 않는다
+                    if (fromBoot && !inForeground) goForeground()
+                    if (!SessionHub.anyActive) shutdown()
                     return START_NOT_STICKY
                 }
                 if (!goForeground()) return START_NOT_STICKY
                 for (id in resume.take(Plan.maxConcurrent(this))) {
-                    SessionHub.note(id, "앱이 시스템에 의해 종료됐다가 다시 실행되어 이어서 접속합니다")
-                    begin(id)
+                    // 접속을 시작하면 채팅 기록을 비우므로 안내는 시작한 뒤에 남긴다
+                    if (begin(id)) SessionHub.note(id, intent?.getStringExtra(EXTRA_REASON) ?: "앱이 시스템에 의해 종료됐다가 다시 실행되어 이어서 접속합니다")
                 }
                 // 그 사이 지워진 서버뿐이라 아무것도 시작하지 못했으면 "준비 중" 알림만 남기지 말고 정리한다
                 if (!SessionHub.anyActive) {
@@ -333,12 +340,24 @@ class AfkService : Service() {
         const val ACTION_START = "kr.jamsuham.app.START"
         const val ACTION_STOP = "kr.jamsuham.app.STOP"
         const val ACTION_STOP_ALL = "kr.jamsuham.app.STOP_ALL"
+        const val ACTION_RESUME = "kr.jamsuham.app.RESUME"
         const val EXTRA_SERVER = "server_id"
+        const val EXTRA_SERVERS = "server_ids"
+        const val EXTRA_REASON = "reason"
         private const val CHANNEL_ID = "afk"
         private const val NOTIFICATION_ID = 7
 
         fun start(context: Context, serverId: String) {
             context.startForegroundService(Intent(context, AfkService::class.java).setAction(ACTION_START).putExtra(EXTRA_SERVER, serverId))
+        }
+
+        /** 폰이 다시 켜졌거나 앱이 업데이트된 뒤 [serverIds] 잠수를 이어서 시작 ([reason] 은 채팅에 남길 안내) */
+        fun resume(context: Context, serverIds: Set<String>, reason: String) {
+            context.startForegroundService(
+                Intent(context, AfkService::class.java).setAction(ACTION_RESUME)
+                    .putExtra(EXTRA_SERVERS, serverIds.toTypedArray())
+                    .putExtra(EXTRA_REASON, reason),
+            )
         }
 
         fun stop(context: Context, serverId: String) {

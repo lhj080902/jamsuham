@@ -34,6 +34,7 @@ class ServerEditActivity : BaseActivity() {
     private lateinit var autoReconnect: Switch
     private lateinit var reconnectOnKick: Switch
     private lateinit var packGlyphs: Switch
+    private lateinit var resumeOnBoot: Switch
     private lateinit var packWifiOnly: Switch
 
     private val versionNames = ArrayList<String>()
@@ -154,7 +155,9 @@ class ServerEditActivity : BaseActivity() {
         reconnectOnKick = ui.switch("서버가 내보내도 다시 접속 (차단·화이트리스트 제외)").apply { isChecked = s.reconnectOnKick }
         optCard.addView(autoReconnect)
         optCard.addView(reconnectOnKick)
-        optCard.addView(ui.hint("직접 '끊기'를 누르거나 폰 전원이 꺼진 경우에는 다시 접속하지 않습니다. " +
+        resumeOnBoot = ui.switch("폰을 다시 켜거나 앱이 업데이트되면 이어서 잠수").apply { isChecked = s.resumeOnBoot }
+        optCard.addView(resumeOnBoot)
+        optCard.addView(ui.hint("직접 '끊기'를 누른 경우에는 다시 접속하지 않습니다. 폰 전원이 꺼져 있는 동안은 끊기지만, 위 옵션을 켜 두면 다시 켰을 때 이어서 접속합니다. " +
             "\"이미 프록시에 접속 중\"이라고 나오면 서버가 예전 접속을 정리할 때까지 기다렸다 다시 시도합니다."))
         form.addView(optCard, ui.gap(10))
 
@@ -235,6 +238,7 @@ class ServerEditActivity : BaseActivity() {
             autoReconnect = autoReconnect.isChecked,
             reconnectOnKick = reconnectOnKick.isChecked,
             packGlyphs = packGlyphs.isChecked,
+            resumeOnBoot = resumeOnBoot.isChecked,
             packWifiOnly = packWifiOnly.isChecked,
         )
         store.saveServer(entry)

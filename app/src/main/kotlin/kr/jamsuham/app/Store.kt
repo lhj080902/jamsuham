@@ -25,6 +25,8 @@ data class ServerEntry(
     val reconnectOnKick: Boolean = true,
     /** 메뉴 자동 클릭 규칙 ("제목 > 아이템") */
     val autoClickRules: List<String> = emptyList(),
+    /** 폰을 다시 켜거나 앱이 업데이트되면 이어서 잠수 */
+    val resumeOnBoot: Boolean = true,
     /** 서버 리소스팩의 그림 글자(칭호·아이콘)를 받아 채팅에 그림으로 표시 */
     val packGlyphs: Boolean = true,
     /** 통째로 받아야 하는 리소스팩은 와이파이에서만 받기 (부분 다운로드가 되는 팩은 모바일 데이터에서도 필요한 부분만 받음) */
@@ -171,6 +173,9 @@ class Store(context: Context) {
         val boot = bootCount()
         return if (boot != -1 && sp.getInt("active_boot", -2) == boot) HashSet(ids) else emptySet()
     }
+
+    /** 마지막으로 잠수 중이던 서버 (부팅 횟수와 상관없이). 폰을 다시 켰을 때·앱 업데이트 뒤 이어서 접속할 때 쓴다 */
+    fun activeServers(): Set<String> = HashSet(sp.getStringSet("active_servers", emptySet()) ?: emptySet())
 
     private fun bootCount(): Int = try {
         Settings.Global.getInt(app.contentResolver, Settings.Global.BOOT_COUNT, -1)
