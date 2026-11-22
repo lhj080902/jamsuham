@@ -67,9 +67,9 @@ jobs:
             echo "===== $C"; javap -p -cp "$FOUND" "$C" || true
           done
           # 바이트코드(재접속 때 리로드 생략 기능 설계용): 필요한 메서드만 골라 출력
-          pick() { awk -v pat="$2" 'BEGIN{p=0} /^  [a-z].*\(.*\);$|^  static \{\};$/{p=($0 ~ pat)} p' ; }
+          pick() { awk -v pat="$2" 'BEGIN{p=0} /^  [a-z].*[)];$|^  static [{][}];$/{p=($0 ~ pat)} p' ; }
           javap -c -p -cp "$FOUND" net.minecraft.client.resources.server.DownloadedPackSource \
-            | pick x 'startReload|createReloadConfig|cleanupAfterDisconnect|onReloadSuccess|onRecovery|popAll|pushPack\(|method_|configureFor|loadRequestedPacks|createRepositorySource' > dps.txt
+            | pick x 'startReload|createReloadConfig|cleanupAfterDisconnect|onReloadSuccess|onRecovery|popAll|pushPack|method_|configureFor|loadRequestedPacks|createRepositorySource' > dps.txt
           javap -c -p -cp "$FOUND" net.minecraft.client.resources.server.ServerPackManager \
             | pick x 'triggerReloadIfNeeded|pushNewPack|markExistingPacksAsRemoved|popAll|cleanupRemovedPacks|tick|resetPromptStatus|method_55561' > spm.txt
           echo "##### DPS"; cat dps.txt | grep -v '^ *[0-9]*: \(aload\|astore\|iload\|istore\|dup\|pop\)' | head -400
