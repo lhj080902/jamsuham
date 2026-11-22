@@ -66,14 +66,20 @@ jobs:
                    net.minecraft.client.resources.server.PackLoadFeedback net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl; do
             echo "===== $C"; javap -p -cp "$FOUND" "$C" || true
           done
-          # 바이트코드(재접속 때 리로드 생략 기능 설계용)
-          for C in net.minecraft.client.resources.server.DownloadedPackSource net.minecraft.client.resources.server.ServerPackManager \
-                   'net.minecraft.client.resources.server.PackReloadConfig$Callbacks' 'net.minecraft.client.resources.server.PackReloadConfig$IdAndPath' \
-                   'net.minecraft.client.resources.server.DownloadedPackSource$4' 'net.minecraft.client.resources.server.DownloadedPackSource$5'; do
-            echo "##### BYTECODE $C"; javap -c -p -cp "$FOUND" "$C" || true
+          # 바이트코드(재접속 때 리로드 생략 기능 설계용): 필요한 메서드만 골라 출력
+          pick() { awk -v pat="$2" 'BEGIN{p=0} /^  [a-z].*\(.*\);$|^  static \{\};$/{p=($0 ~ pat)} p' ; }
+          javap -c -p -cp "$FOUND" net.minecraft.client.resources.server.DownloadedPackSource \
+            | pick x 'startReload|createReloadConfig|cleanupAfterDisconnect|onReloadSuccess|onRecovery|popAll|pushPack\(|method_|configureFor|loadRequestedPacks|createRepositorySource' > dps.txt
+          javap -c -p -cp "$FOUND" net.minecraft.client.resources.server.ServerPackManager \
+            | pick x 'triggerReloadIfNeeded|pushNewPack|markExistingPacksAsRemoved|popAll|cleanupRemovedPacks|tick|resetPromptStatus|method_55561' > spm.txt
+          echo "##### DPS"; cat dps.txt | grep -v '^ *[0-9]*: \(aload\|astore\|iload\|istore\|dup\|pop\)' | head -400
+          echo "##### SPM"; cat spm.txt | grep -v '^ *[0-9]*: \(aload\|astore\|iload\|istore\|dup\|pop\)' | head -400
+          echo "##### INNER"; unzip -l "$FOUND" | grep 'client/resources/server/' | awk '{print $4}'
+          for C in $(unzip -l "$FOUND" | grep -o 'net/minecraft/client/resources/server/DownloadedPackSource\$[0-9]*\.class' | sed 's/\.class//;s#/#.#g'); do
+            echo "##### $C"; javap -c -p -cp "$FOUND" "$C" | grep -v '^ *[0-9]*: \(aload\|astore\|dup\|pop\)' | head -80
           done
-          javap -p -cp "$FOUND" net.minecraft.client.Minecraft | grep -i "reload\|resourcepack\|packrepository\|downloadedpack" || true
-          unzip -l "$FOUND" | grep 'client/resources/server/' || true
+          javap -p -cp "$FOUND" 'net.minecraft.client.resources.server.PackReloadConfig$Callbacks' 'net.minecraft.client.resources.server.PackReloadConfig$IdAndPath' || true
+          javap -p -cp "$FOUND" net.minecraft.client.Minecraft | grep -i "reload\|downloadedpack" || true
 
       - uses: actions/upload-artifact@v4
         with:
