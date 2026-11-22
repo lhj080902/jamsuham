@@ -132,12 +132,18 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
     }
 
     /**
-     * 메인 화면 위 배너 (assets/banner.webp, 1080×420 픽셀 그림). 가로를 꽉 채우고 비율대로 높이를 정한다.
+     * 메인 화면 위 배너 (assets/banner_*.webp, 디자인별 픽셀 그림). 가로를 꽉 채우고 비율대로 높이를 정한다.
      * 픽셀 그림이라 키울 때는 뭉개지지 않게 필터를 끄고, 줄일 때만 켠다. 모서리는 디자인 둥글기를 따른다.
      */
     private fun bannerImage(): ImageView? {
-        val bmp = banner ?: try {
-            assets.open("banner.webp").use { android.graphics.BitmapFactory.decodeStream(it) }?.also { banner = it }
+        // 디자인마다 다른 배너 (기본 = 청록 바다, 깔끔 = 파란 바다, 픽셀 = 회색 마인크래프트 창)
+        val file = when (ui.p.theme) {
+            AppSettings.Theme.CLASSIC -> "banner_classic.webp"
+            AppSettings.Theme.CLEAN -> "banner_clean.webp"
+            AppSettings.Theme.PIXEL -> "banner_pixel.webp"
+        }
+        val bmp = banners[file] ?: try {
+            assets.open(file).use { android.graphics.BitmapFactory.decodeStream(it) }?.also { banners[file] = it }
         } catch (_: Throwable) {
             null
         } ?: return null
@@ -151,24 +157,24 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_XY
             setImageDrawable(drawable)
-            background = ui.rounded(ui.p.card, 16)
-            clipToOutline = true
+            // 픽셀 배너는 그림 자체에 테두리가 있어서 모서리를 깎지 않는다
+            if (ui.p.theme != AppSettings.Theme.PIXEL) {
+                background = ui.rounded(ui.p.card, 16)
+                clipToOutline = true
+            }
             contentDescription = tr("잠수크래프트", "Jamsucraft")
         }
     }
 
     private fun buildListPane() {
         listPane = ui.vertical()
-        // 머리글: 배너 그림(잠수크래프트) / 아래 줄에 [부제목 …… ⚙ 설정][+ 서버]
+        // 머리글: 배너 그림(잠수크래프트) / 아래 줄에 [⚙ 설정][+ 서버]
         bannerImage()?.let { listPane.addView(it, ui.lp(Ui.MATCH, Ui.WRAP)) }
-        val header = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(ui.dp(4), ui.dp(10), 0, 0) }
-        header.addView(ui.text(tr("마인크래프트 잠수 클라이언트", "Minecraft AFK client"), 13f, ui.p.muted).apply {
-            maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }, ui.lp(0, Ui.WRAP, 1f).apply { rightMargin = ui.dp(10) })
+        // 배너 아래: [⚙ 설정][+ 서버] 반반
+        val header = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, ui.dp(10), 0, 0) }
         // 계정 관리·디자인·언어 등은 설정 화면에
-        header.addView(ui.button(tr("⚙ 설정", "⚙ Settings"), "plain") { startActivity(Intent(this, SettingsActivity::class.java)) }, ui.lp(Ui.WRAP, ui.dp(42)))
-        header.addView(ui.button(tr("+ 서버", "+ Server"), "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(8) })
+        header.addView(ui.fit(ui.button(tr("⚙ 설정", "⚙ Settings"), "plain") { startActivity(Intent(this, SettingsActivity::class.java)) }), ui.lp(0, ui.dp(44), 1f))
+        header.addView(ui.fit(ui.button(tr("+ 서버", "+ Server"), "primary") { openEditor(null) }), ui.lp(0, ui.dp(44), 1f).apply { leftMargin = ui.dp(8) })
         listPane.addView(header)
 
         bannerBox = ui.vertical()
@@ -474,8 +480,8 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
     }
 
     private companion object {
-        /** 배너 그림 (한 번만 읽음) */
-        var banner: android.graphics.Bitmap? = null
+        /** 배너 그림 (파일별로 한 번만 읽음) */
+        val banners = HashMap<String, android.graphics.Bitmap>()
     }
 
 }
