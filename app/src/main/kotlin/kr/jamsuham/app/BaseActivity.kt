@@ -11,6 +11,26 @@ import android.widget.Toast
 /** 잠수 시작에 필요한 공통 처리 (계정 확인, 알림 권한) */
 abstract class BaseActivity : Activity(), Starter {
 
+    /** 이 화면을 만들 때의 설정 판 (설정 화면에서 디자인·언어·글자 크기를 바꾸고 돌아오면 다시 만든다) */
+    private var settingsVersion = -1
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        AppSettings.init(this)
+        settingsVersion = AppSettings.version
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (settingsVersion != AppSettings.version && settingsAffectLayout()) {
+            settingsVersion = AppSettings.version
+            recreate()
+        }
+    }
+
+    /** 설정이 바뀌면 화면을 다시 만들지 (설정 화면 자신은 스스로 처리) */
+    protected open fun settingsAffectLayout(): Boolean = true
+
     override fun startServer(serverId: String): Boolean = startServer(serverId, checkLimit = true)
 
     private fun startServer(serverId: String, checkLimit: Boolean): Boolean {

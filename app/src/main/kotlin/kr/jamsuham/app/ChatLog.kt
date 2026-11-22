@@ -96,6 +96,14 @@ object ChatLog {
     }
 
     /** 서버를 지우면 그 서버의 기록도 지운다 */
+    /** 저장된 채팅 기록 전체 용량 (바이트) */
+    fun totalBytes(): Long = root.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    /** 모든 서버의 채팅 기록을 지운다 */
+    fun deleteAll() {
+        writer.execute { root.listFiles()?.forEach { it.deleteRecursively() } }
+    }
+
     fun delete(serverId: String) {
         if (!::root.isInitialized) return
         writer.execute { dir(serverId).deleteRecursively() }

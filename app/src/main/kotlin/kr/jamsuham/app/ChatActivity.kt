@@ -34,6 +34,9 @@ class ChatActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 설정: 채팅 화면을 보는 동안 화면 꺼짐 막기
+        if (AppSettings.keepScreenOn) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (::panel.isInitialized) {
             if (Store(this).server(panel.serverId) == null) finish() else panel.refreshTitle()
         }

@@ -18,6 +18,9 @@ import kr.jamsuham.core.via.ViaSetup
 /** 서버 추가/편집: 이름, 주소, 버전, 계정, 접속 후 자동 명령어, 재접속 옵션 */
 class ServerEditActivity : BaseActivity() {
 
+    /** 입력하던 내용이 사라지지 않게, 설정이 바뀌어도 이 화면은 다시 만들지 않는다 */
+    override fun settingsAffectLayout() = false
+
     private lateinit var ui: Ui
     private lateinit var store: Store
     private lateinit var accounts: AccountStore
@@ -47,7 +50,11 @@ class ServerEditActivity : BaseActivity() {
         store = Store(this)
         accounts = AccountStore(this)
         original = intent.getStringExtra(EXTRA_ID)?.let { store.server(it) }
-        val s = original ?: ServerEntry()
+        val s = (original ?: ServerEntry(
+            packGlyphs = AppSettings.defaultPackGlyphs,
+            packWifiOnly = AppSettings.defaultPackWifiOnly,
+            resumeOnBoot = AppSettings.defaultResumeOnBoot,
+        ))
         pendingAccountId = s.accountId ?: accounts.list().firstOrNull()?.id
 
         val root = ui.vertical()
@@ -226,7 +233,11 @@ class ServerEditActivity : BaseActivity() {
             return
         }
         val pos = versionSpinner.selectedItemPosition
-        val entry = (original ?: ServerEntry()).copy(
+        val entry = (original ?: ServerEntry(
+            packGlyphs = AppSettings.defaultPackGlyphs,
+            packWifiOnly = AppSettings.defaultPackWifiOnly,
+            resumeOnBoot = AppSettings.defaultResumeOnBoot,
+        )).copy(
             name = nameInput.text.toString().trim(),
             address = address,
             fixedVersion = if (pos <= 0) null else versionNames[pos],

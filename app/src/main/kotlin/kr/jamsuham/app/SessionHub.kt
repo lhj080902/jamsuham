@@ -54,9 +54,17 @@ object SessionHub {
         var lastDeath: DeathInfo? = null
         /** 이번 접속에서 서버가 보낸 리소스팩 주소 (순서대로, 뒤의 팩이 덮어씀) */
         val packUrls = ArrayList<String>()
+        /** 팩별 그림 글자 상태 (상태 탭에 보여 줌) */
+        val packStates = LinkedHashMap<String, PackState>()
         /** 그 팩들에서 읽은 그림 글자 (아직 없으면 null) */
         var glyphs: kr.jamsuham.core.pack.PackFonts.FontSet? = null
     }
+
+    /** 리소스팩 하나의 그림 글자 상태. [glyphs] 읽은 그림 글자 수 (받는 중·실패면 null), [error] 실패 이유 */
+    data class PackState(val url: String, val glyphs: Int?, val fonts: Int = 0, val error: String? = null, val skipped: Boolean = false)
+
+    /** 1분마다 다시 계산하는 시간당 데이터 사용량 (알림과 상태 탭이 같은 값을 보도록) */
+    private val rates = HashMap<String, Long>()
 
     private const val MAX_LINES = 500
     private val main = Handler(Looper.getMainLooper())
@@ -106,10 +114,31 @@ object SessionHub {
     /** 이 서버 잠수를 시작한 뒤의 데이터 사용량 (시작한 적 없으면 null) */
     fun traffic(serverId: String): kr.jamsuham.core.Traffic? = entries[serverId]?.session?.traffic
 
+    /**
+     * 시간당 데이터 사용량 (접속해 있던 시간 기준 평균). 알림과 상태 탭이 똑같이 보이도록 [refreshRates] 를 부를 때(1분마다)만 바뀐다.
+     * 1분 미만 접속이면 null (측정 중).
+     */
+    fun ratePerHour(serverId: String): Long? = rates[serverId]
+
+    /** 서비스가 1분마다 부른다 */
+    fun refreshRates() {
+        for ((id, e) in entries) {
+            val r = e.session?.traffic?.perHour
+            if (r == null) rates.remove(id) else rates[id] = r
+        }
+    }
+
+    /** 이 서버 리소스팩들의 그림 글자 상태 */
+    fun packStates(serverId: String): List<PackState> = entries[serverId]?.packStates?.values?.toList() ?: emptyList()
+
     fun lastDeath(serverId: String): DeathInfo? = entries[serverId]?.lastDeath
 
     /** 이 서버 리소스팩의 그림 글자 (없으면 null → 그림 글자는 숨김) */
     fun glyphs(serverId: String): kr.jamsuham.core.pack.PackFonts.FontSet? = entries[serverId]?.glyphs
+
+    private fun notifyGlyphs(serverId: String) {
+        for (o in observers.toList()) o.onGlyphs(serverId)
+    }
 
     /** 사망 알림 줄 닫기 */
     fun clearDeath(serverId: String) {
@@ -135,6 +164,8 @@ object SessionHub {
         e.lines.clear()
         // 새 접속에서 서버가 리소스팩을 다시 보내면 그 순서대로 다시 겹친다 (그림 글자는 받기 전까지 이전 것을 그대로 씀)
         e.packUrls.clear()
+        e.packStates.clear()
+        rates.remove(serverId)
         // 이전 세션의 체력·메뉴·인벤·접속자가 새 접속에 남아 보이지 않게 비운다
         // (토큰을 먼저 바꿔서 이전 세션의 "비움" 알림은 무시되므로 여기서 직접 비움)
         e.vitals = null
@@ -197,21 +228,31 @@ object SessionHub {
                 main.post {
                     if (e.token !== myToken) return@post
                     val server = Store(appContext).server(serverId)
-                    if (server?.packGlyphs == false || !url.startsWith("http")) return@post
+                    if (!url.startsWith("http")) return@post
+                    if (server?.packGlyphs == false) {
+                        e.packStates[url] = PackState(url, null, skipped = true)
+                        notifyGlyphs(serverId)
+                        return@post
+                    }
                     if (url !in e.packUrls) e.packUrls.add(url)
+                    e.packStates[url] = PackState(url, null)
+                    notifyGlyphs(serverId)
                     Glyphs.load(appContext, url, hash, server?.packWifiOnly ?: true) { set, why ->
                         if (e.token !== myToken) return@load
                         if (set == null) {
+                            e.packStates[url] = PackState(url, null, error = why ?: "알 수 없는 오류")
                             publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of("리소스팩 그림 글자를 불러오지 못했습니다: $why")))
+                            notifyGlyphs(serverId)
                             return@load
                         }
+                        e.packStates[url] = PackState(url, set.glyphCount, set.fonts.size)
                         // 받아 둔 팩들을 서버가 보낸 순서대로 겹친다
                         val sets = e.packUrls.mapNotNull { u -> if (u == url) set else Glyphs.cached(u) }
                         e.glyphs = kr.jamsuham.core.pack.PackFonts.FontSet.merge(sets)
-                        if (set.glyphCount > 0) {
-                            publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of("리소스팩 그림 글자 ${set.glyphCount}개를 불러왔습니다")))
-                        }
-                        for (o in observers.toList()) o.onGlyphs(serverId)
+                        val msg = if (set.glyphCount > 0) "리소스팩 그림 글자 ${set.glyphCount}개를 불러왔습니다"
+                        else "이 서버의 리소스팩에는 그림 글자가 없습니다"
+                        publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(msg)))
+                        notifyGlyphs(serverId)
                     }
                 }
             }

@@ -135,11 +135,12 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         listPane = ui.vertical()
         val header = ui.horizontal()
         val titles = ui.vertical()
-        titles.addView(ui.text("잠수크래프트", 26f, bold = true))
-        titles.addView(ui.text("마인크래프트 잠수 클라이언트", 13f, ui.p.muted))
+        titles.addView(ui.text(tr("잠수크래프트", "Jamsucraft"), 26f, bold = true))
+        titles.addView(ui.text(tr("마인크래프트 잠수 클라이언트", "Minecraft AFK client"), 13f, ui.p.muted))
         header.addView(titles, ui.lp(0, Ui.WRAP, 1f))
-        header.addView(ui.button("계정", "plain") { startActivity(Intent(this, AccountsActivity::class.java)) }, ui.lp(Ui.WRAP, ui.dp(42)))
-        header.addView(ui.button("+ 서버", "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(6) })
+        // 계정 관리·디자인·언어 등은 설정 화면에
+        header.addView(ui.button(tr("⚙ 설정", "⚙ Settings"), "plain") { startActivity(Intent(this, SettingsActivity::class.java)) }, ui.lp(Ui.WRAP, ui.dp(42)))
+        header.addView(ui.button(tr("+ 서버", "+ Server"), "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(6) })
         listPane.addView(header)
 
         bannerBox = ui.vertical()
@@ -167,9 +168,9 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             }
         }
         footer.addView(buildLabel, ui.lp(0, Ui.WRAP, 1f))
-        footer.addView(ui.button("정보", "ghost") { AppInfo.show(this, ui) }, ui.lp(Ui.WRAP, ui.dp(36)))
+        footer.addView(ui.button(tr("정보", "About"), "ghost") { AppInfo.show(this, ui) }, ui.lp(Ui.WRAP, ui.dp(36)))
         // Play 판은 Play 스토어가 업데이트하므로 앱 안 업데이트 버튼이 없다
-        if (!Flavor.PLAY) footer.addView(ui.button("업데이트 확인", "ghost") { checkUpdate(manual = true) }, ui.lp(Ui.WRAP, ui.dp(36)))
+        if (!Flavor.PLAY) footer.addView(ui.button(tr("업데이트 확인", "Check update"), "ghost") { checkUpdate(manual = true) }, ui.lp(Ui.WRAP, ui.dp(36)))
         listPane.addView(footer, ui.lp())
     }
 

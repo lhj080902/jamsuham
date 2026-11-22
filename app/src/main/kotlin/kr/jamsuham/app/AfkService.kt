@@ -50,6 +50,7 @@ class AfkService : Service() {
 
     private val ticker = object : Runnable {
         override fun run() {
+            SessionHub.refreshRates()
             updateNotification()
             main.postDelayed(this, 60_000)
         }
@@ -284,9 +285,10 @@ class AfkService : Service() {
             val time = if (st.state == SessionState.ONLINE && st.onlineSinceMs != null) " · " + Formats.minutes(now - st.onlineSinceMs!!) else ""
             val rc = if (st.reconnectCount > 0) " · 재접속 ${st.reconnectCount}회" else ""
             // 아랫줄: 접속해 있던 시간 기준 시간당 데이터 사용량 (1분 미만이면 측정 중)
-            val perHour = SessionHub.traffic(server.id)?.perHour
+            val perHour = SessionHub.ratePerHour(server.id)
             val data = "데이터 사용량 " + (perHour?.let { StatusPanel.bytes(it) + "/h" } ?: "측정 중")
-            listOf("${server.displayName}: ${stateText(st)}$time$rc", data)
+            if (AppSettings.notifyDataUsage) listOf("${server.displayName}: ${stateText(st)}$time$rc", data)
+            else listOf("${server.displayName}: ${stateText(st)}$time$rc")
         }
         val open = PendingIntent.getActivity(
             this, 0,

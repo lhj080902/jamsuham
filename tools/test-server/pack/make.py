@@ -14,3 +14,13 @@ with zipfile.ZipFile('pack.zip','w',zipfile.ZIP_DEFLATED) as z:
     z.writestr('assets/server/textures/font/rank.png',rank)
     z.writestr(zipfile.ZipInfo('assets/minecraft/sounds/filler.ogg'),os.urandom(5*1024*1024),compress_type=zipfile.ZIP_STORED)
 print(os.path.getsize('pack.zip'))
+# overlay.zip: pack.mcmeta 오버레이 (1.21.4 용 폴더가 기본 글꼴을 덮어씀, 옛 버전 폴더는 무시), BOM·주석이 있는 json
+with zipfile.ZipFile('overlay.zip','w',zipfile.ZIP_DEFLATED) as z:
+    z.writestr('pack.mcmeta',json.dumps({"pack":{"pack_format":34,"supported_formats":[34,99],"description":"ov"},
+        "overlays":{"entries":[{"formats":[18,45],"directory":"old"},{"formats":{"min_inclusive":46,"max_inclusive":99},"directory":"ov_new"}]}}))
+    z.writestr('assets/minecraft/font/default.json',json.dumps({"providers":[{"type":"bitmap","file":"minecraft:font/icons.png","ascent":7,"height":8,"chars":[""]}]}))
+    z.writestr('ov_new/assets/minecraft/font/default.json','﻿// 1.21.4 용\n'+json.dumps({"providers":[{"type":"bitmap","file":"minecraft:font/new.png","ascent":7,"height":8,"chars":[""]}]}))
+    z.writestr('old/assets/minecraft/font/default.json',json.dumps({"providers":[{"type":"bitmap","file":"minecraft:font/icons.png","ascent":7,"height":8,"chars":[""]}]}))
+    z.writestr('assets/minecraft/textures/font/icons.png',icons)
+    z.writestr('ov_new/assets/minecraft/textures/font/new.png',icons)
+print(os.path.getsize('overlay.zip'))

@@ -32,6 +32,8 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
     private val foodSub: TextView
     private val dataText: TextView
     private val dataSub: TextView
+    private val packText: TextView
+    private val packSub: TextView
     private val deathTitle: TextView
     private val deathText: TextView
     private val scroll: ScrollView
@@ -68,6 +70,15 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
         dataSub = ui.text("", 12f, p.muted).apply { setPadding(0, ui.dp(2), 0, 0) }
         inner.addView(dataSub)
 
+        inner.addView(ui.text("리소스팩 그림 글자 (칭호·아이콘)", 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
+        packText = ui.text("", 15f, bold = true)
+        inner.addView(packText)
+        packSub = ui.text("", 12f, p.muted).apply {
+            setPadding(0, ui.dp(2), 0, 0)
+            setTextIsSelectable(true) // 리소스팩 주소를 복사해 문의할 수 있게
+        }
+        inner.addView(packSub)
+
         inner.addView(ui.text("마지막 사망", 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
         deathTitle = ui.text("", 15f, bold = true)
         inner.addView(deathTitle)
@@ -80,15 +91,16 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
 
     val scrollView: ScrollView get() = scroll
 
-    fun show(v: Vitals?, death: DeathInfo?, traffic: Traffic?) {
+    /** [rate] 알림과 같은 1분마다 갱신되는 시간당 사용량, [packs] 서버 리소스팩별 그림 글자 상태 */
+    fun show(v: Vitals?, death: DeathInfo?, traffic: Traffic?, rate: Long?, packs: List<SessionHub.PackState>) {
+        showPacks(packs)
         if (traffic == null || traffic.total == 0L) {
             dataText.setTextIfChanged("아직 없습니다")
             dataSub.setTextIfChanged("")
         } else {
             dataText.setTextIfChanged("받음 ${bytes(traffic.received)} · 보냄 ${bytes(traffic.sent)}")
-            val rate = traffic.perHour
             dataSub.setTextIfChanged(
-                (if (rate != null) "시간당 약 ${bytes(rate)} (접속 ${Formats.minutes(traffic.onlineMs)} 기준)" else "1분 넘게 접속하면 시간당 사용량이 보입니다") +
+                (if (rate != null) "시간당 약 ${bytes(rate)} (알림과 같은 값, 1분마다 갱신)" else "1분 넘게 접속하면 시간당 사용량이 보입니다") +
                     "\n이번에 잠수를 시작한 뒤 합계 · 마인크래프트 데이터 기준이라 통신사 집계는 조금 더 많을 수 있습니다",
             )
         }
@@ -130,6 +142,35 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
             deathText.visibility = VISIBLE
             deathText.setTextIfChanged(death.describe())
         }
+    }
+
+    private fun showPacks(packs: List<SessionHub.PackState>) {
+        if (packs.isEmpty()) {
+            packText.setTextIfChanged("서버가 리소스팩을 보내지 않았습니다")
+            packSub.setTextIfChanged("리소스팩이 없는 서버는 칭호가 글자 그대로 보입니다")
+            return
+        }
+        val total = packs.sumOf { it.glyphs ?: 0 }
+        packText.setTextIfChanged(
+            when {
+                packs.all { it.skipped } -> "꺼져 있음 (서버 설정에서 켤 수 있습니다)"
+                packs.any { it.glyphs == null && it.error == null && !it.skipped } -> "받는 중…"
+                total > 0 -> "그림 글자 ${total}개 사용 중"
+                packs.any { it.error != null } -> "불러오지 못함"
+                else -> "리소스팩에 그림 글자가 없습니다"
+            },
+        )
+        packSub.setTextIfChanged(
+            packs.joinToString("\n") { s ->
+                val state = when {
+                    s.skipped -> "꺼짐"
+                    s.error != null -> "실패: ${s.error}"
+                    s.glyphs == null -> "받는 중"
+                    else -> "글자 ${s.glyphs}개 · 글꼴 ${s.fonts}개"
+                }
+                "• $state\n  ${s.url}"
+            },
+        )
     }
 
     /** 한 줄짜리 막대: [main] 비율만큼 주색, 이어서 [extra] 비율만큼 보조색 */

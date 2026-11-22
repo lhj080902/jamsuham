@@ -68,6 +68,7 @@ object PackFonts {
     }
 
     const val DEFAULT_FONT = "minecraft:default"
+    private const val CACHE_VERSION = 2
 
     /** 부분 다운로드로 받는 양의 상한 (글꼴 json + png 합계) */
     private const val MAX_RANGED_BYTES = 40L * 1024 * 1024
@@ -84,7 +85,8 @@ object PackFonts {
     @Throws(IOException::class)
     fun load(url: String, hash: String?, cacheDir: File, maxFullBytes: Long, log: CoreLog = CoreLog.STDOUT): FontSet {
         val key = hash?.takeIf { it.matches(Regex("[0-9a-fA-F]{40}")) }?.lowercase() ?: sha1(url)
-        val dir = File(cacheDir, key)
+        // 읽는 방식이 바뀌면 예전 캐시를 쓰지 않도록 판 번호를 붙인다 (v2: 오버레이 폴더 지원)
+        val dir = File(cacheDir, "$key-v$CACHE_VERSION")
         readCache(dir)?.let { return it }
 
         val source: ZipSource = try {
@@ -104,7 +106,8 @@ object PackFonts {
     }
 
     /** zip 에서 글꼴 json 들을 읽고, bitmap 공급자가 쓰는 그림만 꺼낸다 */
-    private fun extract(zip: ZipSource, log: CoreLog): FontSet {
+    private fun extract(raw: ZipSource, log: CoreLog): FontSet {
+        val zip = Overlays.apply(raw, log)
         val names = zip.names()
         val fontRe = Regex("^assets/([^/]+)/font/(.+)\\.json$")
         // 글꼴 id → 공급자 목록 (참조 공급자는 나중에 펼침)
@@ -113,7 +116,7 @@ object PackFonts {
             val m = fontRe.find(name) ?: continue
             val id = "${m.groupValues[1]}:${m.groupValues[2]}"
             try {
-                val json = JsonParser.parseString(String(zip.read(name, 2L * 1024 * 1024), Charsets.UTF_8)).asJsonObject
+                val json = parseJson(zip.read(name, 2L * 1024 * 1024)).asJsonObject
                 providers[id] = json.getAsJsonArray("providers")?.mapNotNull { it.takeIf { e -> e.isJsonObject }?.asJsonObject } ?: emptyList()
             } catch (t: Throwable) {
                 log.w("글꼴 설정을 읽지 못했습니다: $name (${t.message})")
@@ -174,6 +177,73 @@ object PackFonts {
             if (target.isNotEmpty()) fonts[id] = target
         }
         return FontSet(fonts, images)
+    }
+
+    /** 마인크래프트처럼 너그럽게 읽는다 (BOM, 주석, 따옴표 없는 이름 등) */
+    internal fun parseJson(bytes: ByteArray): com.google.gson.JsonElement {
+        var text = String(bytes, Charsets.UTF_8)
+        if (text.startsWith("\uFEFF")) text = text.substring(1)
+        val reader = com.google.gson.stream.JsonReader(java.io.StringReader(text))
+        reader.isLenient = true
+        return JsonParser.parseReader(reader)
+    }
+
+    /**
+     * pack.mcmeta 의 오버레이(1.20.2+): 특정 버전용 폴더(예: "overlay_1_21/assets/...")가 기본 assets 를 덮어쓴다.
+     * 앱은 1.21.4(팩 형식 46) 이상을 기준으로, 46 이상을 지원하는 오버레이를 적어 둔 순서대로 겹친다.
+     */
+    private object Overlays {
+        private const val FORMAT = 46
+
+        fun apply(zip: ZipSource, log: CoreLog): ZipSource {
+            val names = zip.names()
+            if ("pack.mcmeta" !in names) return zip
+            val dirs = try {
+                val meta = parseJson(zip.read("pack.mcmeta", 1024 * 1024)).asJsonObject
+                val entries = meta.getAsJsonObject("overlays")?.getAsJsonArray("entries") ?: return zip
+                entries.mapNotNull { el ->
+                    val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                    val dir = o.get("directory")?.asString?.trim('/')?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                    if (supportsNewer(o)) dir else null
+                }
+            } catch (t: Throwable) {
+                log.w("pack.mcmeta 를 읽지 못했습니다: ${t.message}")
+                return zip
+            }
+            if (dirs.isEmpty()) return zip
+            // 논리 경로(assets/...) → 실제 zip 경로. 뒤에 적힌 오버레이가 우선
+            val map = LinkedHashMap<String, String>()
+            for (n in names) if (n.startsWith("assets/")) map[n] = n
+            for (d in dirs) {
+                val prefix = "$d/"
+                for (n in names) if (n.startsWith(prefix + "assets/")) map[n.substring(prefix.length)] = n
+            }
+            log.i("리소스팩 오버레이 ${dirs.size}개 적용: ${dirs.joinToString()}")
+            return object : ZipSource {
+                override fun names(): List<String> = map.keys.toList()
+                override fun read(name: String, max: Long): ByteArray = zip.read(map[name] ?: name, max)
+                override fun close() = zip.close()
+            }
+        }
+
+        /** formats: 숫자 / [최소, 최대] / {min_inclusive, max_inclusive}. 1.21.9+ 는 min_format/max_format */
+        private fun supportsNewer(o: JsonObject): Boolean {
+            fun num(e: com.google.gson.JsonElement?): Int? = when {
+                e == null || e.isJsonNull -> null
+                e.isJsonPrimitive -> e.asNumber.toInt()
+                e.isJsonArray && e.asJsonArray.size() > 0 -> e.asJsonArray[0].asNumber.toInt() // [주, 부] 형식
+                else -> null
+            }
+            val max: Int? = o.get("formats")?.let { f ->
+                when {
+                    f.isJsonPrimitive -> f.asInt
+                    f.isJsonArray -> f.asJsonArray.lastOrNull()?.asInt
+                    f.isJsonObject -> num(f.asJsonObject.get("max_inclusive"))
+                    else -> null
+                }
+            } ?: num(o.get("max_format"))
+            return max == null || max >= FORMAT
+        }
     }
 
     /** "ns:font/icons.png" → "assets/ns/textures/font/icons.png" */

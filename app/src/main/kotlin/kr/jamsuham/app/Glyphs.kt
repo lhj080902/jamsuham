@@ -38,18 +38,20 @@ object Glyphs {
 
     /** 팩 주소 → 읽은 그림 글자 (같은 팩을 쓰는 서버끼리 같이 씀) */
     private val loaded = ConcurrentHashMap<String, PackFonts.FontSet>()
-    private val loading = ConcurrentHashMap.newKeySet<String>()
+    /** 받는 중인 팩 → 끝나면 부를 콜백들 (받는 사이 재접속해도 결과를 놓치지 않게, 메인 스레드에서만 다룸) */
+    private val waiting = HashMap<String, MutableList<(PackFonts.FontSet?, String?) -> Unit>>()
 
     /** 이미 읽어 둔 팩 (없으면 null) */
     fun cached(url: String): PackFonts.FontSet? = loaded[url]
 
     /**
      * 리소스팩 [url] 의 그림 글자를 읽기 시작한다. 끝나면 [done] 을 메인 스레드에서 부른다 (실패하면 null, 이유).
-     * 같은 팩은 한 번만 받는다.
+     * 같은 팩은 한 번만 받는다. 메인 스레드에서 부른다.
      */
     fun load(context: Context, url: String, hash: String, wifiOnly: Boolean, done: (PackFonts.FontSet?, String?) -> Unit) {
         loaded[url]?.let { done(it, null); return }
-        if (!loading.add(url)) return
+        waiting[url]?.let { it.add(done); return }
+        waiting[url] = mutableListOf(done)
         val app = context.applicationContext
         val metered = (app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).isActiveNetworkMetered
         // 모바일 데이터(요금제)에서 '와이파이에서만' 이면 필요한 부분만 받고, 통째로 받아야 하는 팩은 받지 않는다
@@ -66,11 +68,23 @@ object Glyphs {
                     t.message ?: t.javaClass.simpleName
                 }
                 null to why
-            } finally {
-                loading.remove(url)
             }
-            android.os.Handler(android.os.Looper.getMainLooper()).post { done(result.first, result.second) }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                for (cb in waiting.remove(url).orEmpty()) cb(result.first, result.second)
+            }
         }
+    }
+
+    /** 받아 둔 리소스팩 그림 글자 용량 (바이트) */
+    fun cacheBytes(context: Context): Long =
+        File(context.filesDir, "packfonts").walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    /** 받아 둔 그림 글자를 지운다 (지금 접속 중인 서버는 다음 접속 때 다시 받음) */
+    fun clearCache(context: Context) {
+        loaded.clear()
+        bitmaps.evictAll()
+        cells.evictAll()
+        File(context.filesDir, "packfonts").deleteRecursively()
     }
 
     // ------------------------------------------------------------ 그리기

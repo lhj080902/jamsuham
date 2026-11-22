@@ -19,20 +19,41 @@ import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
 
-/** 색상표. 폰이 다크 모드면 어둡게, 아니면 밝게. */
-class Palette(val dark: Boolean) {
-    val bg = if (dark) c("#0E1621") else c("#F3F5F9")
-    val card = if (dark) c("#172231") else c("#FFFFFF")
-    val input = if (dark) c("#22324A") else c("#E9EEF5")
-    val text = if (dark) c("#E6EDF3") else c("#18202B")
-    val muted = if (dark) c("#8A99AD") else c("#667386")
-    val accent = if (dark) c("#FFC93C") else c("#E0A100")
-    val onAccent = c("#14181F")
-    val ok = if (dark) c("#3DDC84") else c("#1E9E57")
-    val warn = if (dark) c("#FFB020") else c("#D48806")
-    val err = if (dark) c("#FF6B6B") else c("#D93A3A")
-    val info = if (dark) c("#8FB8DE") else c("#3A6EA5")
-    val divider = if (dark) c("#24324A") else c("#DDE3EC")
+/**
+ * 색상표. 디자인([AppSettings.Theme]) × 밝기(밝게/어둡게)로 색이 정해진다.
+ * [radius] 모서리 둥글기 배율(픽셀 디자인은 0 = 각진 모서리), [stroke] 테두리 색(0 = 없음).
+ */
+class Palette(val dark: Boolean, val theme: AppSettings.Theme = AppSettings.Theme.CLASSIC) {
+    private fun pick(classicDark: String, classicLight: String, pixelDark: String, pixelLight: String, cleanDark: String, cleanLight: String): Int =
+        c(
+            when (theme) {
+                AppSettings.Theme.CLASSIC -> if (dark) classicDark else classicLight
+                AppSettings.Theme.PIXEL -> if (dark) pixelDark else pixelLight
+                AppSettings.Theme.CLEAN -> if (dark) cleanDark else cleanLight
+            },
+        )
+
+    //                        기본(어둡/밝)            픽셀(어둡/밝)            깔끔(어둡/밝)
+    val bg = pick("#0E1621", "#F3F5F9", "#1D1D1D", "#C6C6C6", "#0F1115", "#F7F8FC")
+    val card = pick("#172231", "#FFFFFF", "#313131", "#DADADA", "#191C23", "#FFFFFF")
+    val input = pick("#22324A", "#E9EEF5", "#484848", "#B4B4B4", "#252A34", "#EEF0F6")
+    val text = pick("#E6EDF3", "#18202B", "#F2F2F2", "#1C1C1C", "#E8EAF0", "#1A1C24")
+    val muted = pick("#8A99AD", "#667386", "#A8A8A8", "#4C4C4C", "#8B91A1", "#6A7083")
+    val accent = pick("#FFC93C", "#E0A100", "#6CC349", "#3F8F28", "#7C9CFF", "#4A63E7")
+    val onAccent = pick("#14181F", "#14181F", "#10200A", "#FFFFFF", "#0D1230", "#FFFFFF")
+    val ok = pick("#3DDC84", "#1E9E57", "#6CC349", "#2E7D1E", "#4ADE9B", "#16A06A")
+    val warn = pick("#FFB020", "#D48806", "#FFAA00", "#B87400", "#FFC062", "#C98000")
+    val err = pick("#FF6B6B", "#D93A3A", "#FF5555", "#C62828", "#FF7A8A", "#E0405A")
+    val info = pick("#8FB8DE", "#3A6EA5", "#55FFFF", "#00838F", "#9DB4FF", "#3F5BD6")
+    val divider = pick("#24324A", "#DDE3EC", "#0F0F0F", "#8B8B8B", "#262B36", "#E3E6EE")
+    /** 테두리 (픽셀 디자인만: 마인크래프트 창처럼 진한 테두리) */
+    val stroke: Int = if (theme == AppSettings.Theme.PIXEL) c(if (dark) "#000000" else "#555555") else 0
+    /** 모서리 둥글기 배율 */
+    val radius: Float = when (theme) {
+        AppSettings.Theme.CLASSIC -> 1f
+        AppSettings.Theme.PIXEL -> 0f
+        AppSettings.Theme.CLEAN -> 1.5f
+    }
 
     /** 채팅 색이 배경과 너무 비슷하면 읽을 수 있게 바꾼다 */
     fun readable(rgb: Int): Int {
@@ -55,8 +76,17 @@ class Palette(val dark: Boolean) {
         private fun c(s: String) = Color.parseColor(s)
 
         fun of(context: Context): Palette {
-            val night = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-            return Palette(night == Configuration.UI_MODE_NIGHT_YES)
+            AppSettings.init(context)
+            val dark = when (AppSettings.night) {
+                AppSettings.Night.DARK -> true
+                AppSettings.Night.LIGHT -> false
+                AppSettings.Night.SYSTEM -> {
+                    // 안드로이드 12+ 에서 앱 밝기를 바꾸면 configuration 이 바뀐다. 시스템 값으로 판단
+                    val night = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+                    night == Configuration.UI_MODE_NIGHT_YES
+                }
+            }
+            return Palette(dark, AppSettings.theme)
         }
     }
 }
@@ -67,10 +97,13 @@ class Ui(val ctx: Context) {
 
     fun dp(v: Int): Int = (v * ctx.resources.displayMetrics.density + 0.5f).toInt()
 
+    /** 설정의 글자 크기 배율 */
+    val scale: Float get() = AppSettings.textScale.factor
+
     fun text(s: CharSequence, size: Float = 14f, color: Int = p.text, bold: Boolean = false) = TextView(ctx).apply {
         text = s
         setTextColor(color)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, size * scale)
         if (bold) setTypeface(typeface, Typeface.BOLD)
     }
 
@@ -90,7 +123,9 @@ class Ui(val ctx: Context) {
 
     fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = dp(radiusDp).toFloat()
+        cornerRadius = dp(radiusDp) * p.radius
+        // 픽셀 디자인: 투명하지 않은 큰 면(카드·버튼·입력칸)에 진한 테두리
+        if (p.stroke != 0 && Color.alpha(color) != 0 && radiusDp >= 10) setStroke(dp(2), p.stroke)
     }
 
     fun circle(color: Int) = GradientDrawable().apply {
@@ -114,7 +149,7 @@ class Ui(val ctx: Context) {
         setHintTextColor(p.muted)
         setTextColor(p.text)
         setSingleLine(singleLine)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * scale)
         background = rounded(p.input, 10)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         if (singleLine) inputType = InputType.TYPE_CLASS_TEXT
@@ -123,7 +158,7 @@ class Ui(val ctx: Context) {
     fun switch(s: String) = Switch(ctx).apply {
         text = s
         setTextColor(p.text)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * scale)
         setPadding(0, dp(6), 0, dp(6))
     }
 
@@ -131,7 +166,7 @@ class Ui(val ctx: Context) {
     fun button(s: String, kind: String = "plain", onClick: () -> Unit) = Button(ctx).apply {
         text = s
         isAllCaps = false
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * scale)
         stateListAnimator = null
         minHeight = 0
         minimumHeight = 0
@@ -154,7 +189,7 @@ class Ui(val ctx: Context) {
     fun chip(s: String, onClick: () -> Unit) = TextView(ctx).apply {
         text = s
         setTextColor(p.text)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * scale)
         background = rounded(p.input, 14)
         setPadding(dp(12), dp(6), dp(12), dp(6))
         setOnClickListener { onClick() }
@@ -181,7 +216,13 @@ fun Activity.setupWindow(root: View, palette: Palette, basePadDp: Int = 12) {
     val density = resources.displayMetrics.density
     val pad = (basePadDp * density + 0.5f).toInt()
     root.setBackgroundColor(palette.bg)
+    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(palette.bg))
     root.setPadding(pad, pad, pad, pad)
+    // 앱 밝기 설정이 폰과 달라도 상태바 아이콘이 보이게 (안드로이드 11+)
+    if (Build.VERSION.SDK_INT >= 30) {
+        val light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        root.post { window.insetsController?.setSystemBarsAppearance(if (palette.dark) 0 else light, light) }
+    }
     if (Build.VERSION.SDK_INT < 35) {
         @Suppress("DEPRECATION")
         window.statusBarColor = palette.bg

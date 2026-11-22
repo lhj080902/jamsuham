@@ -100,7 +100,7 @@ class ChatPanel(
         override fun run() {
             render(SessionHub.status(serverId))
             // 상태 탭을 보고 있으면 데이터 사용량·접속 시간도 1초마다 갱신
-            if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
+            if (page == 4) refreshStatus(SessionHub.vitals(serverId))
             main.postDelayed(this, 1000)
         }
     }
@@ -281,7 +281,7 @@ class ChatPanel(
         }.start()
         if (next == 2) invPanel.show(SessionHub.inventory(serverId))
         if (next == 3) playerPanel.show(SessionHub.players(serverId))
-        if (next == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
+        if (next == 4) refreshStatus(SessionHub.vitals(serverId))
         styleTabs()
     }
 
@@ -321,7 +321,7 @@ class ChatPanel(
         onMenu(serverId, SessionHub.menu(serverId))
         onInventory(serverId, SessionHub.inventory(serverId))
         showDeathBanner(SessionHub.lastDeath(serverId))
-        if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
+        if (page == 4) refreshStatus(SessionHub.vitals(serverId))
         render(SessionHub.status(serverId))
         if (openMenuOnAttach) {
             openMenuOnAttach = false
@@ -499,13 +499,13 @@ class ChatPanel(
 
     override fun onVitals(serverId: String, vitals: Vitals?) {
         if (serverId != this.serverId) return
-        if (page == 4) statusPanel.show(vitals, SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
+        if (page == 4) refreshStatus(vitals)
     }
 
     override fun onDeath(serverId: String, death: DeathInfo?) {
         if (serverId != this.serverId) return
         showDeathBanner(death)
-        if (page == 4) statusPanel.show(SessionHub.vitals(serverId), SessionHub.lastDeath(serverId), SessionHub.traffic(serverId))
+        if (page == 4) refreshStatus(SessionHub.vitals(serverId))
     }
 
     private fun showDeathBanner(death: DeathInfo?) {
@@ -525,6 +525,14 @@ class ChatPanel(
         playerPanel.show(SessionHub.players(serverId))
         if (page == 2) invPanel.show(SessionHub.inventory(serverId))
         SessionHub.menu(serverId)?.let { if (menuDialog?.isShowing == true) fillMenu(it) }
+        if (page == 4) refreshStatus(SessionHub.vitals(serverId))
+    }
+
+    private fun refreshStatus(vitals: kr.jamsuham.core.Vitals?) {
+        statusPanel.show(
+            vitals, SessionHub.lastDeath(serverId), SessionHub.traffic(serverId),
+            SessionHub.ratePerHour(serverId), SessionHub.packStates(serverId),
+        )
     }
 
     override fun onPlayers(serverId: String, list: PlayerList) {
@@ -789,13 +797,18 @@ class ChatPanel(
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
             val tv = (convertView as? TextView) ?: TextView(activity).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 setPadding(ui.dp(2), ui.dp(3), ui.dp(2), ui.dp(3))
+            }
+            // 설정의 채팅 글자 크기 (바꾸면 바로 반영)
+            val sizeSp = AppSettings.chatTextSp.toFloat()
+            if (tv.tag != sizeSp) {
+                tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+                tv.tag = sizeSp
             }
             val line = items[position]
             val sb = SpannableStringBuilder()
             val glyphs = SessionHub.glyphs(serverId)
-            append(sb, time.format(Date(line.timeMs)) + "  ", p.muted, false)
+            if (AppSettings.chatTimestamps) append(sb, time.format(Date(line.timeMs)) + "  ", p.muted, false)
             val base = when (line.kind) {
                 LogLine.Kind.CHAT -> p.text
                 LogLine.Kind.SYSTEM -> p.info
