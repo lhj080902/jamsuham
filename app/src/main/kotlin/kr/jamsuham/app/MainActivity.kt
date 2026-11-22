@@ -131,21 +131,45 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         renderList()
     }
 
+    /**
+     * 메인 화면 위 배너 (assets/banner.webp, 1080×420 픽셀 그림). 가로를 꽉 채우고 비율대로 높이를 정한다.
+     * 픽셀 그림이라 키울 때는 뭉개지지 않게 필터를 끄고, 줄일 때만 켠다. 모서리는 디자인 둥글기를 따른다.
+     */
+    private fun bannerImage(): ImageView? {
+        val bmp = banner ?: try {
+            assets.open("banner.webp").use { android.graphics.BitmapFactory.decodeStream(it) }?.also { banner = it }
+        } catch (_: Throwable) {
+            null
+        } ?: return null
+        val drawable = android.graphics.drawable.BitmapDrawable(resources, bmp)
+        return object : ImageView(this) {
+            override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                super.onSizeChanged(w, h, oldw, oldh)
+                drawable.isFilterBitmap = w < bmp.width
+            }
+        }.apply {
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_XY
+            setImageDrawable(drawable)
+            background = ui.rounded(ui.p.card, 16)
+            clipToOutline = true
+            contentDescription = tr("잠수크래프트", "Jamsucraft")
+        }
+    }
+
     private fun buildListPane() {
         listPane = ui.vertical()
-        // 머리글: [제목 ……… ⚙ 설정][+ 서버] / 아래 줄에 부제목 (버튼과 붙지 않게 한 줄 전체를 씀)
-        val header = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(ui.dp(4), ui.dp(4), 0, 0) }
-        // 제목은 칸이 모자라면(글자 크기를 키웠을 때) 잘리지 않고 작아진다
-        header.addView(ui.fit(ui.text(tr("잠수크래프트", "Jamsucraft"), 26f, bold = true), maxSp = 26f, minSp = 14f), ui.lp(0, Ui.WRAP, 1f).apply { rightMargin = ui.dp(10) })
+        // 머리글: 배너 그림(잠수크래프트) / 아래 줄에 [부제목 …… ⚙ 설정][+ 서버]
+        bannerImage()?.let { listPane.addView(it, ui.lp(Ui.MATCH, Ui.WRAP)) }
+        val header = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(ui.dp(4), ui.dp(10), 0, 0) }
+        header.addView(ui.text(tr("마인크래프트 잠수 클라이언트", "Minecraft AFK client"), 13f, ui.p.muted).apply {
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }, ui.lp(0, Ui.WRAP, 1f).apply { rightMargin = ui.dp(10) })
         // 계정 관리·디자인·언어 등은 설정 화면에
         header.addView(ui.button(tr("⚙ 설정", "⚙ Settings"), "plain") { startActivity(Intent(this, SettingsActivity::class.java)) }, ui.lp(Ui.WRAP, ui.dp(42)))
         header.addView(ui.button(tr("+ 서버", "+ Server"), "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(8) })
         listPane.addView(header)
-        listPane.addView(ui.text(tr("마인크래프트 잠수 클라이언트", "Minecraft AFK client"), 13f, ui.p.muted).apply {
-            setPadding(ui.dp(4), ui.dp(2), 0, 0)
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        })
 
         bannerBox = ui.vertical()
         listPane.addView(bannerBox, ui.lp())
@@ -448,4 +472,10 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             go()
         }
     }
+
+    private companion object {
+        /** 배너 그림 (한 번만 읽음) */
+        var banner: android.graphics.Bitmap? = null
+    }
+
 }
