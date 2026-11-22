@@ -69,15 +69,27 @@ public final class ParallelDownload {
                                    HashCode requestedHash, int maxSize, Proxy proxy, Progress progress) {
         try {
             String protocol = url.getProtocol().toLowerCase(Locale.ROOT);
-            if (!protocol.equals("http") && !protocol.equals("https")) return null;
+            if (!protocol.equals("http") && !protocol.equals("https")) {
+                LOG.info("[FastPack] http(s) 주소가 아니라 바닐라로 받습니다: {}", url);
+                return null;
+            }
 
             // 이미 받아 둔 파일이 있으면 바닐라가 해시를 확인하고 그대로 쓴다(캐시) → 맡김
-            if (requestedHash != null && Files.exists(saveDir.resolve(requestedHash.toString()))) return null;
+            if (requestedHash != null && Files.exists(saveDir.resolve(requestedHash.toString()))) {
+                LOG.info("[FastPack] 이미 받아 둔 팩이라 다운로드하지 않습니다 (걸리는 시간은 팩 적용 단계): {}", requestedHash);
+                return null;
+            }
 
             Probe probe = probe(url, headers, proxy);
             if (probe == null) return null;
-            if (probe.total < MIN_SIZE) return null;
-            if (probe.total > maxSize) return null; // 바닐라가 똑같은 오류를 내도록 맡김
+            if (probe.total < MIN_SIZE) {
+                LOG.info("[FastPack] 팩이 작아서({} KB) 바닐라로 받습니다", probe.total / 1024);
+                return null;
+            }
+            if (probe.total > maxSize) {
+                LOG.info("[FastPack] 팩이 크기 한도({} MB)보다 커서 바닐라에 맡깁니다", maxSize / (1024 * 1024));
+                return null; // 바닐라가 똑같은 오류를 내도록 맡김
+            }
 
             return download(saveDir, probe, headers, hashFunction, requestedHash, proxy, progress);
         } catch (Throwable t) {
@@ -117,6 +129,7 @@ public final class ParallelDownload {
         int segments = (int) ((total + SEGMENT - 1) / SEGMENT);
         int threads = Math.min(CONNECTIONS, segments);
         LOG.info("[FastPack] {} 를 {} 개 연결로 나눠 받습니다 ({} MB)", probe.url, threads, total / (1024 * 1024));
+        final long startedAt = System.nanoTime();
 
         Files.createDirectories(saveDir);
         Path tmp = Files.createTempFile(saveDir, "fastpack", ".tmp");
@@ -176,7 +189,7 @@ public final class ParallelDownload {
             } catch (IOException ignored) {
             }
             progress.requestFinished(true);
-            LOG.info("[FastPack] 다 받았습니다: {}", target.getFileName());
+            LOG.info("[FastPack] 다 받았습니다: {} ({}초)", target.getFileName(), String.format(Locale.ROOT, "%.1f", (System.nanoTime() - startedAt) / 1e9));
             return target;
         } finally {
             // 실패해도 진행 표시에 실패를 알리지 않는다: 바닐라가 requestStart 부터 다시 시작한다
