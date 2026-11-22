@@ -1,5 +1,6 @@
 package kr.jamsuham.core.pack
 
+import kr.jamsuham.core.tr
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -25,6 +26,8 @@ import java.util.zip.ZipFile
  * 결과는 [cacheDir]/<키>/ 에 저장해 다음 접속부터는 받지 않는다.
  */
 object PackFonts {
+    /** 리소스팩 서버가 부분 다운로드(HTTP Range)를 지원하지 않음 (앱이 이유를 따로 보여 줄 때 구분용) */
+    class NoRangeException(msg: String) : IOException(msg)
 
     /** 그림 글자 하나: [image] 그림 파일(zip 경로)의 [col]열 [row]행 칸. 칸 크기 = 그림 크기 / [cols]·[rows] */
     data class Glyph(
@@ -106,35 +109,35 @@ object PackFonts {
         } catch (e: IOException) {
             throw e
         } catch (t: Throwable) {
-            throw IOException("리소스팩을 열지 못했습니다: ${t.message}", t)
+            throw IOException(tr("리소스팩을 열지 못했습니다: ${t.message}", "Couldn't open the resource pack: ${t.message}"), t)
         }
         try {
             var set = extract(source, log)
             // 부분 다운로드로 zip 목록을 하나도 못 읽었으면(보호된 팩 등), 받을 수 있는 크기일 때 통째로 받아
             // 자바 zip 읽기(마인크래프트와 같은 방식)로 다시 시도한다
             if (source is RangedZip && source.empty && source.total > maxFullBytes) {
-                set = FontSet(set.fonts, set.images, set.report + "\n통째로 받기: " +
-                    if (maxFullBytes <= 0) "와이파이에서만 받기라서 건너뜀 (와이파이에서 다시 접속하면 시도)" else "너무 커서 건너뜀 (${source.total / 1048576}MB)")
+                set = FontSet(set.fonts, set.images, set.report + tr("\n통째로 받기: ", "\nFull download: ") +
+                    if (maxFullBytes <= 0) tr("와이파이에서만 받기라서 건너뜀 (와이파이에서 다시 접속하면 시도)", "skipped: Wi-Fi only (will try when you reconnect on Wi-Fi)") else tr("너무 커서 건너뜀 (${source.total / 1048576}MB)", "skipped: too large (${source.total / 1048576}MB)"))
             }
             if (source is RangedZip && source.empty && source.total <= maxFullBytes) {
                 log.i("부분 다운로드로 zip 목록을 읽지 못해 리소스팩을 통째로 받습니다 (${source.total / 1048576}MB)")
                 val full = try {
                     FullZip.download(open(url, null), maxFullBytes, File(cacheDir, "$key.download"))
                 } catch (t: Throwable) {
-                    set = FontSet(set.fonts, set.images, set.report + "\n통째로 받기 실패: ${t.message ?: t.javaClass.simpleName}")
+                    set = FontSet(set.fonts, set.images, set.report + tr("\n통째로 받기 실패: ${t.message ?: t.javaClass.simpleName}", "\nFull download failed: ${t.message ?: t.javaClass.simpleName}"))
                     null
                 }
                 if (full != null) {
                     try {
                         val again = extract(full, log)
-                        set = FontSet(again.fonts, again.images, "통째로 받아 다시 읽음\n" + again.report + "\n[부분 다운로드 때]\n" + set.report)
+                        set = FontSet(again.fonts, again.images, tr("통째로 받아 다시 읽음\n", "Downloaded in full and re-read\n") + again.report + tr("\n[부분 다운로드 때]\n", "\n[With partial download]\n") + set.report)
                     } finally {
                         full.close()
                     }
                 }
             }
             val secs = (System.currentTimeMillis() - started) / 1000.0
-            set = FontSet(set.fonts, set.images, (set.report ?: "") + "\n받는 데 ${"%.1f".format(secs)}초" + (source.stats?.let { " ($it)" } ?: ""))
+            set = FontSet(set.fonts, set.images, (set.report ?: "") + tr("\n받는 데 ${"%.1f".format(secs)}초", "\nDownload took ${"%.1f".format(secs)}s") + (source.stats?.let { " ($it)" } ?: ""))
             log.i("리소스팩 그림 글자 ${set.glyphCount}개, ${"%.1f".format(secs)}초 ${source.stats ?: ""}")
             // 그림 글자가 없으면 저장하지 않는다 (읽는 방법을 고친 뒤에도 실패한 결과를 계속 보여 주지 않게, 다음 접속 때 다시 시도)
             if (set.glyphCount > 0) writeCache(dir, set)
@@ -166,7 +169,7 @@ object PackFonts {
                 providers[id] = json.getAsJsonArray("providers")?.mapNotNull { it.takeIf { e -> e.isJsonObject }?.asJsonObject } ?: emptyList()
             } catch (t: Throwable) {
                 log.w("글꼴 설정을 읽지 못했습니다: $name (${t.message})")
-                errors += "글꼴 설정 읽기 실패 $name: ${t.message}"
+                errors += tr("글꼴 설정 읽기 실패 $name: ${t.message}", "Failed to read font config $name: ${t.message}")
             }
         }
         val fonts = HashMap<String, MutableMap<Int, Glyph>>()
@@ -216,7 +219,7 @@ object PackFonts {
                                 images[path] = zip.read(path, MAX_IMAGE_BYTES)
                             } catch (t: Throwable) {
                                 log.w("글꼴 그림을 읽지 못했습니다: $path (${t.message})")
-                                errors += "그림 읽기 실패 $path: ${t.message}"
+                                errors += tr("그림 읽기 실패 $path: ${t.message}", "Failed to read image $path: ${t.message}")
                             }
                         }
                     }
@@ -234,18 +237,18 @@ object PackFonts {
         }
         // 그림 글자가 없을 때 이유를 찾을 수 있도록 팩 안 모습을 요약한다 (상태 탭에 보임)
         val report = buildString {
-            append("파일 ${names.size}개")
+            append(tr("파일 ${names.size}개", "${names.size} files"))
             val tops = names.map { it.substringBefore('/') }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(5)
             append(" (" + tops.joinToString { "${it.key} ${it.value}" } + ")")
             notes.forEach { append("\n").append(it) }
-            append("\n글꼴 설정 ${providers.size}개, 기본 글꼴 그림 글자 ${fonts[DEFAULT_FONT]?.size ?: 0}개")
+            append(tr("\n글꼴 설정 ${providers.size}개, 기본 글꼴 그림 글자 ${fonts[DEFAULT_FONT]?.size ?: 0}개", "\n${providers.size} font configs, ${fonts[DEFAULT_FONT]?.size ?: 0} glyphs in the default font"))
             if (providers.isNotEmpty()) append(": " + providers.keys.sorted().take(8).joinToString() + if (providers.size > 8) " …" else "")
-            if (types.isNotEmpty()) append("\n공급자 종류: " + types.entries.joinToString { "${it.key} ${it.value}" })
-            if (missing.isNotEmpty()) append("\n없는 그림 ${missing.size}개: " + missing.take(3).joinToString() + if (missing.size > 3) " …" else "")
+            if (types.isNotEmpty()) append(tr("\n공급자 종류: ", "\nProvider types: ") + types.entries.joinToString { "${it.key} ${it.value}" })
+            if (missing.isNotEmpty()) append(tr("\n없는 그림 ${missing.size}개: ", "\n${missing.size} missing images: ") + missing.take(3).joinToString() + if (missing.size > 3) " …" else "")
             errors.take(3).forEach { append("\n").append(it) }
             if (providers.isEmpty()) {
                 val jsons = names.filter { it.endsWith(".json") && "font" in it }.take(3)
-                if (jsons.isNotEmpty()) append("\n글꼴처럼 보이는 파일: " + jsons.joinToString())
+                if (jsons.isNotEmpty()) append(tr("\n글꼴처럼 보이는 파일: ", "\nFiles that look like fonts: ") + jsons.joinToString())
             }
         }
         return FontSet(fonts, images, report)
@@ -276,7 +279,7 @@ object PackFonts {
                 entries.mapNotNull { el ->
                     val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
                     val dir = o.get("directory")?.asString?.trim('/')?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                    if (supportsNewer(o)) dir else { notes += "오버레이 건너뜀(옛 버전용): $dir"; null }
+                    if (supportsNewer(o)) dir else { notes += tr("오버레이 건너뜀(옛 버전용): $dir", "Overlay skipped (for older versions): $dir"); null }
                 }
             } catch (t: Throwable) {
                 log.w("pack.mcmeta 를 읽지 못했습니다: ${t.message}")
@@ -291,7 +294,7 @@ object PackFonts {
                 for (n in names) if (n.startsWith(prefix + "assets/")) map[n.substring(prefix.length)] = n
             }
             log.i("리소스팩 오버레이 ${dirs.size}개 적용: ${dirs.joinToString()}")
-            notes += "오버레이 적용: ${dirs.joinToString()}"
+            notes += tr("오버레이 적용: ${dirs.joinToString()}", "Overlays applied: ${dirs.joinToString()}")
             return object : ZipSource {
                 override fun names(): List<String> = map.keys.toList()
                 override fun read(name: String, max: Long): ByteArray = zip.read(map[name] ?: name, max)
@@ -467,7 +470,7 @@ object PackFonts {
         private val zip = ZipFile(file)
         override fun names(): List<String> = zip.entries().toList().map { it.name }
         override fun read(name: String, max: Long): ByteArray {
-            val e = zip.getEntry(name) ?: throw IOException("없음: $name")
+            val e = zip.getEntry(name) ?: throw IOException(tr("없음: $name", "Missing: $name"))
             // 적힌 크기는 믿지 않고 읽으면서 max 로 제한
             return zip.getInputStream(e).use { input -> ByteArrayOutputStream().also { copyLimited(input, it, max) }.toByteArray() }
         }
@@ -480,9 +483,9 @@ object PackFonts {
             /** 이미 열린 연결(전체 응답)에서 받아 파일로 저장 — 같은 팩을 두 번 받지 않게 */
             fun download(conn: HttpURLConnection, max: Long, to: File): FullZip {
                 try {
-                    if (conn.responseCode !in 200..299) throw IOException("리소스팩 다운로드 실패 (HTTP ${conn.responseCode})")
+                    if (conn.responseCode !in 200..299) throw IOException(tr("리소스팩 다운로드 실패 (HTTP ${conn.responseCode})", "Resource pack download failed (HTTP ${conn.responseCode})"))
                     val len = conn.contentLengthLong
-                    if (len > max) throw IOException("리소스팩이 너무 큽니다 (${len / 1048576}MB)")
+                    if (len > max) throw IOException(tr("리소스팩이 너무 큽니다 (${len / 1048576}MB)", "The resource pack is too large (${len / 1048576}MB)"))
                     to.parentFile?.mkdirs()
                     conn.inputStream.use { input -> to.outputStream().use { out -> copyLimited(input, out, max) } }
                 } finally {
@@ -504,7 +507,7 @@ object PackFonts {
         /** 미리 받아 둔 구간 (시작 위치, 내용) */
         private val blocks = java.util.concurrent.CopyOnWriteArrayList<Pair<Long, ByteArray>>()
 
-        override val stats: String get() = "요청 ${requests.get()}번, ${"%.1f".format(fetched.get() / 1048576.0)}MB"
+        override val stats: String get() = tr("요청 ${requests.get()}번, ${"%.1f".format(fetched.get() / 1048576.0)}MB", "${requests.get()} requests, ${"%.1f".format(fetched.get() / 1048576.0)}MB")
 
         /**
          * 파일마다 따로 요청하면 왕복 시간 × 수백 번이 걸린다. 팩 안에서 가까이 붙은 파일들은 한 요청으로 묶고(사이 간격 64KB 이하,
@@ -559,9 +562,9 @@ object PackFonts {
         val empty: Boolean get() = entries.isEmpty()
 
         override fun read(name: String, max: Long): ByteArray {
-            val e = entries[name] ?: throw IOException("없음: $name")
+            val e = entries[name] ?: throw IOException(tr("없음: $name", "Missing: $name"))
             // 압축 전 크기(e.size)는 보호된 팩이 틀리게 적기도 해서 보지 않는다 (풀 때 max 로 제한)
-            if (e.compSize > max) throw IOException("너무 큼: $name")
+            if (e.compSize > max) throw IOException(tr("너무 큼: $name", "Too large: $name"))
             // 로컬 헤더(30바이트 + 이름 + extra) 뒤에 압축 데이터. extra 길이를 모르니 넉넉히 받는다
             var at = e.offset
             var head = bytes(at, at + 30 + 1024 + e.compSize - 1)
@@ -569,7 +572,7 @@ object PackFonts {
                 at = e.rawOffset
                 head = range(at, at + 30 + 1024 + e.compSize - 1)
             }
-            if (u32(head, 0) != 0x04034b50L) throw IOException("zip 형식이 이상합니다: $name")
+            if (u32(head, 0) != 0x04034b50L) throw IOException(tr("zip 형식이 이상합니다: $name", "Malformed zip: $name"))
             val start = 30 + u16(head, 26) + u16(head, 28)
             // 보호된 팩은 로컬 헤더에 큰 extra 를 넣기도 한다: 모자라면 정확한 길이로 다시 받는다
             if (start + e.compSize > head.size) head = bytes(at, at + start + e.compSize - 1)
@@ -577,7 +580,7 @@ object PackFonts {
             return when (e.method) {
                 0 -> data
                 8 -> inflate(data, e.size, max)
-                else -> throw IOException("지원하지 않는 압축 방식 ${e.method}: $name")
+                else -> throw IOException(tr("지원하지 않는 압축 방식 ${e.method}: $name", "Unsupported compression method ${e.method}: $name"))
             }
         }
 
@@ -588,10 +591,10 @@ object PackFonts {
         private fun range(from: Long, to: Long): ByteArray {
             val end = to.coerceAtMost(total - 1)
             requests.incrementAndGet()
-            if (fetched.addAndGet(end - from + 1) > MAX_RANGED_BYTES) throw IOException("받을 양이 너무 많습니다")
+            if (fetched.addAndGet(end - from + 1) > MAX_RANGED_BYTES) throw IOException(tr("받을 양이 너무 많습니다", "Too much data to download"))
             val conn = open(url, "bytes=$from-$end")
             try {
-                if (conn.responseCode != 206) throw IOException("부분 다운로드 실패 (HTTP ${conn.responseCode})")
+                if (conn.responseCode != 206) throw IOException(tr("부분 다운로드 실패 (HTTP ${conn.responseCode})", "Partial download failed (HTTP ${conn.responseCode})"))
                 return conn.inputStream.use { readLimited(it, end - from + 1) }
             } finally {
                 conn.disconnect()
@@ -617,37 +620,37 @@ object PackFonts {
                 val cdSize = u32(tail, eocd + 12)
                 val cdOffset = u32(tail, eocd + 16)
                 lastDeclared = declared
-                if (cdOffset == 0xFFFFFFFFL || cdSize == 0xFFFFFFFFL) throw IOException("ZIP64 는 부분 다운로드를 지원하지 않습니다")
+                if (cdOffset == 0xFFFFFFFFL || cdSize == 0xFFFFFFFFL) throw IOException(tr("ZIP64 는 부분 다운로드를 지원하지 않습니다", "ZIP64 is not supported with partial download"))
                 val eocdAbs = tailStart + eocd
                 // 실제 위치(자바 방식) → 안 되면 적힌 위치
-                tried += "끝기록@$eocdAbs 목록크기 $cdSize 위치 $cdOffset"
+                tried += tr("끝기록@$eocdAbs 목록크기 $cdSize 위치 $cdOffset", "EOCD@$eocdAbs dir size $cdSize offset $cdOffset")
                 for (cdStart in listOf(eocdAbs - cdSize, cdOffset).distinct()) {
-                    if (cdStart < 0 || cdStart + cdSize > eocdAbs || cdSize < 46) { tried += "  @$cdStart 범위 밖"; continue }
+                    if (cdStart < 0 || cdStart + cdSize > eocdAbs || cdSize < 46) { tried += tr("  @$cdStart 범위 밖", "  @$cdStart out of range"); continue }
                     val cd = if (cdStart >= tailStart) {
                         tail.copyOfRange((cdStart - tailStart).toInt(), (cdStart - tailStart + cdSize).toInt())
                     } else {
                         // 목록 첫 부분만 먼저 확인해서 엉뚱한 곳을 몇 MB 씩 받지 않게
                         val sig = range(cdStart, cdStart + 3)
-                        if (u32(sig, 0) != 0x02014b50L) { tried += "  @$cdStart 시작 " + sig.joinToString(" ") { "%02X".format(it) }; continue }
+                        if (u32(sig, 0) != 0x02014b50L) { tried += tr("  @$cdStart 시작 ", "  @$cdStart starts with ") + sig.joinToString(" ") { "%02X".format(it) }; continue }
                         range(cdStart, cdStart + cdSize - 1)
                     }
-                    if (u32(cd, 0) != 0x02014b50L) { tried += "  @$cdStart 시작 " + cd.take(4).joinToString(" ") { "%02X".format(it) }; continue }
+                    if (u32(cd, 0) != 0x02014b50L) { tried += tr("  @$cdStart 시작 ", "  @$cdStart starts with ") + cd.take(4).joinToString(" ") { "%02X".format(it) }; continue }
                     val delta = cdStart - cdOffset
                     val parsed = parseDirectory(cd, delta)
-                    if (parsed == 0) { tried += "  @$cdStart 항목 0개"; continue }
+                    if (parsed == 0) { tried += tr("  @$cdStart 항목 0개", "  @$cdStart 0 entries"); continue }
                     note = when {
-                        parsed < declared -> "zip 목록 ${declared}개 중 ${parsed}개만 읽음 (보호된 팩일 수 있음)"
-                        delta != 0L -> "보호된 팩: zip 목록 위치를 바로잡아 읽음"
+                        parsed < declared -> tr("zip 목록 ${declared}개 중 ${parsed}개만 읽음 (보호된 팩일 수 있음)", "Read only ${parsed} of ${declared} zip entries (may be a protected pack)")
+                        delta != 0L -> tr("보호된 팩: zip 목록 위치를 바로잡아 읽음", "Protected pack: read after correcting the zip directory offset")
                         else -> null
                     }
                     return
                 }
             }
             if (lastDeclared > 0) {
-                note = "zip 목록 ${lastDeclared}개 중 0개만 읽음 (보호된 팩일 수 있음)\n파일 크기 $total\n" + tried.take(6).joinToString("\n")
+                note = tr("zip 목록 ${lastDeclared}개 중 0개만 읽음 (보호된 팩일 수 있음)\n파일 크기 $total\n", "Read 0 of ${lastDeclared} zip entries (may be a protected pack)\nFile size $total\n") + tried.take(6).joinToString("\n")
                 return
             }
-            throw IOException("zip 목록을 찾지 못했습니다")
+            throw IOException(tr("zip 목록을 찾지 못했습니다", "Couldn't find the zip directory"))
         }
 
         /** 목록을 읽어 항목 표에 넣는다. 읽은 개수를 돌려준다 */
@@ -684,12 +687,12 @@ object PackFonts {
                     // Content-Range: bytes 0-0/12345
                     val total = conn.getHeaderField("Content-Range")?.substringAfter('/')?.trim()?.toLongOrNull()
                     conn.disconnect()
-                    if (total == null || total < 22) throw IOException("리소스팩 파일이 이상합니다")
+                    if (total == null || total < 22) throw IOException(tr("리소스팩 파일이 이상합니다", "The resource pack file is malformed"))
                     return RangedZip(url, total).also { it.readDirectory() }
                 }
                 if (maxFull <= 0) {
                     conn.disconnect()
-                    throw IOException("이 리소스팩 서버는 부분 다운로드를 지원하지 않습니다")
+                    throw NoRangeException(tr("이 리소스팩 서버는 부분 다운로드를 지원하지 않습니다", "This resource pack server doesn't support partial downloads"))
                 }
                 return FullZip.download(conn, maxFull, fullFile)
             }
@@ -710,13 +713,13 @@ object PackFonts {
             if (code in 300..399) {
                 val loc = conn.getHeaderField("Location")
                 conn.disconnect()
-                if (loc == null) throw IOException("리소스팩 주소가 이동했지만 새 주소가 없습니다")
+                if (loc == null) throw IOException(tr("리소스팩 주소가 이동했지만 새 주소가 없습니다", "The resource pack URL redirected without a new location"))
                 u = URL(URL(u), loc).toString()
                 return@repeat
             }
             return conn
         }
-        throw IOException("리소스팩 주소가 너무 많이 이동했습니다")
+        throw IOException(tr("리소스팩 주소가 너무 많이 이동했습니다", "The resource pack URL redirected too many times"))
     }
 
     private fun copyLimited(input: InputStream, out: java.io.OutputStream, max: Long) {
@@ -726,7 +729,7 @@ object PackFonts {
             val n = input.read(buf)
             if (n < 0) break
             total += n
-            if (total > max) throw IOException("리소스팩이 너무 큽니다")
+            if (total > max) throw IOException(tr("리소스팩이 너무 큽니다", "The resource pack is too large"))
             out.write(buf, 0, n)
         }
     }
@@ -751,7 +754,7 @@ object PackFonts {
                 val n = inf.inflate(buf)
                 if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break
                 out.write(buf, 0, n)
-                if (out.size() > max) throw IOException("압축을 풀면 너무 큽니다")
+                if (out.size() > max) throw IOException(tr("압축을 풀면 너무 큽니다", "Too large when decompressed"))
             }
             return out.toByteArray()
         } finally {

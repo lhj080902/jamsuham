@@ -1,5 +1,6 @@
 package kr.jamsuham.core.net
 
+import kr.jamsuham.core.tr
 import com.viaversion.nbt.tag.Tag
 import com.viaversion.viaversion.api.type.Types
 import io.netty.buffer.ByteBuf
@@ -13,12 +14,12 @@ fun ByteBuf.readVarInt(): Int {
     var value = 0
     var shift = 0
     while (true) {
-        if (!isReadable) throw DecoderException("VarInt 가 중간에 끊겼습니다")
+        if (!isReadable) throw DecoderException(tr("VarInt 가 중간에 끊겼습니다", "VarInt was cut off"))
         val b = readByte().toInt()
         value = value or ((b and 0x7F) shl shift)
         if (b and 0x80 == 0) return value
         shift += 7
-        if (shift >= 35) throw DecoderException("VarInt 가 너무 깁니다")
+        if (shift >= 35) throw DecoderException(tr("VarInt 가 너무 깁니다", "VarInt is too long"))
     }
 }
 
@@ -38,12 +39,12 @@ fun ByteBuf.readVarLong(): Long {
     var value = 0L
     var shift = 0
     while (true) {
-        if (!isReadable) throw DecoderException("VarLong 이 중간에 끊겼습니다")
+        if (!isReadable) throw DecoderException(tr("VarLong 이 중간에 끊겼습니다", "VarLong was cut off"))
         val b = readByte().toInt()
         value = value or ((b and 0x7F).toLong() shl shift)
         if (b and 0x80 == 0) return value
         shift += 7
-        if (shift >= 70) throw DecoderException("VarLong 이 너무 깁니다")
+        if (shift >= 70) throw DecoderException(tr("VarLong 이 너무 깁니다", "VarLong is too long"))
     }
 }
 
@@ -59,8 +60,8 @@ fun varIntSize(v: Int): Int {
 
 fun ByteBuf.readMcString(maxChars: Int = 32767): String {
     val len = readVarInt()
-    if (len < 0 || len > maxChars * 3) throw DecoderException("문자열 길이가 잘못됐습니다: $len")
-    if (len > readableBytes()) throw DecoderException("문자열이 중간에 끊겼습니다")
+    if (len < 0 || len > maxChars * 3) throw DecoderException(tr("문자열 길이가 잘못됐습니다: $len", "Invalid string length: $len"))
+    if (len > readableBytes()) throw DecoderException(tr("문자열이 중간에 끊겼습니다", "String was cut off"))
     val s = toString(readerIndex(), len, StandardCharsets.UTF_8)
     skipBytes(len)
     return s
@@ -83,7 +84,7 @@ fun ByteBuf.writeUuid(u: UUID): ByteBuf {
 
 fun ByteBuf.readByteArrayVar(max: Int = 1 shl 20): ByteArray {
     val len = readVarInt()
-    if (len < 0 || len > max || len > readableBytes()) throw DecoderException("바이트 배열 길이가 잘못됐습니다: $len")
+    if (len < 0 || len > max || len > readableBytes()) throw DecoderException(tr("바이트 배열 길이가 잘못됐습니다: $len", "Invalid byte array length: $len"))
     val out = ByteArray(len)
     readBytes(out)
     return out

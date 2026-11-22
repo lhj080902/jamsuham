@@ -16,7 +16,7 @@
   - `text/ChatText.kt` 채팅 JSON/NBT → 색 있는 글자 + 클릭 동작(clickEvent/click_event)·설명(hoverEvent), 글 속 http 주소 자동 링크 (리소스팩 전용 글꼴 글자는 숨김), `text/ItemNames.kt` 아이템 한국어 이름,
     `text/DeathMessages.kt` 사망 메시지(death.* 번역 키) → 누구·원인·무기. 체력은 SET_HEALTH + 속성 0x7C(max_health=18) + 엔티티 정보 0x5D(흡수=15번)
   - `pack/PackFonts.kt` 서버 리소스팩의 그림 글자(비트맵 글꼴)만 읽음: zip 끝 목록 + 글꼴 json + png 만 HTTP Range 로 골라 받고(안 되면 전체, 상한),
-    pack.mcmeta 오버레이(팩 형식 46 이상용 폴더)도 겹쳐 읽음, json 은 너그럽게(BOM·주석) 읽음. files/packfonts/<sha1>-v2/ 에 캐시. ChatText 는 전용 글꼴·개인 사용 영역 글자를 버리지 않고 `ChatSpan.glyphs`(+`font`)로 보관 → 앱 `Glyphs.kt` 가 ImageSpan 으로 그림
+    pack.mcmeta 오버레이(팩 형식 46 이상용 폴더)도 겹쳐 읽음, json 은 너그럽게(BOM·주석) 읽음. files/packfonts/<sha1>-v5/ 에 캐시(그림 글자 0개면 저장 안 함). 보호된 팩 대응: 목록 위치를 자바처럼 계산·엉터리 크기 무시·망가진 PNG 는 `repairPng`. 묶어 받기(간격 64KB)+동시 6개. 가로 5배 넘는 그림 글자(공지 배경 띠)는 안 그림. ChatText 는 전용 글꼴·개인 사용 영역 글자를 버리지 않고 `ChatSpan.glyphs`(+`font`)로 보관 → 앱 `Glyphs.kt` 가 ImageSpan 으로 그림
   - `world/World.kt` 청크·충돌(이동 물리용), `BlockColors`(미니맵 색), 리소스 `core/src/main/resources/jamsuham/`
 - `app/` — 안드로이드 UI (XML 없이 코드로 화면 구성, `Ui.kt` 도우미). minSdk 26, target/compile 36
   - `SessionHub` 서버별 세션 상태(메인 스레드 콜백), `AfkService` 포그라운드 서비스(알림, 화면 꺼져도 유지)
@@ -26,8 +26,9 @@
     `Store`(서버·웨이포인트·기록, Gson+SharedPreferences),
     `SettingsActivity`(메인 ⚙ 설정: 계정 관리(`AccountsSection`, AccountsActivity 는 서버 설정의 계정 고르기용), 디자인 3종·밝기·언어·글자 크기, 채팅 글자 크기·시간·화면 켜 두기,
     새 서버 기본값(리소스팩·이어서 잠수), 알림 데이터 줄, 저장 공간) — 값은 `AppSettings`(jamsuham_settings), 바뀌면 version 이 올라 BaseActivity 가 화면을 다시 만듦.
-    디자인은 `Palette(dark, theme)` 색표 + radius(픽셀=0)·stroke(픽셀 테두리). 영어는 `tr("한국어", "English")` 로 화면별로 옮기는 중
-    (완료: 메인 머리글, 설정, 계정. 나머지는 아직 한국어),
+    디자인은 `Palette(dark, theme)` 색표 + radius(픽셀=0)·stroke(픽셀 테두리). 영어는 앱 `tr("한국어", "English")`(AppSettings), 엔진은 `kr.jamsuham.core.tr`(`Lang.english`, 앱이 설정에 맞춰 바꿈).
+    사망 메시지·킥 사유·아이템 이름도 영어 표(ChatText.Translations.EN, DeathMessages.CAUSES_EN, ItemNames.titleCase). 로그·매칭용 문자열·법률 문서는 한국어 그대로.
+    PC 테스트 하네스는 한국어 문구로 확인하므로 기본 Lang.english=false (EN=1 환경 변수로 영어 확인),
     데이터 사용량은 `SessionHub.ratePerHour`(AfkService 가 1분마다 refreshRates) 하나를 알림과 상태 탭이 같이 씀,
     `AccountStore`(MS 토큰은 files/accounts/ 에 Keystore AES-GCM 으로 암호화 저장 `TokenCrypto`, 예전 평문도 읽음. 백업·기기 이전에서 제외 `res/xml/data_extraction_rules.xml`), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
 

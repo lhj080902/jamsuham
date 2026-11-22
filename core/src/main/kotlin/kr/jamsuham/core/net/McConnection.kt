@@ -1,5 +1,6 @@
 package kr.jamsuham.core.net
 
+import kr.jamsuham.core.tr
 import com.viaversion.viaversion.api.protocol.version.ProtocolVersion
 import com.viaversion.viaversion.platform.ViaChannelInitializer
 import com.viaversion.viaversion.platform.ViaCodecHandler
@@ -167,7 +168,7 @@ class McConnection(
         log.i("접속 시도: ${target.connectHost}:${target.connectPort} (서버 버전 ${serverVersion.name})")
         bootstrap.connect(target.connectHost, target.connectPort).addListener(ChannelFutureListener { f ->
             if (!f.isSuccess) {
-                finish(CloseReason.Lost("접속 실패: ${describe(f.cause())}"))
+                finish(CloseReason.Lost(tr("접속 실패: ${describe(f.cause())}", "Connection failed: ${describe(f.cause())}")))
             } else {
                 channel = f.channel()
                 if (closed.get()) f.channel().close()
@@ -270,17 +271,17 @@ class McConnection(
         }
 
         override fun channelInactive(ctx: ChannelHandlerContext) {
-            finish(closeReason ?: CloseReason.Lost(if (joined) "서버와 연결이 끊어졌습니다" else "로그인 중 연결이 끊어졌습니다"))
+            finish(closeReason ?: CloseReason.Lost(if (joined) tr("서버와 연결이 끊어졌습니다", "Lost connection to the server") else tr("로그인 중 연결이 끊어졌습니다", "Connection lost while logging in")))
         }
 
         @Suppress("OVERRIDE_DEPRECATION")
         override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
             val reason = when (cause) {
-                is ReadTimeoutException -> CloseReason.Lost("서버 응답 없음 (${READ_TIMEOUT_SEC}초)")
-                is IOException -> CloseReason.Lost("네트워크 오류: ${describe(cause)}")
+                is ReadTimeoutException -> CloseReason.Lost(tr("서버 응답 없음 (${READ_TIMEOUT_SEC}초)", "Server not responding (${READ_TIMEOUT_SEC}s)"))
+                is IOException -> CloseReason.Lost(tr("네트워크 오류: ${describe(cause)}", "Network error: ${describe(cause)}"))
                 else -> {
                     log.e("패킷 처리 오류", cause)
-                    CloseReason.Lost("패킷 처리 오류: ${describe(cause)}")
+                    CloseReason.Lost(tr("패킷 처리 오류: ${describe(cause)}", "Packet handling error: ${describe(cause)}"))
                 }
             }
             if (closeReason == null) closeReason = reason
@@ -351,7 +352,7 @@ class McConnection(
         // "Failed to verify username" 같은 킥을 보내고, 세션이 그걸 보고 멈춘다.
         val doJoin = shouldAuthenticate && credentials.online
         if (shouldAuthenticate && !credentials.online) {
-            events.onInfo("서버가 암호화를 요청했지만 비정품 계정이라 인증 없이 진행합니다")
+            events.onInfo(tr("서버가 암호화를 요청했지만 비정품 계정이라 인증 없이 진행합니다", "The server requested encryption, but this is an offline account, so continuing without authentication"))
         }
         val ch = ctx.channel()
         blocking.execute {
@@ -376,15 +377,15 @@ class McConnection(
                 }
             } catch (e: SessionJoinException) {
                 closeReason = when {
-                    e.tokenProblem -> CloseReason.AuthFailed(e.message ?: "인증 실패")
-                    e.rateLimited -> CloseReason.RateLimited(e.message ?: "모장 요청 제한")
-                    e.serviceDown -> CloseReason.ServiceDown(e.message ?: "모장 인증 서버 장애")
-                    else -> CloseReason.Lost(e.message ?: "인증 실패")
+                    e.tokenProblem -> CloseReason.AuthFailed(e.message ?: tr("인증 실패", "Authentication failed"))
+                    e.rateLimited -> CloseReason.RateLimited(e.message ?: tr("모장 요청 제한", "Mojang rate limit"))
+                    e.serviceDown -> CloseReason.ServiceDown(e.message ?: tr("모장 인증 서버 장애", "Mojang auth server outage"))
+                    else -> CloseReason.Lost(e.message ?: tr("인증 실패", "Authentication failed"))
                 }
                 ch.close()
             } catch (t: Throwable) {
                 log.e("암호화 처리 실패", t)
-                closeReason = CloseReason.Lost("암호화 처리 실패: ${describe(t)}")
+                closeReason = CloseReason.Lost(tr("암호화 처리 실패: ${describe(t)}", "Encryption setup failed: ${describe(t)}"))
                 ch.close()
             }
         }
@@ -624,7 +625,7 @@ class McConnection(
                 val death = DeathMessages.parse(buf.readAnonymousTag())
                 // 바닐라 서버는 같은 사망 메시지를 채팅으로도 보내므로, 서버가 메시지를 비워 보낸 경우에만 안내 줄을 남긴다
                 // (자세한 내용은 화면 위 사망 알림 줄·상태 탭에 나옴)
-                if (death.message.isNullOrBlank()) events.onInfo("☠ 사망했습니다 · ${death.describe()}")
+                if (death.message.isNullOrBlank()) events.onInfo(tr("☠ 사망했습니다 · ${death.describe()}", "☠ You died · ${death.describe()}"))
                 events.onDeath(death)
                 scheduleRespawn()
             }
@@ -722,7 +723,7 @@ class McConnection(
                 menuTitle = ChatText.fromTag(buf.readAnonymousTag())
                 menuSlots = emptyArray()
                 menuAutoClicked = false
-                events.onInfo("서버 메뉴 열림: ${menuTitle.plain.ifBlank { "(제목 없음)" }}")
+                events.onInfo(tr("서버 메뉴 열림: ${menuTitle.plain.ifBlank { "(제목 없음)" }}", "Server menu opened: ${menuTitle.plain.ifBlank { "(untitled)" }}"))
             }
             PlayIn.CONTAINER_SET_CONTENT -> {
                 val wid = buf.readVarInt()
@@ -952,7 +953,7 @@ class McConnection(
                     // 사람이 누르는 것처럼 잠깐 기다렸다 클릭
                     ch.eventLoop().schedule({
                         if (menuId == wid) {
-                            events.onInfo("자동 클릭: ${target.slot}번 칸 '${target.name.plain}' (규칙: ${rule.title} > ${rule.item})")
+                            events.onInfo(tr("자동 클릭: ${target.slot}번 칸 '${target.name.plain}' (규칙: ${rule.title} > ${rule.item})", "Auto click: slot ${target.slot} '${target.name.plain}' (rule: ${rule.title} > ${rule.item})"))
                             clickMenuSlot(target.slot)
                         }
                     }, 800, TimeUnit.MILLISECONDS)
@@ -1257,7 +1258,7 @@ class McConnection(
         if (respawnPending) return
         respawnPending = true
         val ch = channel ?: return
-        events.onInfo("사망해서 1초 뒤 리스폰합니다")
+        events.onInfo(tr("사망해서 1초 뒤 리스폰합니다", "Died; respawning in 1 second"))
         ch.eventLoop().schedule({
             if (state == State.PLAY) send(PlayOut.CLIENT_COMMAND) { it.writeVarInt(0) }
         }, 1, TimeUnit.SECONDS)
@@ -1378,7 +1379,7 @@ class McConnection(
     ) : Exception(message)
 
     private fun joinSession(c: JoinCredentials, hash: String) {
-        val token = c.accessToken ?: throw SessionJoinException("정품 계정이 아닙니다", true)
+        val token = c.accessToken ?: throw SessionJoinException(tr("정품 계정이 아닙니다", "Not a premium (online-mode) account"), true)
         @Suppress("DEPRECATION")
         val conn = URL("https://sessionserver.mojang.com/session/minecraft/join").openConnection() as HttpURLConnection
         try {
@@ -1393,16 +1394,16 @@ class McConnection(
             if (code == 204 || code == 200) return
             val err = (conn.errorStream ?: conn.inputStream)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
             if (code == 401 || code == 403) {
-                throw SessionJoinException("마이크로소프트 인증이 만료됐거나 거부됐습니다 ($code) - 다시 로그인해 주세요", true)
+                throw SessionJoinException(tr("마이크로소프트 인증이 만료됐거나 거부됐습니다 ($code) - 다시 로그인해 주세요", "Microsoft authentication expired or was rejected ($code) - please sign in again"), true)
             }
             if (code == 429) {
-                throw SessionJoinException("모장 인증 서버가 잠깐 요청을 막았습니다 (429, 짧은 시간에 접속을 너무 자주 시도함)", false, rateLimited = true)
+                throw SessionJoinException(tr("모장 인증 서버가 잠깐 요청을 막았습니다 (429, 짧은 시간에 접속을 너무 자주 시도함)", "The Mojang auth server is temporarily blocking requests (429, too many join attempts in a short time)"), false, rateLimited = true)
             }
             // 오류 내용이 웹페이지(HTML)이면 길기만 하고 쓸모없으므로 상태 코드만 보여 준다
             val detail = if (err.trimStart().startsWith("<")) "" else " " + err.take(120)
-            throw SessionJoinException("모장 인증 서버 오류 ($code)$detail", false, serviceDown = code >= 500)
+            throw SessionJoinException(tr("모장 인증 서버 오류 ($code)$detail", "Mojang auth server error ($code)$detail"), false, serviceDown = code >= 500)
         } catch (e: IOException) {
-            throw SessionJoinException("모장 인증 서버에 연결하지 못했습니다: ${describe(e)}", false, serviceDown = true)
+            throw SessionJoinException(tr("모장 인증 서버에 연결하지 못했습니다: ${describe(e)}", "Couldn't connect to the Mojang auth server: ${describe(e)}"), false, serviceDown = true)
         } finally {
             conn.disconnect()
         }
@@ -1436,7 +1437,7 @@ class McConnection(
         }
 
         fun describe(t: Throwable?): String {
-            if (t == null) return "알 수 없음"
+            if (t == null) return tr("알 수 없음", "unknown")
             val msg = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
             return msg.take(200)
         }

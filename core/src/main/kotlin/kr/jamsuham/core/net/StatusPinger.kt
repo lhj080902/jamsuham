@@ -1,5 +1,6 @@
 package kr.jamsuham.core.net
 
+import kr.jamsuham.core.tr
 import com.google.gson.JsonParser
 import kr.jamsuham.core.ResolvedTarget
 import kr.jamsuham.core.text.ChatText
@@ -51,16 +52,16 @@ object StatusPinger {
             out.flush()
 
             val length = readVarInt(input)
-            if (length <= 0 || length > 1 shl 21) throw IOException("잘못된 응답 길이 $length")
+            if (length <= 0 || length > 1 shl 21) throw IOException(tr("잘못된 응답 길이 $length", "Invalid response length $length"))
             val body = ByteArray(length)
             input.readFully(body)
             val latency = (System.nanoTime() - started) / 1_000_000
             val bin = DataInputStream(body.inputStream())
             val id = readVarInt(bin)
-            if (id != 0x00) throw IOException("예상하지 못한 응답 패킷 $id")
+            if (id != 0x00) throw IOException(tr("예상하지 못한 응답 패킷 $id", "Unexpected response packet $id"))
             val jsonLen = readVarInt(bin)
             // 잘못되거나 악의적인 서버가 엉뚱한 길이를 보내도 큰 배열을 만들지 않게 받은 크기 안에서만 읽는다
-            if (jsonLen < 0 || jsonLen > body.size) throw IOException("잘못된 응답 길이 $jsonLen")
+            if (jsonLen < 0 || jsonLen > body.size) throw IOException(tr("잘못된 응답 길이 $jsonLen", "Invalid response length $jsonLen"))
             val jsonBytes = ByteArray(jsonLen)
             bin.readFully(jsonBytes)
             return parse(String(jsonBytes, Charsets.UTF_8), latency)
@@ -120,11 +121,11 @@ object StatusPinger {
         var shift = 0
         while (true) {
             val b = input.read()
-            if (b < 0) throw EOFException("서버가 응답 중에 연결을 끊었습니다")
+            if (b < 0) throw EOFException(tr("서버가 응답 중에 연결을 끊었습니다", "The server closed the connection while responding"))
             value = value or ((b and 0x7F) shl shift)
             if (b and 0x80 == 0) return value
             shift += 7
-            if (shift >= 35) throw IOException("VarInt 가 너무 깁니다")
+            if (shift >= 35) throw IOException(tr("VarInt 가 너무 깁니다", "VarInt is too long"))
         }
     }
 }

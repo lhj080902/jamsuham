@@ -195,14 +195,14 @@ data class DeathInfo(
     /** "누구: 좀비 · 원인: 공격당함" 같은 한 줄. 아무것도 모르면 사망 메시지, 그것도 없으면 "사망했습니다" */
     fun describe(): String {
         val parts = listOfNotNull(
-            killer?.let { "누구: $it" },
-            cause?.let { "원인: $it" },
-            weapon?.let { "무기: $it" },
+            killer?.let { tr("누구: $it", "Killer: $it") },
+            cause?.let { tr("원인: $it", "Cause: $it") },
+            weapon?.let { tr("무기: $it", "Weapon: $it") },
         )
         return when {
             parts.isNotEmpty() -> parts.joinToString(" · ")
             !message.isNullOrBlank() -> message
-            else -> "사망했습니다"
+            else -> tr("사망했습니다", "You died")
         }
     }
 }

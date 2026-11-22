@@ -1,5 +1,6 @@
 package kr.jamsuham.core.net
 
+import kr.jamsuham.core.tr
 import kr.jamsuham.core.ResolvedTarget
 import java.io.ByteArrayOutputStream
 import java.net.DatagramPacket
@@ -45,7 +46,7 @@ object AddressResolver {
 
     fun resolve(address: String, dns: RawDnsQuery?): ResolvedTarget {
         val (host, port) = split(address)
-        require(host.isNotEmpty()) { "서버 주소를 입력해 주세요" }
+        require(host.isNotEmpty()) { tr("서버 주소를 입력해 주세요", "Please enter a server address") }
         if (port != null) return ResolvedTarget(host, port, host, port)
         if (isIpLiteral(host)) return ResolvedTarget(host, DEFAULT_PORT, host, DEFAULT_PORT)
         val srv = try {
@@ -111,7 +112,7 @@ object AddressResolver {
         repeat(6) { out.write(0) }
         for (label in name.trimEnd('.').split('.')) {
             val b = label.toByteArray(Charsets.US_ASCII)
-            require(b.size in 1..63) { "잘못된 도메인: $name" }
+            require(b.size in 1..63) { tr("잘못된 도메인: $name", "Invalid domain: $name") }
             out.write(b.size)
             out.write(b)
         }

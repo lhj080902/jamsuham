@@ -7,6 +7,7 @@ import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
 import com.viaversion.nbt.tag.Tag
 import com.viaversion.viaversion.util.ComponentUtil
+import kr.jamsuham.core.Lang
 
 /** 화면에 그릴 수 있게 정리한 한 줄의 채팅. color 는 0xRRGGBB, 없으면 null. */
 /** 채팅 글자를 눌렀을 때 할 일 (서버가 보낸 clickEvent, 또는 글 속 http 주소) */
@@ -395,10 +396,12 @@ object Translations {
     )
 
     fun get(key: String): String? {
-        map[key]?.let { return it }
+        val en = Lang.english
+        (if (en) EN[key] else map[key])?.let { return it }
         // 사망 메시지의 "누구"(몹)·"무기"(아이템) 이름
         if (key.startsWith("entity.minecraft.")) {
             val id = key.removePrefix("entity.minecraft.")
+            if (en) return ENTITIES_EN[id] ?: ItemNames.titleCase(id)
             return ENTITIES[id] ?: id.replace('_', ' ')
         }
         if (key.startsWith("item.minecraft.") || key.startsWith("block.minecraft.")) {
@@ -406,6 +409,146 @@ object Translations {
         }
         return null
     }
+
+    /** 영어 모드 번역표 (마인크래프트 en_us 기준). 사망 메시지도 바닐라 문장 그대로 넣어 둔다 */
+    private val EN = mapOf(
+        "chat.type.text" to "<%s> %s",
+        "chat.type.announcement" to "[%s] %s",
+        "chat.type.emote" to "* %s %s",
+        "chat.type.admin" to "[%s: %s]",
+        "multiplayer.player.joined" to "%s joined the game",
+        "multiplayer.player.left" to "%s left the game",
+        "multiplayer.disconnect.kicked" to "Kicked by an operator",
+        "multiplayer.disconnect.server_shutdown" to "Server closed",
+        "multiplayer.disconnect.duplicate_login" to "You logged in from another location",
+        "multiplayer.disconnect.idling" to "You have been idle for too long!",
+        "multiplayer.disconnect.not_whitelisted" to "You are not whitelisted on this server!",
+        "multiplayer.disconnect.banned" to "You are banned from this server",
+        "multiplayer.disconnect.outdated_client" to "Incompatible client! Please use %s",
+        "multiplayer.disconnect.incompatible" to "Incompatible client! Please use %s",
+        "multiplayer.disconnect.unverified_username" to "Failed to verify username!",
+        "multiplayer.disconnect.authservers_down" to "Authentication servers are down. Please try again later, sorry!",
+        "multiplayer.disconnect.server_full" to "The server is full!",
+        "multiplayer.disconnect.flying" to "Flying is not enabled on this server",
+        "multiplayer.disconnect.timeout" to "Timed out",
+        "disconnect.timeout" to "Timed out",
+        "disconnect.closed" to "Connection closed",
+        "disconnect.lost" to "Connection Lost",
+        "disconnect.genericReason" to "%s",
+        "disconnect.disconnected" to "Disconnected by Server",
+        "chat.square_brackets" to "[%s]",
+        "chat.disabled.missingProfileKey" to "Chat disabled: this server requires signed chat (commands still work)",
+        "chat.disabled.options" to "Chat disabled in client options",
+        "death.attack.anvil" to "%1\$s was squashed by a falling anvil",
+        "death.attack.anvil.player" to "%1\$s was squashed by a falling anvil while fighting %2\$s",
+        "death.attack.arrow" to "%1\$s was shot by %2\$s",
+        "death.attack.arrow.item" to "%1\$s was shot by %2\$s using %3\$s",
+        "death.attack.badRespawnPoint.message" to "%1\$s was killed by %2\$s",
+        "death.attack.badRespawnPoint.link" to "Intentional Game Design",
+        "death.attack.cactus" to "%1\$s was pricked to death",
+        "death.attack.cactus.player" to "%1\$s walked into a cactus while trying to escape %2\$s",
+        "death.attack.cramming" to "%1\$s was squished too much",
+        "death.attack.cramming.player" to "%1\$s was squashed by %2\$s",
+        "death.attack.dragonBreath" to "%1\$s was roasted in dragon's breath",
+        "death.attack.dragonBreath.player" to "%1\$s was roasted in dragon's breath by %2\$s",
+        "death.attack.drown" to "%1\$s drowned",
+        "death.attack.drown.player" to "%1\$s drowned while trying to escape %2\$s",
+        "death.attack.dryout" to "%1\$s died from dehydration",
+        "death.attack.dryout.player" to "%1\$s died from dehydration while trying to escape %2\$s",
+        "death.attack.even_more_magic" to "%1\$s was killed by even more magic",
+        "death.attack.explosion" to "%1\$s blew up",
+        "death.attack.explosion.player" to "%1\$s was blown up by %2\$s",
+        "death.attack.explosion.player.item" to "%1\$s was blown up by %2\$s using %3\$s",
+        "death.attack.fall" to "%1\$s hit the ground too hard",
+        "death.attack.fall.player" to "%1\$s hit the ground too hard while trying to escape %2\$s",
+        "death.attack.fallingBlock" to "%1\$s was squashed by a falling block",
+        "death.attack.fallingBlock.player" to "%1\$s was squashed by a falling block while fighting %2\$s",
+        "death.attack.fallingStalactite" to "%1\$s was skewered by a falling stalactite",
+        "death.attack.fallingStalactite.player" to "%1\$s was skewered by a falling stalactite while fighting %2\$s",
+        "death.attack.fireball" to "%1\$s was fireballed by %2\$s",
+        "death.attack.fireball.item" to "%1\$s was fireballed by %2\$s using %3\$s",
+        "death.attack.fireworks" to "%1\$s went off with a bang",
+        "death.attack.fireworks.item" to "%1\$s went off with a bang due to a firework fired from %3\$s by %2\$s",
+        "death.attack.fireworks.player" to "%1\$s went off with a bang while fighting %2\$s",
+        "death.attack.flyIntoWall" to "%1\$s experienced kinetic energy",
+        "death.attack.flyIntoWall.player" to "%1\$s experienced kinetic energy while trying to escape %2\$s",
+        "death.attack.freeze" to "%1\$s froze to death",
+        "death.attack.freeze.player" to "%1\$s was frozen to death by %2\$s",
+        "death.attack.generic" to "%1\$s died",
+        "death.attack.generic.player" to "%1\$s died because of %2\$s",
+        "death.attack.genericKill" to "%1\$s was killed",
+        "death.attack.genericKill.player" to "%1\$s was killed while fighting %2\$s",
+        "death.attack.hotFloor" to "%1\$s discovered the floor was lava",
+        "death.attack.hotFloor.player" to "%1\$s walked into the danger zone due to %2\$s",
+        "death.attack.inFire" to "%1\$s went up in flames",
+        "death.attack.inFire.player" to "%1\$s walked into fire while fighting %2\$s",
+        "death.attack.inWall" to "%1\$s suffocated in a wall",
+        "death.attack.inWall.player" to "%1\$s suffocated in a wall while fighting %2\$s",
+        "death.attack.indirectMagic" to "%1\$s was killed by %2\$s using magic",
+        "death.attack.indirectMagic.item" to "%1\$s was killed by %2\$s using %3\$s",
+        "death.attack.lava" to "%1\$s tried to swim in lava",
+        "death.attack.lava.player" to "%1\$s tried to swim in lava to escape %2\$s",
+        "death.attack.lightningBolt" to "%1\$s was struck by lightning",
+        "death.attack.lightningBolt.player" to "%1\$s was struck by lightning while fighting %2\$s",
+        "death.attack.mace_smash" to "%1\$s was smashed by %2\$s",
+        "death.attack.mace_smash.item" to "%1\$s was smashed by %2\$s with %3\$s",
+        "death.attack.magic" to "%1\$s was killed by magic",
+        "death.attack.magic.player" to "%1\$s was killed by magic while trying to escape %2\$s",
+        "death.attack.message_too_long" to "Actually, the message was too long to deliver fully. Sorry! Here's a stripped version: %s",
+        "death.attack.mob" to "%1\$s was slain by %2\$s",
+        "death.attack.mob.item" to "%1\$s was slain by %2\$s using %3\$s",
+        "death.attack.onFire" to "%1\$s burned to death",
+        "death.attack.onFire.item" to "%1\$s was burned to a crisp while fighting %2\$s wielding %3\$s",
+        "death.attack.onFire.player" to "%1\$s was burned to a crisp while fighting %2\$s",
+        "death.attack.outOfWorld" to "%1\$s fell out of the world",
+        "death.attack.outOfWorld.player" to "%1\$s didn't want to live in the same world as %2\$s",
+        "death.attack.outsideBorder" to "%1\$s left the confines of this world",
+        "death.attack.outsideBorder.player" to "%1\$s left the confines of this world while fighting %2\$s",
+        "death.attack.player" to "%1\$s was slain by %2\$s",
+        "death.attack.player.item" to "%1\$s was slain by %2\$s using %3\$s",
+        "death.attack.sonic_boom" to "%1\$s was obliterated by a sonically-charged shriek",
+        "death.attack.sonic_boom.item" to "%1\$s was obliterated by a sonically-charged shriek while trying to escape %2\$s wielding %3\$s",
+        "death.attack.sonic_boom.player" to "%1\$s was obliterated by a sonically-charged shriek while trying to escape %2\$s",
+        "death.attack.spit" to "%1\$s was spit by %2\$s",
+        "death.attack.spit.item" to "%1\$s was spit by %2\$s using %3\$s",
+        "death.attack.stalagmite" to "%1\$s was impaled on a stalagmite",
+        "death.attack.stalagmite.player" to "%1\$s was impaled on a stalagmite while fighting %2\$s",
+        "death.attack.starve" to "%1\$s starved to death",
+        "death.attack.starve.player" to "%1\$s starved to death while fighting %2\$s",
+        "death.attack.sting" to "%1\$s was stung to death",
+        "death.attack.sting.item" to "%1\$s was stung to death by %2\$s using %3\$s",
+        "death.attack.sting.player" to "%1\$s was stung to death by %2\$s",
+        "death.attack.sweetBerryBush" to "%1\$s was poked to death by a sweet berry bush",
+        "death.attack.sweetBerryBush.player" to "%1\$s was poked to death by a sweet berry bush while trying to escape %2\$s",
+        "death.attack.thorns" to "%1\$s was killed while trying to hurt %2\$s",
+        "death.attack.thorns.item" to "%1\$s was killed by %3\$s while trying to hurt %2\$s",
+        "death.attack.thrown" to "%1\$s was pummeled by %2\$s",
+        "death.attack.thrown.item" to "%1\$s was pummeled by %2\$s using %3\$s",
+        "death.attack.trident" to "%1\$s was impaled by %2\$s",
+        "death.attack.trident.item" to "%1\$s was impaled by %2\$s with %3\$s",
+        "death.attack.wither" to "%1\$s withered away",
+        "death.attack.wither.player" to "%1\$s withered away while fighting %2\$s",
+        "death.attack.witherSkull" to "%1\$s was shot by a skull from %2\$s",
+        "death.attack.witherSkull.item" to "%1\$s was shot by a skull from %2\$s using %3\$s",
+        "death.fell.accident.generic" to "%1\$s fell from a high place",
+        "death.fell.accident.ladder" to "%1\$s fell off a ladder",
+        "death.fell.accident.other_climbable" to "%1\$s fell while climbing",
+        "death.fell.accident.scaffolding" to "%1\$s fell off scaffolding",
+        "death.fell.accident.twisting_vines" to "%1\$s fell off some twisting vines",
+        "death.fell.accident.vines" to "%1\$s fell off some vines",
+        "death.fell.accident.weeping_vines" to "%1\$s fell off some weeping vines",
+        "death.fell.assist" to "%1\$s was doomed to fall by %2\$s",
+        "death.fell.assist.item" to "%1\$s was doomed to fall by %2\$s using %3\$s",
+        "death.fell.finish" to "%1\$s fell too far and was finished by %2\$s",
+        "death.fell.finish.item" to "%1\$s fell too far and was finished by %2\$s using %3\$s",
+        "death.fell.killer" to "%1\$s was doomed to fall",
+    )
+
+    /** 영어 모드 몹 이름 중 ID 로 만들면 어색한 것만 (나머지는 "cave_spider" → "Cave Spider") */
+    private val ENTITIES_EN = mapOf(
+        "tnt" to "Primed TNT", "end_crystal" to "End Crystal", "lightning_bolt" to "Lightning Bolt",
+        "falling_block" to "Falling Block", "spectral_arrow" to "Spectral Arrow",
+    )
 
     /** 자주 보이는 몹 이름 (마인크래프트 한국어 번역 기준) */
     private val ENTITIES = mapOf(

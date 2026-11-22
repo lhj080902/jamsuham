@@ -1,5 +1,6 @@
 package kr.jamsuham.core.world
 
+import kr.jamsuham.core.tr
 import io.netty.buffer.ByteBuf
 import kr.jamsuham.core.net.readVarInt
 import java.util.UUID
@@ -96,7 +97,7 @@ class World {
                 val blocks = readContainer(data, 4096, 4, 8, keep = true)
                 readContainer(data, 64, 1, 3, keep = false) // 바이옴은 버림
                 sections.add(if (nonAir == 0 && blocks == null) null else blocks)
-                if (sections.size > MAX_SECTIONS) throw IllegalArgumentException("섹션이 너무 많음")
+                if (sections.size > MAX_SECTIONS) throw IllegalArgumentException(tr("섹션이 너무 많음", "Too many sections"))
             }
         } catch (t: Exception) {
             // 이상한 청크 하나 때문에 잠수 연결이 끊기지 않도록 그 청크만 버린다 (미니맵·이동에 그 칸만 비어 보임)
@@ -121,7 +122,7 @@ class World {
     /** 서버가 보낸 개수를 그대로 배열 크기로 쓰기 전에 확인한다 (잘못된 값이면 큰 배열을 만들다 앱이 죽을 수 있음) */
     private fun count(buf: ByteBuf, max: Int): Int {
         val n = buf.readVarInt()
-        if (n < 0 || n > max) throw IllegalArgumentException("잘못된 개수 $n")
+        if (n < 0 || n > max) throw IllegalArgumentException(tr("잘못된 개수 $n", "Invalid count $n"))
         return n
     }
 
@@ -136,7 +137,7 @@ class World {
             val value = v and 0xFFFF
             return uniform.getOrPut(value) { ShortArray(size) { value.toShort() } }
         }
-        if (bits > 32) throw IllegalArgumentException("잘못된 비트 수 $bits")
+        if (bits > 32) throw IllegalArgumentException(tr("잘못된 비트 수 $bits", "Invalid bit count $bits"))
         var palette: IntArray? = null
         val bpe: Int
         if (bits <= maxIndirect) {

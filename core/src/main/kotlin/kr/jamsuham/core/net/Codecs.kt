@@ -1,5 +1,6 @@
 package kr.jamsuham.core.net
 
+import kr.jamsuham.core.tr
 import com.viaversion.viaversion.protocols.v1_8to1_9.provider.CompressionProvider
 import io.netty.buffer.ByteBuf
 import io.netty.channel.ChannelHandlerContext
@@ -51,7 +52,7 @@ class FrameCodec : ByteToMessageCodec<ByteBuf>() {
                     complete = true
                     break
                 }
-                if (i == 2) throw CorruptedFrameException("패킷 길이가 21비트를 넘습니다")
+                if (i == 2) throw CorruptedFrameException(tr("패킷 길이가 21비트를 넘습니다", "Packet length exceeds 21 bits"))
             }
             if (!complete) {
                 buf.resetReaderIndex()
@@ -112,15 +113,15 @@ class DecompressHandler(private var threshold: Int) : ByteToMessageDecoder(), Co
             out.add(buf.readRetainedSlice(buf.readableBytes()))
             return
         }
-        if (dataLength < threshold) throw DecoderException("압축 기준보다 작은 압축 패킷: $dataLength < $threshold")
-        if (dataLength > MAX_UNCOMPRESSED) throw DecoderException("압축 해제 크기가 너무 큽니다: $dataLength")
+        if (dataLength < threshold) throw DecoderException(tr("압축 기준보다 작은 압축 패킷: $dataLength < $threshold", "Compressed packet smaller than threshold: $dataLength < $threshold"))
+        if (dataLength > MAX_UNCOMPRESSED) throw DecoderException(tr("압축 해제 크기가 너무 큽니다: $dataLength", "Decompressed size is too large: $dataLength"))
         val compressed = ByteArray(buf.readableBytes())
         buf.readBytes(compressed)
         inflater.setInput(compressed)
         val result = ByteArray(dataLength)
         try {
             val n = inflater.inflate(result)
-            if (n != dataLength) throw DecoderException("압축 해제 길이가 맞지 않습니다: $n != $dataLength")
+            if (n != dataLength) throw DecoderException(tr("압축 해제 길이가 맞지 않습니다: $n != $dataLength", "Decompressed length mismatch: $n != $dataLength"))
         } finally {
             inflater.reset()
         }

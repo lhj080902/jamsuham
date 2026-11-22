@@ -171,7 +171,7 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
                     s.error != null -> tr("실패: ${s.error}", "Failed: ${s.error}")
                     s.glyphs == null -> tr("받는 중", "Downloading")
                     else -> tr("글자 ${s.glyphs}개 · 글꼴 ${s.fonts}개", "${s.glyphs} glyphs · ${s.fonts} fonts") +
-                        (s.report?.lines()?.firstOrNull { it.startsWith("받는 데") }?.let { " · $it" } ?: "")
+                        (s.report?.lines()?.firstOrNull { it.startsWith("받는 데") || it.startsWith("Download took") }?.let { " · $it" } ?: "")
                 }
                 "• $state\n  ${s.url}" + (s.report?.takeIf { s.glyphs == 0 || Glyphs.missing.isNotEmpty() }?.let { tr("\n  [팩 안 모습]\n  ", "\n  [Pack contents]\n  ") + it.replace("\n", "\n  ") } ?: "")
             },

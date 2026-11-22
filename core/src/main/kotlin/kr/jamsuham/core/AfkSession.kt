@@ -128,7 +128,7 @@ class AfkSession(
         userStopped = true
         // 아직 접속 전(준비·대기 중)이면 화면에 바로 "끊음" 을 보여 준다. 세션 스레드는 막힌 작업이 끝난 뒤 정리한다
         if (connection == null && status.state != SessionState.STOPPED) {
-            status = SessionStatus(SessionState.STOPPED, "연결을 끊었습니다", status.serverVersion,
+            status = SessionStatus(SessionState.STOPPED, tr("연결을 끊었습니다", "Disconnected"), status.serverVersion,
                 reconnectCount = status.reconnectCount, totalOnlineMs = status.totalOnlineMs)
             listener.onStatus(status)
         }
@@ -143,7 +143,7 @@ class AfkSession(
         if (c != null) {
             c.disconnect()
         } else {
-            setStatus(SessionState.STOPPED, "연결을 끊었습니다")
+            setStatus(SessionState.STOPPED, tr("연결을 끊었습니다", "Disconnected"))
         }
     }
 
@@ -194,7 +194,7 @@ class AfkSession(
         val floorSec = if (isAlreadyConnected(lastReason)) 15L else 2L
         val remaining = (status.nextAttemptAtMs ?: 0L) - System.currentTimeMillis()
         if (remaining > floorSec * 1000) {
-            line(LogLine.Kind.SYSTEM, "네트워크가 다시 연결돼서 ${floorSec}초 뒤 재접속합니다")
+            line(LogLine.Kind.SYSTEM, tr("네트워크가 다시 연결돼서 ${floorSec}초 뒤 재접속합니다", "Network is back; reconnecting in ${floorSec}s"))
             schedule(floorSec)
         }
     }
@@ -214,7 +214,7 @@ class AfkSession(
         pending = null
         try {
             if (!ViaSetup.isInitialized) {
-                setStatus(SessionState.PREPARING, "버전 변환기 준비 중… (처음 한 번만 오래 걸립니다)")
+                setStatus(SessionState.PREPARING, tr("버전 변환기 준비 중… (처음 한 번만 오래 걸립니다)", "Preparing version translator… (slow only the first time)"))
                 val t0 = System.currentTimeMillis()
                 ViaSetup.init(File(dataDir, "via"))
                 log.i("ViaVersion 준비 완료 (${System.currentTimeMillis() - t0}ms)")
@@ -225,7 +225,7 @@ class AfkSession(
                 // 서버가 정해 준 주소·포트를 그대로 쓴다 ("주소:포트" 글자로 합쳤다 다시 나누면 IPv6 주소에서 포트가 사라진다)
                 ResolvedTarget(transfer.first, transfer.second, transfer.first, transfer.second)
             } else {
-                setStatus(SessionState.PREPARING, "서버 주소 확인 중…")
+                setStatus(SessionState.PREPARING, tr("서버 주소 확인 중…", "Resolving server address…"))
                 AddressResolver.resolve(config.address, dns)
             }
             if (userStopped) return
@@ -234,12 +234,12 @@ class AfkSession(
             if (userStopped) return
             ViaSetup.prepare(version)
 
-            setStatus(SessionState.PREPARING, "계정 확인 중…", version.name)
+            setStatus(SessionState.PREPARING, tr("계정 확인 중…", "Checking account…"), version.name)
             val creds = try {
                 credentials.get(forceRefresh = authRetried)
             } catch (e: AuthException) {
                 if (e.needsRelogin) {
-                    stopWithError("계정 로그인이 필요합니다: ${e.message}")
+                    stopWithError(tr("계정 로그인이 필요합니다: ${e.message}", "Account sign-in required: ${e.message}"))
                     return
                 }
                 throw e
@@ -248,38 +248,38 @@ class AfkSession(
 
             // 정품 인증이 필요한 서버인데 모장 인증 서버가 죽어 있으면 접속해 봐야 실패하므로 기다린다
             if (creds.online && (mojangDown || serverRequiresAuth)) {
-                setStatus(SessionState.PREPARING, "모장 인증 서버 확인 중…", version.name)
+                setStatus(SessionState.PREPARING, tr("모장 인증 서버 확인 중…", "Checking Mojang auth server…"), version.name)
                 val mojang = MojangStatus.check()
                 if (userStopped) return
                 if (mojang == MojangStatus.Result.NO_NETWORK) {
                     // 폰 인터넷 문제를 모장 장애로 오인해 몇 분씩 기다리지 않도록 일반 튕김처럼 짧게 재시도
-                    handleClosed(CloseReason.Lost("인터넷에 연결되지 않은 것 같습니다 (모장 인증 서버에 닿지 않음)"))
+                    handleClosed(CloseReason.Lost(tr("인터넷에 연결되지 않은 것 같습니다 (모장 인증 서버에 닿지 않음)", "You seem to be offline (can't reach the Mojang auth server)")))
                     return
                 }
                 if (mojang == MojangStatus.Result.DOWN) {
                     mojangDown = true
                     mojangChecks++
-                    if (mojangChecks == 1) line(LogLine.Kind.SYSTEM, "모장 인증 서버에 문제가 있어 보여 접속하지 않고 복구될 때까지 기다립니다")
+                    if (mojangChecks == 1) line(LogLine.Kind.SYSTEM, tr("모장 인증 서버에 문제가 있어 보여 접속하지 않고 복구될 때까지 기다립니다", "The Mojang auth server seems to be having problems; waiting for it to recover before connecting"))
                     val wait = longArrayOf(30, 60, 120, 180, 300)[(mojangChecks - 1).coerceAtMost(4)]
-                    scheduleCheck(wait, "모장 인증 서버 장애 · ${wait}초 뒤 다시 확인")
+                    scheduleCheck(wait, tr("모장 인증 서버 장애 · ${wait}초 뒤 다시 확인", "Mojang auth server down · checking again in ${wait}s"))
                     return
                 }
-                if (mojangDown) line(LogLine.Kind.SYSTEM, "모장 인증 서버가 정상입니다. 접속합니다")
+                if (mojangDown) line(LogLine.Kind.SYSTEM, tr("모장 인증 서버가 정상입니다. 접속합니다", "The Mojang auth server is back. Connecting"))
                 mojangDown = false
                 mojangChecks = 0
             }
 
-            setStatus(SessionState.CONNECTING, "접속 중… (${target.connectHost}:${target.connectPort})", version.name)
+            setStatus(SessionState.CONNECTING, tr("접속 중… (${target.connectHost}:${target.connectPort})", "Connecting… (${target.connectHost}:${target.connectPort})"), version.name)
             generation++
             val conn = McConnection(target, version, creds, Events(generation), log, transferIntent = transfer != null, autoClickRules = config.autoClickRules)
             connection = conn
             transferTo = null
             conn.connect()
         } catch (e: IllegalArgumentException) {
-            stopWithError(e.message ?: "잘못된 설정")
+            stopWithError(e.message ?: tr("잘못된 설정", "Invalid settings"))
         } catch (t: Throwable) {
             log.w("접속 준비 실패", t)
-            handleClosed(CloseReason.Lost("접속 준비 실패: ${McConnection.describe(t)}"))
+            handleClosed(CloseReason.Lost(tr("접속 준비 실패: ${McConnection.describe(t)}", "Failed to prepare connection: ${McConnection.describe(t)}")))
         }
     }
 
@@ -290,11 +290,11 @@ class AfkSession(
     private fun resolveVersion(target: ResolvedTarget): ProtocolVersion? {
         val fixed = config.fixedVersion?.let { name ->
             ViaSetup.versionByName(name) ?: run {
-                stopWithError("지원하지 않는 버전입니다: $name")
+                stopWithError(tr("지원하지 않는 버전입니다: $name", "Unsupported version: $name"))
                 return null
             }
         }
-        setStatus(SessionState.PREPARING, if (offlineChecks > 0) "서버가 켜졌는지 확인 중…" else "서버 확인 중…")
+        setStatus(SessionState.PREPARING, if (offlineChecks > 0) tr("서버가 켜졌는지 확인 중…", "Checking whether the server is up…") else tr("서버 확인 중…", "Checking server…"))
         val ping = try {
             StatusPinger.ping(target, fixed?.version ?: ViaSetup.NATIVE_PROTOCOL)
         } catch (e: Exception) {
@@ -302,11 +302,11 @@ class AfkSession(
             if (isUnreachable(e)) {
                 offlineChecks++
                 if (offlineChecks == 1) {
-                    line(LogLine.Kind.SYSTEM, "서버가 꺼져 있거나 응답이 없습니다 (${McConnection.describe(e)}). 켜질 때까지 접속하지 않고 확인만 합니다")
+                    line(LogLine.Kind.SYSTEM, tr("서버가 꺼져 있거나 응답이 없습니다 (${McConnection.describe(e)}). 켜질 때까지 접속하지 않고 확인만 합니다", "The server is offline or not responding (${McConnection.describe(e)}). Only checking, without connecting, until it comes back"))
                 }
                 val max = config.maxBackoffSec.coerceAtLeast(10).toLong()
                 val wait = longArrayOf(10, 15, 30, 60)[(offlineChecks - 1).coerceAtMost(3)].coerceAtMost(max)
-                scheduleCheck(wait, "서버 꺼짐 · ${wait}초 뒤 다시 확인")
+                scheduleCheck(wait, tr("서버 꺼짐 · ${wait}초 뒤 다시 확인", "Server offline · checking again in ${wait}s"))
                 return null
             }
             // 연결은 되는데 목록 응답만 이상한 서버: 아는 버전이 있으면 그걸로 접속
@@ -315,24 +315,28 @@ class AfkSession(
                 log.w("핑 응답 이상, ${known.name} 로 시도: ${e.message}")
                 return known
             }
-            handleClosed(CloseReason.Lost("서버 버전을 확인하지 못했습니다: ${McConnection.describe(e)}"))
+            handleClosed(CloseReason.Lost(tr("서버 버전을 확인하지 못했습니다: ${McConnection.describe(e)}", "Couldn't determine the server version: ${McConnection.describe(e)}")))
             return null
         }
         if (offlineChecks > 0) {
-            line(LogLine.Kind.SYSTEM, "서버가 켜졌습니다. 접속합니다")
+            line(LogLine.Kind.SYSTEM, tr("서버가 켜졌습니다. 접속합니다", "The server is up. Connecting"))
             offlineChecks = 0
         }
         if (fixed != null) return fixed
         val v = ViaSetup.versionForProtocol(ping.protocol)
         if (v == null) {
             stopWithError(
-                "서버 버전을 자동으로 알아내지 못했습니다 (서버 응답: ${ping.versionName}, 프로토콜 ${ping.protocol}). " +
-                    "설정에서 버전을 직접 골라 주세요.",
+                tr(
+                    "서버 버전을 자동으로 알아내지 못했습니다 (서버 응답: ${ping.versionName}, 프로토콜 ${ping.protocol}). " +
+                        "설정에서 버전을 직접 골라 주세요.",
+                    "Couldn't detect the server version automatically (server reply: ${ping.versionName}, protocol ${ping.protocol}). " +
+                        "Please choose the version in settings.",
+                ),
             )
             return null
         }
         if (detectedVersion != v) {
-            line(LogLine.Kind.SYSTEM, "서버 버전 감지: ${v.name} (${ping.versionName}, 접속자 ${ping.online}/${ping.max}, ${ping.latencyMs}ms)")
+            line(LogLine.Kind.SYSTEM, tr("서버 버전 감지: ${v.name} (${ping.versionName}, 접속자 ${ping.online}/${ping.max}, ${ping.latencyMs}ms)", "Server version detected: ${v.name} (${ping.versionName}, players ${ping.online}/${ping.max}, ${ping.latencyMs}ms)"))
         }
         detectedVersion = v
         return v
@@ -358,8 +362,8 @@ class AfkSession(
             authRetried = false
             rateLimitHits = 0
             if (connection?.usedSessionServer == true) serverRequiresAuth = true
-            line(LogLine.Kind.SYSTEM, "서버에 들어갔습니다")
-            setStatus(SessionState.ONLINE, "접속 중", detectedVersion?.name ?: config.fixedVersion)
+            line(LogLine.Kind.SYSTEM, tr("서버에 들어갔습니다", "Joined the server"))
+            setStatus(SessionState.ONLINE, tr("접속 중", "Online"), detectedVersion?.name ?: config.fixedVersion)
             // 1분 이상 버티면 실패 횟수 초기화 (들어가자마자 킥하는 서버에서 횟수가 매번 0 으로 돌아가지 않도록 접속 순간이 아니라 1분 뒤에)
             exec.schedule({
                 if (status.state == SessionState.ONLINE && generation == gen) {
@@ -423,7 +427,7 @@ class AfkSession(
             if (menuOpen && System.currentTimeMillis() - firstAt < MENU_WAIT_MAX_MS) {
                 if (!waitingForMenu) {
                     waitingForMenu = true
-                    line(LogLine.Kind.SYSTEM, "서버 메뉴가 열려 있어서 자동 실행을 잠시 미룹니다 (메뉴에서 고르거나 닫으면 이어서 실행)")
+                    line(LogLine.Kind.SYSTEM, tr("서버 메뉴가 열려 있어서 자동 실행을 잠시 미룹니다 (메뉴에서 고르거나 닫으면 이어서 실행)", "A server menu is open, so auto commands are on hold (they continue once you pick an item or close the menu)"))
                 }
                 exec.schedule({ step(i) }, 1, TimeUnit.SECONDS)
                 return
@@ -437,7 +441,7 @@ class AfkSession(
             }
             val cmd = commands[i]
             val ok = conn?.sendChat(cmd) == true
-            line(LogLine.Kind.SYSTEM, if (ok) "자동 실행: $cmd" else "자동 실행 실패: $cmd")
+            line(LogLine.Kind.SYSTEM, if (ok) tr("자동 실행: $cmd", "Auto command: $cmd") else tr("자동 실행 실패: $cmd", "Auto command failed: $cmd"))
             // 다음 명령어까지 서버별 간격만큼 기다린다 (최소 0.5초)
             val intervalMs = (config.joinCommandIntervalSec.coerceIn(0, 120) * 1000L).coerceAtLeast(500L)
             exec.schedule({ step(i + 1) }, intervalMs, TimeUnit.MILLISECONDS)
@@ -468,7 +472,7 @@ class AfkSession(
                 if (alive() && connection === conn && conn.movementInput == 1) conn.movementInput = 2 // 남 (되돌아오기)
                 exec.schedule({
                     if (connection === conn && conn.movementInput == 2) conn.movementInput = 0
-                    if (alive()) line(LogLine.Kind.SYSTEM, "움직여야 하는 서버를 위해 한두 걸음 걸었다가 돌아왔습니다")
+                    if (alive()) line(LogLine.Kind.SYSTEM, tr("움직여야 하는 서버를 위해 한두 걸음 걸었다가 돌아왔습니다", "Took a step or two and came back, for servers that require movement"))
                 }, WALK_STEP_MS, TimeUnit.MILLISECONDS)
             }, WALK_STEP_MS, TimeUnit.MILLISECONDS)
         }
@@ -498,7 +502,7 @@ class AfkSession(
         if (reason !is CloseReason.User) line(if (reason is CloseReason.Kicked) LogLine.Kind.ERROR else LogLine.Kind.SYSTEM, text)
 
         if (userStopped || reason is CloseReason.User) {
-            setStatus(SessionState.STOPPED, "연결을 끊었습니다")
+            setStatus(SessionState.STOPPED, tr("연결을 끊었습니다", "Disconnected"))
             return
         }
         when (reason) {
@@ -509,7 +513,7 @@ class AfkSession(
             is CloseReason.AuthFailed -> {
                 if (!authRetried) {
                     authRetried = true
-                    line(LogLine.Kind.SYSTEM, "토큰을 새로 받아 다시 시도합니다")
+                    line(LogLine.Kind.SYSTEM, tr("토큰을 새로 받아 다시 시도합니다", "Refreshing the token and trying again"))
                     schedule(2)
                 } else {
                     stopWithError("${reason.message}")
@@ -528,12 +532,12 @@ class AfkSession(
                 rateLimitHits++
                 reconnectCount++
                 val wait = RATE_LIMIT_WAIT[(rateLimitHits - 1).coerceAtMost(RATE_LIMIT_WAIT.size - 1)]
-                schedule(wait, "모장 요청 제한 · ${wait}초 뒤 다시 접속합니다")
+                schedule(wait, tr("모장 요청 제한 · ${wait}초 뒤 다시 접속합니다", "Mojang rate limit · reconnecting in ${wait}s"))
                 return
             }
             is CloseReason.Transfer -> {
                 transferTo = reason.host to reason.port
-                line(LogLine.Kind.SYSTEM, "서버가 ${reason.host}:${reason.port} 로 이동시킵니다")
+                line(LogLine.Kind.SYSTEM, tr("서버가 ${reason.host}:${reason.port} 로 이동시킵니다", "The server is transferring you to ${reason.host}:${reason.port}"))
                 schedule(1)
                 return
             }
@@ -541,30 +545,30 @@ class AfkSession(
                 val plain = reason.text.plain
                 if (isDuplicateLogin(plain)) {
                     // PC 등에서 같은 계정으로 들어간 것: 다시 들어가면 그쪽을 튕겨 내므로 멈춘다
-                    stopWithError("다른 곳(PC 등)에서 같은 계정으로 접속해서 잠수를 멈췄습니다. 다시 잠수하려면 시작을 눌러 주세요")
+                    stopWithError(tr("다른 곳(PC 등)에서 같은 계정으로 접속해서 잠수를 멈췄습니다. 다시 잠수하려면 시작을 눌러 주세요", "AFK stopped because the same account joined from somewhere else (e.g. a PC). Tap Start to AFK again"))
                     return
                 }
                 if (isAuthKick(plain)) {
                     // 대부분 모장 인증 서버의 일시 장애나 토큰 만료 → 토큰을 새로 받고 모장 상태를 확인한 뒤 다시 시도
                     authKicks++
                     if (authKicks >= AUTH_KICK_LIMIT) {
-                        stopWithError("정품 인증 실패가 ${authKicks}번 이어져서 멈춥니다: $plain")
+                        stopWithError(tr("정품 인증 실패가 ${authKicks}번 이어져서 멈춥니다: $plain", "Stopping after ${authKicks} authentication failures in a row: $plain"))
                         return
                     }
                     authRetried = true
                     serverRequiresAuth = true
                     reconnectCount++
                     val wait = if (authKicks == 1) 10L else 60L
-                    line(LogLine.Kind.SYSTEM, "정품 인증에 실패했습니다. 토큰을 새로 받아 ${wait}초 뒤 다시 시도합니다 (${authKicks}/${AUTH_KICK_LIMIT - 1})")
+                    line(LogLine.Kind.SYSTEM, tr("정품 인증에 실패했습니다. 토큰을 새로 받아 ${wait}초 뒤 다시 시도합니다 (${authKicks}/${AUTH_KICK_LIMIT - 1})", "Authentication failed. Refreshing the token and retrying in ${wait}s (${authKicks}/${AUTH_KICK_LIMIT - 1})"))
                     schedule(wait)
                     return
                 }
                 if (isPermanentKick(plain)) {
-                    stopWithError("다시 접속하지 않습니다 (차단·화이트리스트로 보이는 킥): $plain")
+                    stopWithError(tr("다시 접속하지 않습니다 (차단·화이트리스트로 보이는 킥): $plain", "Not reconnecting (kick looks like a ban/whitelist): $plain"))
                     return
                 }
                 if (!config.reconnectOnKick && !isAlreadyConnected(reason)) {
-                    setStatus(SessionState.STOPPED, "서버에서 킥당했습니다")
+                    setStatus(SessionState.STOPPED, tr("서버에서 킥당했습니다", "Kicked from the server"))
                     return
                 }
             }
@@ -579,7 +583,7 @@ class AfkSession(
         schedule(backoffSeconds(reason, failures))
     }
 
-    private fun schedule(delaySec: Long, message: String = "${delaySec}초 뒤 다시 접속합니다") {
+    private fun schedule(delaySec: Long, message: String = tr("${delaySec}초 뒤 다시 접속합니다", "Reconnecting in ${delaySec}s")) {
         pending?.cancel(false)
         pending = null
         if (userStopped) return
@@ -706,13 +710,13 @@ class AfkSession(
         }
 
         fun describe(reason: CloseReason): String = when (reason) {
-            is CloseReason.Kicked -> "서버에서 끊음: ${reason.text.plain.ifBlank { "(메시지 없음)" }}"
+            is CloseReason.Kicked -> tr("서버에서 끊음: ${reason.text.plain.ifBlank { "(메시지 없음)" }}", "Disconnected by server: ${reason.text.plain.ifBlank { "(no message)" }}")
             is CloseReason.Lost -> reason.message
-            is CloseReason.User -> "연결을 끊었습니다"
-            is CloseReason.Transfer -> "서버 이동: ${reason.host}:${reason.port}"
+            is CloseReason.User -> tr("연결을 끊었습니다", "Disconnected")
+            is CloseReason.Transfer -> tr("서버 이동: ${reason.host}:${reason.port}", "Server transfer: ${reason.host}:${reason.port}")
             is CloseReason.Fatal -> reason.message
             is CloseReason.AuthFailed -> reason.message
-            is CloseReason.ServiceDown -> "${reason.message} → 모장 인증 서버가 복구될 때까지 기다립니다"
+            is CloseReason.ServiceDown -> tr("${reason.message} → 모장 인증 서버가 복구될 때까지 기다립니다", "${reason.message} → waiting for the Mojang auth server to recover")
             is CloseReason.RateLimited -> reason.message
         }
     }

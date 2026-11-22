@@ -7,6 +7,7 @@ import com.google.gson.JsonParser
 import com.viaversion.nbt.tag.Tag
 import com.viaversion.viaversion.util.ComponentUtil
 import kr.jamsuham.core.DeathInfo
+import kr.jamsuham.core.Lang
 
 /**
  * 사망 메시지 분석. 바닐라는 "death.attack.mob" 같은 번역 키와 인자(1 = 죽은 사람, 2 = 죽인 것, 3 = 무기)로 보낸다.
@@ -70,6 +71,7 @@ object DeathMessages {
 
     /** 채팅에 보이는 사망 문장 (번역표에 없는 death.* 키를 한국어로) */
     fun sentence(key: String, args: List<String>): String {
+        if (Lang.english) return sentenceEn(key, args)
         val victim = args.getOrNull(0)?.ifBlank { null } ?: "누군가"
         val killer = args.getOrNull(1)?.ifBlank { null }
         val weapon = args.getOrNull(2)?.removeSurrounding("[", "]")?.ifBlank { null }
@@ -82,15 +84,31 @@ object DeathMessages {
         }
     }
 
+    /** 영어 모드의 사망 문장 ("Steve was killed by Zombie (Attacked) · Weapon: Iron Sword") */
+    private fun sentenceEn(key: String, args: List<String>): String {
+        val victim = args.getOrNull(0)?.ifBlank { null } ?: "Someone"
+        val killer = args.getOrNull(1)?.ifBlank { null }
+        val weapon = args.getOrNull(2)?.removeSurrounding("[", "]")?.ifBlank { null }
+        val cause = causeOf(key)
+        return buildString {
+            append(victim)
+            if (killer != null) append(" was killed by ").append(killer) else append(" died")
+            if (cause != null) append(" (").append(cause).append(")")
+            if (weapon != null) append(" · Weapon: ").append(weapon)
+        }
+    }
+
     /**
      * 번역 키 → 원인. "death.attack.arrow.item" 처럼 뒤에 .player/.item 이 붙은 변형은 앞부분으로 찾는다.
      * 원인이 따로 없는 키(generic 등)는 null.
      */
     fun causeOf(key: String): String? {
         var k = key.removePrefix("death.")
-        if (k.startsWith("fell.")) return "높은 곳에서 떨어짐"
+        val en = Lang.english
+        if (k.startsWith("fell.")) return if (en) "Fell from a high place" else "높은 곳에서 떨어짐"
+        val table = if (en) CAUSES_EN else CAUSES
         while (true) {
-            CAUSES[k]?.let { return it.ifBlank { null } }
+            table[k]?.let { return it.ifBlank { null } }
             val cut = k.lastIndexOf('.')
             if (cut <= 0) return null
             k = k.substring(0, cut)
@@ -140,6 +158,55 @@ object DeathMessages {
         "attack.sonic_boom" to "음파 폭발",
         "attack.mace_smash" to "철퇴",
         "attack.spit" to "침에 맞음",
+        "attack.genericKill" to "",
+        "attack.generic" to "",
+        "attack.message_too_long" to "",
+    )
+
+    /** [CAUSES] 의 영어판 (영어 모드) */
+    private val CAUSES_EN = mapOf(
+        "attack.mob" to "Attacked",
+        "attack.player" to "Attacked",
+        "attack.arrow" to "Shot by an arrow",
+        "attack.trident" to "Impaled by a trident",
+        "attack.fireball" to "Fireball",
+        "attack.witherSkull" to "Wither skull",
+        "attack.thrown" to "Hit by a thrown object",
+        "attack.indirectMagic" to "Magic",
+        "attack.magic" to "Magic",
+        "attack.even_more_magic" to "Magic",
+        "attack.explosion" to "Explosion",
+        "attack.fireworks" to "Firework explosion",
+        "attack.badRespawnPoint" to "Bed / respawn anchor explosion",
+        "attack.inFire" to "Burned",
+        "attack.onFire" to "Burned",
+        "attack.campfire" to "Campfire",
+        "attack.lava" to "Lava",
+        "attack.hotFloor" to "Magma block",
+        "attack.lightningBolt" to "Lightning",
+        "attack.drown" to "Drowned",
+        "attack.dryout" to "Dehydration",
+        "attack.starve" to "Starvation",
+        "attack.cactus" to "Cactus",
+        "attack.sweetBerryBush" to "Sweet berry bush",
+        "attack.fall" to "Fall damage",
+        "attack.flyIntoWall" to "Flew into a wall",
+        "attack.outOfWorld" to "Fell out of the world",
+        "attack.outsideBorder" to "Outside the world border",
+        "attack.inWall" to "Suffocated in a wall",
+        "attack.cramming" to "Cramming",
+        "attack.freeze" to "Froze to death",
+        "attack.wither" to "Withered",
+        "attack.dragonBreath" to "Dragon's breath",
+        "attack.anvil" to "Falling anvil",
+        "attack.fallingBlock" to "Falling block",
+        "attack.fallingStalactite" to "Falling stalactite",
+        "attack.stalagmite" to "Stalagmite",
+        "attack.sting" to "Stung",
+        "attack.thorns" to "Thorns",
+        "attack.sonic_boom" to "Sonic boom",
+        "attack.mace_smash" to "Mace smash",
+        "attack.spit" to "Spit",
         "attack.genericKill" to "",
         "attack.generic" to "",
         "attack.message_too_long" to "",
