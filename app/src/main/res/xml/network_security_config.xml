@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  마인크래프트 서버 리소스팩은 http:// 주소인 경우가 많다 (예: 도스온라인). 실제 마인크래프트도 http 로 받으므로 허용한다.
+  안드로이드 9+ 는 기본으로 http 를 막아서 "Cleartext HTTP traffic ... not permitted" 로 실패했다.
+  마이크로소프트 로그인·모장·GitHub 은 코드에서 https 주소만 쓴다. 게임 접속 자체는 http 가 아니라 이 설정과 상관없다.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
