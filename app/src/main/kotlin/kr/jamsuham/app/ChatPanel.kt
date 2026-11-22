@@ -109,7 +109,7 @@ class ChatPanel(
         orientation = VERTICAL
 
         // --- 상단 상태 줄
-        val top = ui.card().apply { setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10)) }
+        val top = ui.card().apply { setPadding(ui.dp(12) + ui.cardPad, ui.dp(10) + ui.cardPad, ui.dp(12) + ui.cardPad, ui.dp(10) + ui.cardPad) }
         val row = ui.horizontal()
         if (showBack) row.addView(ui.button("←", "ghost") { requestBack() }, ui.lp(ui.dp(44), ui.dp(40)))
         statusDot = ui.dot(p.muted)
@@ -160,7 +160,7 @@ class ChatPanel(
         }
         addView(tabBar, ui.lp().apply { topMargin = ui.dp(8) })
 
-        val logCard = ui.card().apply { setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(8)) }
+        val logCard = ui.card().apply { setPadding(ui.dp(12) + ui.cardPad, ui.dp(8) + ui.cardPad, ui.dp(12) + ui.cardPad, ui.dp(8) + ui.cardPad) }
         list = ListView(activity).apply {
             adapter = this@ChatPanel.adapter
             divider = null

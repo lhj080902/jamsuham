@@ -133,15 +133,19 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
 
     private fun buildListPane() {
         listPane = ui.vertical()
-        val header = ui.horizontal()
-        val titles = ui.vertical()
-        titles.addView(ui.text(tr("잠수크래프트", "Jamsucraft"), 26f, bold = true))
-        titles.addView(ui.text(tr("마인크래프트 잠수 클라이언트", "Minecraft AFK client"), 13f, ui.p.muted))
-        header.addView(titles, ui.lp(0, Ui.WRAP, 1f))
+        // 머리글: [제목 ……… ⚙ 설정][+ 서버] / 아래 줄에 부제목 (버튼과 붙지 않게 한 줄 전체를 씀)
+        val header = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(ui.dp(4), ui.dp(4), 0, 0) }
+        // 제목은 칸이 모자라면(글자 크기를 키웠을 때) 잘리지 않고 작아진다
+        header.addView(ui.fit(ui.text(tr("잠수크래프트", "Jamsucraft"), 26f, bold = true), maxSp = 26f, minSp = 14f), ui.lp(0, Ui.WRAP, 1f).apply { rightMargin = ui.dp(10) })
         // 계정 관리·디자인·언어 등은 설정 화면에
         header.addView(ui.button(tr("⚙ 설정", "⚙ Settings"), "plain") { startActivity(Intent(this, SettingsActivity::class.java)) }, ui.lp(Ui.WRAP, ui.dp(42)))
-        header.addView(ui.button(tr("+ 서버", "+ Server"), "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(6) })
+        header.addView(ui.button(tr("+ 서버", "+ Server"), "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(8) })
         listPane.addView(header)
+        listPane.addView(ui.text(tr("마인크래프트 잠수 클라이언트", "Minecraft AFK client"), 13f, ui.p.muted).apply {
+            setPadding(ui.dp(4), ui.dp(2), 0, 0)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
 
         bannerBox = ui.vertical()
         listPane.addView(bannerBox, ui.lp())
@@ -257,7 +261,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
                 setOnClickListener { select(s.id) }
                 setOnLongClickListener { openEditor(s.id); true }
             }
-            val row = ui.horizontal()
+            val row = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
             val icon = ImageView(this).apply {
                 background = ui.rounded(ui.p.input, 12)
                 clipToOutline = true
@@ -277,7 +281,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             texts.addView(detail)
             row.addView(texts, ui.lp(0, Ui.WRAP, 1f))
             val button = ui.button("시작", "primary") { toggle(s.id) }
-            row.addView(button, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(8) })
+            row.addView(button, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(12) })
             card.addView(row)
             listBox.addView(card, ui.lp().apply { if (i > 0) topMargin = ui.dp(10) })
             cardViews[s.id] = CardViews(dot, detail, button, icon, motd)
@@ -325,7 +329,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
     }
 
     private fun banner(title: String, body: String, action: String, onClick: () -> Unit): View {
-        val card = ui.card().apply { setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12)) }
+        val card = ui.card().apply { setPadding(ui.dp(14) + ui.cardPad, ui.dp(12) + ui.cardPad, ui.dp(14) + ui.cardPad, ui.dp(12) + ui.cardPad) }
         val row = ui.horizontal()
         val texts = ui.vertical()
         texts.addView(ui.text(title, 14f, bold = true))

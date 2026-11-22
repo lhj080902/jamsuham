@@ -41,7 +41,7 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
     init {
         orientation = VERTICAL
         background = ui.rounded(p.card, 16)
-        setPadding(ui.dp(14), ui.dp(14), ui.dp(14), ui.dp(14))
+        setPadding(ui.dp(16) + ui.cardPad, ui.dp(14) + ui.cardPad, ui.dp(16) + ui.cardPad, ui.dp(14) + ui.cardPad)
         elevation = ui.dp(8).toFloat()
 
         val inner = ui.vertical()

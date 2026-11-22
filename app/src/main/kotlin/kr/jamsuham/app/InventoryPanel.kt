@@ -25,7 +25,7 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
     init {
         orientation = VERTICAL
         background = ui.rounded(p.card, 16)
-        setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12))
+        setPadding(ui.dp(14) + ui.cardPad, ui.dp(12) + ui.cardPad, ui.dp(14) + ui.cardPad, ui.dp(12) + ui.cardPad)
         elevation = ui.dp(8).toFloat()
         countView = ui.text("인벤토리", 16f, p.accent, bold = true)
         addView(countView)

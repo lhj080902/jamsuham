@@ -48,7 +48,7 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
 
     init {
         orientation = VERTICAL
-        val mapCard = ui.card().apply { setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)) }
+        val mapCard = ui.card().apply { setPadding(ui.dp(8) + ui.cardPad, ui.dp(8) + ui.cardPad, ui.dp(8) + ui.cardPad, ui.dp(8) + ui.cardPad) }
         mapCard.addView(mapView, ui.lp(Ui.MATCH, 0, 1f))
         val infoRow = ui.horizontal().apply { setPadding(ui.dp(4), ui.dp(6), 0, 0); gravity = Gravity.CENTER_VERTICAL }
         // 움직일 때마다 글씨가 바뀌므로 흐르는 글씨(마키)로 두면 매번 처음으로 돌아간다 → 두 줄로 나눠 그대로 보여 준다
@@ -67,37 +67,15 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
         addView(mapCard, ui.lp(Ui.MATCH, 0, 1f))
 
         // 이동: 왼쪽 조이스틱(누른 채 끌면 그 방향으로 걷기, 위 = 북쪽) + 오른쪽 점프
-        val pad = ui.card().apply { setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10)) }
+        val pad = ui.card().apply { setPadding(ui.dp(12) + ui.cardPad, ui.dp(10) + ui.cardPad, ui.dp(12) + ui.cardPad, ui.dp(10) + ui.cardPad) }
         val grid = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
         grid.addView(Joystick(), ui.lp(ui.dp(150), ui.dp(150)))
         val right = ui.vertical().apply { gravity = Gravity.CENTER }
-        right.addView(holdButton("점프", 16, primary = true), ui.lp(ui.dp(90), ui.dp(90)))
-        right.addView(ui.text("위 = 북쪽 (지도와 같음)", 11f, p.muted).apply { setPadding(0, ui.dp(8), 0, 0); gravity = Gravity.CENTER })
+        right.addView(JumpButton(), ui.lp(ui.dp(88), ui.dp(88)))
         grid.addView(right, ui.lp(0, Ui.WRAP, 1f))
         pad.addView(grid)
-        pad.addView(ui.hint("조이스틱을 누른 채 끌면 그 방향으로 걷습니다. 0.6칸 이하 턱(반 블록, 계단)은 자동으로 올라갑니다. 아이템 사용은 인벤 탭에서 합니다."))
+        pad.addView(ui.hint("조이스틱을 누른 채 끌면 그 방향으로 걷습니다 (위 = 북쪽, 지도와 같음). 0.6칸 이하 턱(반 블록, 계단)은 자동으로 올라갑니다. 아이템 사용은 인벤 탭에서 합니다."))
         addView(pad, ui.lp().apply { topMargin = ui.dp(8) })
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun holdButton(label: String, bit: Int, primary: Boolean = false): Button {
-        val b = ui.button(label, if (primary) "primary" else "plain") {}
-        b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (label.length > 1) 18f else 22f)
-        b.setOnTouchListener { v, ev ->
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    mask = mask or bit
-                    v.alpha = 0.6f
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    mask = mask and bit.inv()
-                    v.alpha = 1f
-                }
-            }
-            SessionHub.setMovement(serverId, mask)
-            true
-        }
-        return b
     }
 
     /** 페이지를 벗어나거나 화면이 꺼질 때 멈춘다 */
@@ -114,7 +92,6 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
     @SuppressLint("ClickableViewAccessibility")
     private inner class Joystick : View(this@MapPanel.context) {
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = ui.dp(12).toFloat(); isFakeBoldText = true }
         private var kx = 0f
         private var ky = 0f
         private var active = false
@@ -162,17 +139,58 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
                 canvas.drawCircle(cx, cy, outer, fill)
                 fill.style = Paint.Style.FILL
             }
-            // 방위 글자
-            text.color = p.muted
-            val off = outer - ui.dp(12)
-            val base = (text.descent() + text.ascent()) / 2
-            canvas.drawText("북", cx, cy - off - base, text)
-            canvas.drawText("남", cx, cy + off - base, text)
-            canvas.drawText("서", cx - off, cy - base, text)
-            canvas.drawText("동", cx + off, cy - base, text)
             // 손잡이
             fill.color = if (active) p.accent else p.muted
             canvas.drawCircle(cx + kx, cy + ky, ui.dp(26).toFloat(), fill)
+        }
+    }
+
+    /** 점프: 조이스틱과 같은 모양의 둥근 버튼에 위쪽 꺾쇠. 누르고 있는 동안 점프 */
+    @SuppressLint("ClickableViewAccessibility")
+    private inner class JumpButton : View(this@MapPanel.context) {
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val arrow = Path()
+        private var pressed = false
+
+        override fun onTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { pressed = true; mask = mask or 16 }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { pressed = false; mask = mask and 16.inv() }
+                else -> return true
+            }
+            SessionHub.setMovement(serverId, mask)
+            invalidate()
+            return true
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = minOf(width, height) / 2f - ui.dp(2)
+            fill.color = if (pressed) p.accent else p.input
+            canvas.drawCircle(cx, cy, r, fill)
+            if (p.stroke != 0) {
+                fill.style = Paint.Style.STROKE; fill.strokeWidth = ui.dp(2).toFloat(); fill.color = p.stroke
+                canvas.drawCircle(cx, cy, r, fill)
+                fill.style = Paint.Style.FILL
+            }
+            // 위쪽 꺾쇠 두 개 (점프)
+            line.color = if (pressed) p.onAccent else p.text
+            line.strokeWidth = ui.dp(4).toFloat()
+            val w = r * 0.38f
+            val h = r * 0.22f
+            arrow.reset()
+            for (dy in floatArrayOf(-r * 0.12f, r * 0.2f)) {
+                arrow.moveTo(cx - w, cy + dy + h / 2)
+                arrow.lineTo(cx, cy + dy - h / 2)
+                arrow.lineTo(cx + w, cy + dy + h / 2)
+            }
+            canvas.drawPath(arrow, line)
         }
     }
 

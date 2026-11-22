@@ -1316,7 +1316,8 @@ class McConnection(
         val hash = buf.readMcString(40)
         val forced = buf.readBoolean()
         events.onResourcePack(url, hash)
-        events.onInfo("리소스팩 요청${if (forced) "(필수)" else ""} → 실제로 받지 않고 적용한 것으로 응답: $url")
+        // 채팅에는 띄우지 않는다 (매번 나와서 거슬림). 상태 탭에 팩 주소가 보인다
+        log.i("리소스팩 요청${if (forced) "(필수)" else ""} → 실제로 받지 않고 적용한 것으로 응답: $url")
         // 3 = 수락, 4 = 다운로드 완료, 0 = 적용 성공. 실제 클라이언트처럼 약간 시간차를 둔다.
         val ch = channel ?: return
         val expectedState = state

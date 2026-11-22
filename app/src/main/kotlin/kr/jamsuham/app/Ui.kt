@@ -139,9 +139,12 @@ class Ui(val ctx: Context) {
         gravity = Gravity.CENTER_VERTICAL
     }
 
+    /** 카드 안쪽 여백. 픽셀 디자인은 테두리(2dp)가 있어서 그만큼 더 띄운다 */
+    val cardPad: Int get() = if (p.stroke != 0) dp(4) else 0
+
     fun card() = vertical().apply {
         background = rounded(p.card, 16)
-        setPadding(dp(16), dp(14), dp(16), dp(14))
+        setPadding(dp(16) + cardPad, dp(14) + cardPad, dp(16) + cardPad, dp(14) + cardPad)
     }
 
     fun input(hintText: String, singleLine: Boolean = true) = EditText(ctx).apply {
@@ -151,7 +154,7 @@ class Ui(val ctx: Context) {
         setSingleLine(singleLine)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * scale)
         background = rounded(p.input, 10)
-        setPadding(dp(12), dp(10), dp(12), dp(10))
+        setPadding(dp(14), dp(10), dp(14), dp(10))
         if (singleLine) inputType = InputType.TYPE_CLASS_TEXT
     }
 
@@ -185,8 +188,9 @@ class Ui(val ctx: Context) {
         b.setTextColor(fg)
         // 버튼 높이는 대부분 고정이라 위아래 여백을 작게 (글자를 크게 해도 잘리지 않게).
         // 기호 하나짜리(←, ▲, ⚙ …) 좁은 버튼은 옆 여백도 거의 없앤다
-        val side = if ((b.text?.length ?: 0) <= 2) dp(2) else dp(12)
+        val side = if ((b.text?.length ?: 0) <= 2) dp(2) else dp(16)
         b.setPadding(side, dp(3), side, dp(3))
+        b.gravity = Gravity.CENTER
     }
 
     /**
