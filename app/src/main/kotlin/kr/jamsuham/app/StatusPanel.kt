@@ -186,6 +186,7 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
         private var main = 0f
         private var extra = 0f
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
         private val rect = RectF()
 
         fun set(main: Float, extra: Float) {
@@ -198,9 +199,11 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
         }
 
         override fun onDraw(canvas: Canvas) {
-            val r = height / 2f
+            // 픽셀 디자인은 각진 막대
+            val r = if (p.radius == 0f) 0f else height / 2f
             rect.set(0f, 0f, width.toFloat(), height.toFloat())
-            paint.color = p.divider
+            // 빈 부분: 카드 배경과 구분되는 색 (흰 카드에서 막대가 안 보이던 문제)
+            paint.color = p.input
             canvas.drawRoundRect(rect, r, r, paint)
             if (main > 0f) {
                 rect.set(0f, 0f, max(height.toFloat(), width * main), height.toFloat())
@@ -212,6 +215,13 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
                 paint.color = extraColor
                 canvas.drawRoundRect(rect, r, r, paint)
             }
+            // 테두리: 막대 전체 길이가 보이게
+            val sw = ui.dp(if (p.stroke != 0) 2 else 1).toFloat().coerceAtLeast(1.5f)
+            border.strokeWidth = sw
+            border.color = if (p.stroke != 0) p.stroke else p.muted
+            rect.set(sw / 2, sw / 2, width - sw / 2, height - sw / 2)
+            val rr = (r - sw / 2).coerceAtLeast(0f)
+            canvas.drawRoundRect(rect, rr, rr, border)
         }
     }
 
