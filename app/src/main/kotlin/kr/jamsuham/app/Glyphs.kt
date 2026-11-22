@@ -324,6 +324,49 @@ object Glyphs {
         }
     }
 
+    /**
+     * 진단용: 한 줄이 어떤 그림 글자·빈칸 글자로 이뤄졌는지 글로 정리한다 (채팅 줄을 길게 누르면 보임).
+     * 배경 띠가 남거나 칭호가 사라질 때 원인을 찾는 데 쓴다.
+     */
+    fun describe(spans: List<ChatSpan>, set: PackFonts.FontSet?): String {
+        if (set == null) return tr("이 서버의 리소스팩 그림 글자를 아직 불러오지 않았습니다", "Resource pack glyphs for this server aren't loaded yet")
+        val skip = backgroundMarks(spans, set)
+        val sb = StringBuilder()
+        var n = 0
+        spans.forEachIndexed { si, sp ->
+            val color = sp.color?.let { "#%06X".format(it) } ?: "-"
+            fun one(part: Int, off: Int, cp: Int) {
+                if (n++ > 80) return
+                val font = sp.font ?: PackFonts.DEFAULT_FONT
+                val g = glyphOf(set, sp.font, cp)
+                val adv = set.advance(sp.font, cp)
+                val what = when {
+                    g != null -> {
+                        val bmp = cell(set, g)
+                        val size = bmp?.let { "${it.width}×${it.height}" } ?: tr("그림 못 읽음", "unreadable")
+                        val flags = buildList {
+                            if (key(si, part, off) in skip) add(tr("배경(뒤 빈칸)", "background(space)"))
+                            if (bmp != null && bmp.width > bmp.height * BACKGROUND_ASPECT && isSolid(bmp)) add(tr("긴 띠", "long bar"))
+                            if (bmp != null && isFlatBar(bmp, sp.color?.takeIf { it != 0xFFFFFF })) add(tr("단색 띠", "flat bar"))
+                        }
+                        tr("그림 $size h${g.height}", "image $size h${g.height}") + (if (flags.isEmpty()) "" else " [" + flags.joinToString() + "]")
+                    }
+                    adv != null -> tr("빈칸 ${"%+.0f".format(adv)}", "space ${"%+.0f".format(adv)}")
+                    ChatText.isPrivateUse(cp) -> tr("팩에 없음", "not in pack")
+                    else -> return
+                }
+                sb.append("#$si U+%04X $font $color → $what\n".format(cp))
+            }
+            var i = 0
+            while (i < sp.text.length) { val cp = sp.text.codePointAt(i); one(0, i, cp); i += Character.charCount(cp) }
+            val gl = sp.glyphs ?: ""
+            i = 0
+            while (i < gl.length) { val cp = gl.codePointAt(i); one(1, i, cp); i += Character.charCount(cp) }
+            if (sp.text.isNotBlank() && n <= 80) sb.append("#$si \"${sp.text.take(16)}\" $color\n")
+        }
+        return sb.toString().ifBlank { tr("이 줄에는 그림 글자가 없습니다", "No glyphs in this line") }
+    }
+
     /** [text] 전체를 화면용 글자로 (메뉴·인벤·접속자 목록용) */
     fun build(text: ChatText, colorOf: (ChatSpan) -> Int, textPx: Float, set: PackFonts.FontSet?): SpannableStringBuilder {
         val sb = SpannableStringBuilder()

@@ -163,6 +163,12 @@ class ChatPanel(
         val logCard = ui.card().apply { setPadding(ui.dp(12) + ui.cardPad, ui.dp(8) + ui.cardPad, ui.dp(12) + ui.cardPad, ui.dp(8) + ui.cardPad) }
         list = ListView(activity).apply {
             adapter = this@ChatPanel.adapter
+            // 줄을 길게 누르면: 이 줄의 그림 글자 구성 (칭호·배경 띠 문제 진단용, 복사해서 보낼 수 있음)
+            setOnItemLongClickListener { _, _, position, _ ->
+                val line = this@ChatPanel.adapter.getItem(position) as? LogLine ?: return@setOnItemLongClickListener false
+                showGlyphInfo(line)
+                true
+            }
             divider = null
             isStackFromBottom = true
             transcriptMode = ListView.TRANSCRIPT_MODE_NORMAL
@@ -765,6 +771,25 @@ class ChatPanel(
         val cm = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.setPrimaryClip(android.content.ClipData.newPlainText(tr("잠수크래프트", "Jamsucraft"), s))
         Toast.makeText(activity, tr("복사했습니다", "Copied"), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showGlyphInfo(line: LogLine) {
+        val info = Glyphs.describe(line.text.spans, SessionHub.glyphs(serverId))
+        val body = ui.text(line.text.plain.take(80) + "\n\n" + info, 12f).apply {
+            setTextIsSelectable(true)
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(8))
+        }
+        android.app.AlertDialog.Builder(activity)
+            .setTitle(tr("이 줄의 그림 글자", "Glyphs in this line"))
+            .setView(android.widget.ScrollView(activity).apply { addView(body) })
+            .setPositiveButton(tr("복사", "Copy")) { _, _ ->
+                val cm = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("glyphs", line.text.plain + "\n" + info))
+                android.widget.Toast.makeText(activity, tr("복사했습니다", "Copied"), android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(tr("닫기", "Close"), null)
+            .show()
     }
 
     private fun showHover(title: String, text: String) {
