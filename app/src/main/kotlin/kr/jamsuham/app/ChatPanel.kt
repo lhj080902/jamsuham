@@ -131,7 +131,7 @@ class ChatPanel(
         row.addView(ui.button("💾", "ghost") { (activity as? BaseActivity)?.exportChatLog(serverId) }, ui.lp(ui.dp(44), ui.dp(40)))
         row.addView(ui.button("⚙", "ghost") { onEdit() }, ui.lp(ui.dp(44), ui.dp(40)))
         // 접속 중에는 버튼을 숨겨 제목·상태 글씨 자리를 넓힌다 (끊기는 ← 버튼에서)
-        actionButton = ui.button("접속", "primary") { toggle() }
+        actionButton = ui.button(tr("접속", "Connect"), "primary") { toggle() }
         row.addView(actionButton, ui.lp(Ui.WRAP, ui.dp(40)).apply { leftMargin = ui.dp(4) })
         top.addView(row)
         addView(top, ui.lp())
@@ -151,7 +151,7 @@ class ChatPanel(
 
         // --- 페이지 탭: 채팅 / 지도 / 인벤 / 접속자 (좌우로 밀어서 넘김)
         val tabBar = ui.horizontal()
-        tabs = listOf("채팅", "지도", "인벤", "접속자", "상태").mapIndexed { i, label ->
+        tabs = listOf(tr("채팅", "Chat"), tr("지도", "Map"), tr("인벤", "Inv"), tr("접속자", "Players"), tr("상태", "Status")).mapIndexed { i, label ->
             ui.button(label, "plain") { showPage(i) }.also { b ->
                 ui.fit(b)
                 b.setPadding(ui.dp(4), 0, ui.dp(4), 0)
@@ -180,7 +180,7 @@ class ChatPanel(
         }
         menuBannerText = ui.marquee(ui.text("", 14f, bold = true))
         menuBanner.addView(menuBannerText, ui.lp(0, Ui.WRAP, 1f))
-        menuBanner.addView(ui.button("메뉴 보기", "primary") { showMenuDialog() }, ui.lp(Ui.WRAP, ui.dp(38)).apply { leftMargin = ui.dp(8) })
+        menuBanner.addView(ui.button(tr("메뉴 보기", "View menu"), "primary") { showMenuDialog() }, ui.lp(Ui.WRAP, ui.dp(38)).apply { leftMargin = ui.dp(8) })
         chatPage.addView(menuBanner, ui.lp().apply { bottomMargin = ui.dp(6) })
         chatPage.addView(logCard, ui.lp(Ui.MATCH, 0, 1f))
         mapPage = MapPanel(activity, ui, serverId)
@@ -224,7 +224,7 @@ class ChatPanel(
         val inputRow = ui.horizontal()
         inputRow.addView(ui.button("▲", "plain") { historyMove(+1) }, ui.lp(ui.dp(42), ui.dp(46)))
         inputRow.addView(ui.button("▼", "plain") { historyMove(-1) }, ui.lp(ui.dp(42), ui.dp(46)).apply { leftMargin = ui.dp(4) })
-        input = ui.input("채팅 또는 /명령어").apply {
+        input = ui.input(tr("채팅 또는 /명령어", "Chat or /command")).apply {
             imeOptions = EditorInfo.IME_ACTION_SEND
             setOnEditorActionListener { _, actionId, event ->
                 if (actionId == EditorInfo.IME_ACTION_SEND || (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
@@ -252,7 +252,7 @@ class ChatPanel(
             })
         }
         inputRow.addView(input, ui.lp(0, Ui.WRAP, 1f).apply { leftMargin = ui.dp(6) })
-        inputRow.addView(ui.button("전송", "primary") { send() }, ui.lp(Ui.WRAP, ui.dp(46)).apply { leftMargin = ui.dp(6) })
+        inputRow.addView(ui.button(tr("전송", "Send"), "primary") { send() }, ui.lp(Ui.WRAP, ui.dp(46)).apply { leftMargin = ui.dp(6) })
         chatPage.addView(inputRow, ui.lp().apply { topMargin = ui.dp(6) })
     }
 
@@ -361,7 +361,7 @@ class ChatPanel(
             lastMenuWindow = -1
             return
         }
-        menuBannerText.setTextIfChanged("서버 메뉴: " + menu.title.plain.ifBlank { "(제목 없음)" })
+        menuBannerText.setTextIfChanged(tr("서버 메뉴: ", "Server menu: ") + menu.title.plain.ifBlank { tr("(제목 없음)", "(untitled)") })
         menuBanner.visibility = VISIBLE
         if (menuDialog?.isShowing == true) {
             fillMenu(menu)
@@ -378,10 +378,10 @@ class ChatPanel(
         menuDialogBox = box
         val scroll = android.widget.ScrollView(activity).apply { addView(box) }
         menuDialog = android.app.AlertDialog.Builder(activity)
-            .setTitle(menu.title.plain.ifBlank { "서버 메뉴" })
+            .setTitle(menu.title.plain.ifBlank { tr("서버 메뉴", "Server menu") })
             .setView(scroll)
-            .setPositiveButton("숨기기", null)
-            .setNegativeButton("메뉴 닫기") { _, _ -> SessionHub.closeMenu(serverId) }
+            .setPositiveButton(tr("숨기기", "Hide"), null)
+            .setNegativeButton(tr("메뉴 닫기", "Close menu")) { _, _ -> SessionHub.closeMenu(serverId) }
             .show()
         fillMenu(menu)
     }
@@ -389,9 +389,9 @@ class ChatPanel(
     private fun fillMenu(menu: Menu) {
         val box = menuDialogBox ?: return
         box.removeAllViews()
-        box.addView(ui.hint("누르면 설명이 보이고, 그 창의 '클릭'을 눌러야 실제로 누릅니다 (구매 등). 길게 누르면 자동 클릭 규칙에 추가합니다."))
+        box.addView(ui.hint(tr("누르면 설명이 보이고, 그 창의 '클릭'을 눌러야 실제로 누릅니다 (구매 등). 길게 누르면 자동 클릭 규칙에 추가합니다.", "Tap to see details; the item is only clicked when you press 'Click' in that window (purchases etc.). Long-press to add an auto-click rule.")))
         val items = menu.items.filter { it.slot < menu.containerSlots }.sortedBy { it.slot }
-        if (items.isEmpty()) box.addView(ui.text("빈 메뉴입니다", 14f, p.muted).apply { setPadding(0, ui.dp(12), 0, 0) })
+        if (items.isEmpty()) box.addView(ui.text(tr("빈 메뉴입니다", "Empty menu"), 14f, p.muted).apply { setPadding(0, ui.dp(12), 0, 0) })
         for (item in items) {
             val row = ui.vertical().apply {
                 background = ui.rounded(p.input, 10)
@@ -411,7 +411,7 @@ class ChatPanel(
             for (l in lore.take(2)) {
                 row.addView(ui.text(spans(l), 12f, p.muted).apply { setPadding(ui.dp(40), 0, 0, 0); maxLines = 1 })
             }
-            if (lore.size > 2) row.addView(ui.text("… 설명 ${lore.size - 2}줄 더 (눌러서 보기)", 11f, p.muted).apply { setPadding(ui.dp(40), 0, 0, 0) })
+            if (lore.size > 2) row.addView(ui.text(tr("… 설명 ${lore.size - 2}줄 더 (눌러서 보기)", "… ${lore.size - 2} more lines (tap to view)"), 11f, p.muted).apply { setPadding(ui.dp(40), 0, 0, 0) })
             box.addView(row, ui.lp().apply { topMargin = ui.dp(6) })
         }
     }
@@ -421,32 +421,32 @@ class ChatPanel(
         val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
         box.addView(ui.text(spans(item.name).ifEmpty { item.itemId }, 17f, bold = true))
         val info = buildString {
-            append("#${item.slot}번 칸")
-            if (item.count > 1) append(" · ${item.count}개")
+            append(tr("#${item.slot}번 칸", "Slot #${item.slot}"))
+            if (item.count > 1) append(tr(" · ${item.count}개", " · ×${item.count}"))
             if (item.itemId.isNotBlank()) append(" · ").append(kr.jamsuham.core.text.ItemNames.name(item.itemId))
         }
         box.addView(ui.text(info, 12f, p.muted).apply { setPadding(0, ui.dp(2), 0, ui.dp(8)) })
         val lore = item.lore
         if (lore.none { it.plain.isNotBlank() }) {
-            box.addView(ui.text("설명이 없습니다", 13f, p.muted))
+            box.addView(ui.text(tr("설명이 없습니다", "No description"), 13f, p.muted))
         } else {
             for (l in lore) box.addView(ui.text(spans(l).ifEmpty { " " }, 14f))
         }
         android.app.AlertDialog.Builder(activity)
             .setView(android.widget.ScrollView(activity).apply { addView(box) })
-            .setPositiveButton("클릭") { _, _ ->
+            .setPositiveButton(tr("클릭", "Click")) { _, _ ->
                 // 설명을 보는 사이 메뉴가 닫혔거나 바뀌었으면 누르지 않는다
                 val now = SessionHub.menu(serverId)
                 if (now == null || now.windowId != menu.windowId) {
-                    Toast.makeText(activity, "메뉴가 닫혔거나 바뀌어서 누르지 않았습니다", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, tr("메뉴가 닫혔거나 바뀌어서 누르지 않았습니다", "Not clicked: the menu was closed or changed"), Toast.LENGTH_SHORT).show()
                 } else if (SessionHub.clickMenu(serverId, item.slot)) {
-                    SessionHub.note(serverId, "메뉴 클릭: ${item.slot}번 칸 '${item.name.plain}'")
+                    SessionHub.note(serverId, tr("메뉴 클릭: ${item.slot}번 칸 '${item.name.plain}'", "Menu click: slot ${item.slot} '${item.name.plain}'"))
                 } else {
-                    Toast.makeText(activity, "누르지 못했습니다", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, tr("누르지 못했습니다", "Could not click"), Toast.LENGTH_SHORT).show()
                 }
             }
-            .setNeutralButton("자동 클릭 규칙") { _, _ -> addRule(menu, item) }
-            .setNegativeButton("닫기", null)
+            .setNeutralButton(tr("자동 클릭 규칙", "Auto-click rule")) { _, _ -> addRule(menu, item) }
+            .setNegativeButton(tr("닫기", "Close"), null)
             .show()
     }
 
@@ -458,13 +458,13 @@ class ChatPanel(
         val title = menu.title.plain.trim().ifBlank { "*" }
         val rule = "$title > ${item.name.plain.trim()}"
         android.app.AlertDialog.Builder(activity)
-            .setTitle("자동 클릭 규칙 추가")
-            .setMessage("다음부터 이 메뉴가 열리면 자동으로 누릅니다.\n\n$rule\n\n(서버 설정에서 고치거나 지울 수 있습니다)")
-            .setPositiveButton("추가") { _, _ ->
+            .setTitle(tr("자동 클릭 규칙 추가", "Add auto-click rule"))
+            .setMessage(tr("다음부터 이 메뉴가 열리면 자동으로 누릅니다.\n\n$rule\n\n(서버 설정에서 고치거나 지울 수 있습니다)", "From now on this will be clicked automatically when this menu opens.\n\n$rule\n\n(You can edit or delete it in server settings)"))
+            .setPositiveButton(tr("추가", "Add")) { _, _ ->
                 store.saveServer(server.copy(autoClickRules = (server.autoClickRules.filter { it != rule } + rule)))
-                Toast.makeText(activity, "추가했습니다. 다음 접속부터 적용됩니다", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, tr("추가했습니다. 다음 접속부터 적용됩니다", "Added. Applies from the next connection"), Toast.LENGTH_SHORT).show()
             }
-            .setNegativeButton("취소", null)
+            .setNegativeButton(tr("취소", "Cancel"), null)
             .show()
     }
 
@@ -481,18 +481,18 @@ class ChatPanel(
         }
         if (backDialog?.isShowing == true) return
         val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
-        box.addView(ui.hint("잠수를 유지하면 화면을 나가도 알림 줄에서 계속 접속해 있습니다."))
+        box.addView(ui.hint(tr("잠수를 유지하면 화면을 나가도 알림 줄에서 계속 접속해 있습니다.", "If you keep AFK, you stay connected from the notification even after leaving this screen.")))
         val dialog = android.app.AlertDialog.Builder(activity)
-            .setTitle("서버 목록으로 나갈까요?")
+            .setTitle(tr("서버 목록으로 나갈까요?", "Back to the server list?"))
             .setView(box)
             .create()
-        box.addView(ui.button("잠수 유지하고 나가기", "primary") { dialog.dismiss(); onBack() }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(10) })
-        box.addView(ui.button("연결 끊고 나가기", "danger") {
+        box.addView(ui.button(tr("잠수 유지하고 나가기", "Keep AFK and leave"), "primary") { dialog.dismiss(); onBack() }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(10) })
+        box.addView(ui.button(tr("연결 끊고 나가기", "Disconnect and leave"), "danger") {
             dialog.dismiss()
             AfkService.stop(activity, serverId)
             onBack()
         }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(8) })
-        box.addView(ui.button("머무르기", "plain") { dialog.dismiss() }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(8); bottomMargin = ui.dp(8) })
+        box.addView(ui.button(tr("머무르기", "Stay"), "plain") { dialog.dismiss() }, ui.lp(Ui.MATCH, ui.dp(46)).apply { topMargin = ui.dp(8); bottomMargin = ui.dp(8) })
         backDialog = dialog
         dialog.show()
     }
@@ -513,7 +513,7 @@ class ChatPanel(
             deathBanner.visibility = GONE
             return
         }
-        deathBannerText.text = "☠ ${StatusPanel.timeOf(death.atMs)} 사망\n${death.describe()}"
+        deathBannerText.text = tr("☠ ${StatusPanel.timeOf(death.atMs)} 사망\n${death.describe()}", "☠ Died ${StatusPanel.timeOf(death.atMs)}\n${death.describe()}")
         deathBanner.visibility = VISIBLE
     }
 
@@ -537,7 +537,7 @@ class ChatPanel(
 
     override fun onPlayers(serverId: String, list: PlayerList) {
         if (serverId != this.serverId) return
-        tabs.getOrNull(3)?.text = "접속자 ${list.players.size}"
+        tabs.getOrNull(3)?.text = tr("접속자 ${list.players.size}", "Players ${list.players.size}")
         playerPanel.show(list)
     }
 
@@ -545,7 +545,7 @@ class ChatPanel(
 
     private fun render(s: SessionStatus) {
         val server = store.server(serverId)
-        titleView.setTextIfChanged(server?.displayName ?: "삭제된 서버")
+        titleView.setTextIfChanged(server?.displayName ?: tr("삭제된 서버", "Deleted server"))
         val (label, color) = stateLabel(s.state)
         (statusDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
         val now = System.currentTimeMillis()
@@ -553,12 +553,12 @@ class ChatPanel(
         parts.add(
             when (s.state) {
                 SessionState.ONLINE -> s.onlineSinceMs?.let { "$label · ${Formats.clock(now - it)}" } ?: label
-                SessionState.WAITING_RECONNECT -> "$label · ${(((s.nextAttemptAtMs ?: now) - now).coerceAtLeast(0) / 1000)}초 뒤"
+                SessionState.WAITING_RECONNECT -> tr("$label · ${(((s.nextAttemptAtMs ?: now) - now).coerceAtLeast(0) / 1000)}초 뒤", "$label · in ${(((s.nextAttemptAtMs ?: now) - now).coerceAtLeast(0) / 1000)}s")
                 else -> label
             },
         )
         if ((s.state == SessionState.PREPARING || s.state == SessionState.CONNECTING) && s.message.isNotBlank()) parts.add(s.message)
-        if (s.reconnectCount > 0) parts.add("재접속 ${s.reconnectCount}회")
+        if (s.reconnectCount > 0) parts.add(tr("재접속 ${s.reconnectCount}회", "Reconnects ${s.reconnectCount}"))
         s.serverVersion?.let { parts.add(it) }
         detailView.setTextIfChanged(parts.joinToString(" · "))
         val vis = if (s.state.isActive()) GONE else VISIBLE
@@ -566,10 +566,10 @@ class ChatPanel(
     }
 
     private fun stateLabel(st: SessionState) = when (st) {
-        SessionState.ONLINE -> "잠수 중" to p.ok
-        SessionState.WAITING_RECONNECT -> "재접속 대기" to p.warn
-        SessionState.PREPARING, SessionState.CONNECTING -> "접속 중" to p.warn
-        else -> "꺼짐" to p.muted
+        SessionState.ONLINE -> tr("잠수 중", "AFK") to p.ok
+        SessionState.WAITING_RECONNECT -> tr("재접속 대기", "Waiting to reconnect") to p.warn
+        SessionState.PREPARING, SessionState.CONNECTING -> tr("접속 중", "Connecting") to p.warn
+        else -> tr("꺼짐", "Off") to p.muted
     }
 
     private fun toggle() {
@@ -586,18 +586,18 @@ class ChatPanel(
         val msg = input.text.toString().trim()
         if (msg.isEmpty()) return
         if (SessionHub.status(serverId).state != SessionState.ONLINE) {
-            Toast.makeText(activity, "서버에 접속한 뒤에 보낼 수 있습니다", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, tr("서버에 접속한 뒤에 보낼 수 있습니다", "Connect to the server before sending"), Toast.LENGTH_SHORT).show()
             return
         }
         if (SessionHub.sendChat(serverId, msg)) {
             store.addHistory(serverId, msg)
-            SessionHub.note(serverId, "나: $msg")
+            SessionHub.note(serverId, tr("나: $msg", "Me: $msg"))
             historyIndex = -1
             draft = ""
             input.setText("")
             hideChips()
         } else {
-            Toast.makeText(activity, "보내지 못했습니다", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, tr("보내지 못했습니다", "Could not send"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -720,34 +720,34 @@ class ChatPanel(
                 val url = click.value.trim()
                 val uri = android.net.Uri.parse(url)
                 if (uri.scheme?.lowercase() !in setOf("http", "https")) {
-                    Toast.makeText(activity, "열 수 없는 주소입니다", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, tr("열 수 없는 주소입니다", "This address cannot be opened"), Toast.LENGTH_SHORT).show()
                     return
                 }
                 // 서버가 보낸 링크라 어디로 가는지 먼저 보여 준다
                 android.app.AlertDialog.Builder(activity)
-                    .setTitle("링크 열기")
+                    .setTitle(tr("링크 열기", "Open link"))
                     .setMessage(url + (span.hover?.let { "\n\n$it" } ?: ""))
-                    .setPositiveButton("열기") { _, _ ->
+                    .setPositiveButton(tr("열기", "Open")) { _, _ ->
                         try {
                             activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
                         } catch (_: Throwable) {
-                            Toast.makeText(activity, "링크를 열 앱이 없습니다", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(activity, tr("링크를 열 앱이 없습니다", "No app can open this link"), Toast.LENGTH_SHORT).show()
                         }
                     }
-                    .setNeutralButton("복사") { _, _ -> copyText(url) }
-                    .setNegativeButton("취소", null)
+                    .setNeutralButton(tr("복사", "Copy")) { _, _ -> copyText(url) }
+                    .setNegativeButton(tr("취소", "Cancel"), null)
                     .show()
             }
             kr.jamsuham.core.text.ChatClick.Action.RUN_COMMAND -> {
                 val cmd = click.value.trim()
                 if (cmd.isEmpty()) return
                 if (SessionHub.status(serverId).state != SessionState.ONLINE) {
-                    Toast.makeText(activity, "서버에 접속한 뒤에 누를 수 있습니다", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, tr("서버에 접속한 뒤에 누를 수 있습니다", "Connect to the server before tapping"), Toast.LENGTH_SHORT).show()
                     return
                 }
                 // 바닐라처럼 바로 보낸다 ([수락]·[거절] 같은 버튼)
-                if (SessionHub.sendChat(serverId, cmd)) SessionHub.note(serverId, "눌러서 실행: $cmd")
-                else Toast.makeText(activity, "보내지 못했습니다", Toast.LENGTH_SHORT).show()
+                if (SessionHub.sendChat(serverId, cmd)) SessionHub.note(serverId, tr("눌러서 실행: $cmd", "Ran by tap: $cmd"))
+                else Toast.makeText(activity, tr("보내지 못했습니다", "Could not send"), Toast.LENGTH_SHORT).show()
             }
             kr.jamsuham.core.text.ChatClick.Action.SUGGEST_COMMAND -> {
                 if (page != 0) showPage(0)
@@ -763,15 +763,15 @@ class ChatPanel(
 
     private fun copyText(s: String) {
         val cm = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        cm.setPrimaryClip(android.content.ClipData.newPlainText("잠수크래프트", s))
-        Toast.makeText(activity, "복사했습니다", Toast.LENGTH_SHORT).show()
+        cm.setPrimaryClip(android.content.ClipData.newPlainText(tr("잠수크래프트", "Jamsucraft"), s))
+        Toast.makeText(activity, tr("복사했습니다", "Copied"), Toast.LENGTH_SHORT).show()
     }
 
     private fun showHover(title: String, text: String) {
         android.app.AlertDialog.Builder(activity)
-            .setTitle(title.trim().take(40).ifBlank { "설명" })
+            .setTitle(title.trim().take(40).ifBlank { tr("설명", "Details") })
             .setMessage(text)
-            .setPositiveButton("닫기", null)
+            .setPositiveButton(tr("닫기", "Close"), null)
             .show()
     }
 

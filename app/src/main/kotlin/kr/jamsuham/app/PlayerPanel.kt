@@ -36,7 +36,7 @@ class PlayerPanel(private val activity: Activity, private val ui: Ui) : LinearLa
         setPadding(ui.dp(14) + ui.cardPad, ui.dp(12) + ui.cardPad, ui.dp(14) + ui.cardPad, ui.dp(12) + ui.cardPad)
         elevation = ui.dp(8).toFloat()
 
-        countView = ui.text("접속자", 16f, p.accent, bold = true)
+        countView = ui.text(tr("접속자", "Players"), 16f, p.accent, bold = true)
         addView(countView)
         headerView = ui.text("", 13f).apply { gravity = Gravity.CENTER_HORIZONTAL; setPadding(0, ui.dp(6), 0, ui.dp(6)) }
         addView(headerView, ui.lp())
@@ -55,7 +55,7 @@ class PlayerPanel(private val activity: Activity, private val ui: Ui) : LinearLa
 
     fun show(data: PlayerList) {
         players = data.players
-        countView.text = "접속자 ${players.size}명"
+        countView.text = tr("접속자 ${players.size}명", "${players.size} players")
         setSpans(headerView, data.header)
         setSpans(footerView, data.footer)
         headerView.visibility = if (data.header.plain.isBlank()) GONE else VISIBLE

@@ -61,8 +61,8 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
         infoRow.addView(ui.button("+", "plain") { mapView.zoom(+1) }, ui.lp(ui.dp(44), ui.dp(38)).apply { leftMargin = ui.dp(6) })
         mapCard.addView(infoRow, ui.lp())
         val wpRow = ui.horizontal().apply { setPadding(0, ui.dp(6), 0, 0) }
-        wpRow.addView(ui.fit(ui.button("+ 웨이포인트", "primary") { openWaypointDialog(null, null) }), ui.lp(0, ui.dp(40), 1f))
-        wpRow.addView(ui.fit(ui.button("웨이포인트 목록", "plain") { openWaypointList() }), ui.lp(0, ui.dp(40), 1f).apply { leftMargin = ui.dp(6) })
+        wpRow.addView(ui.fit(ui.button(tr("+ 웨이포인트", "+ Waypoint"), "primary") { openWaypointDialog(null, null) }), ui.lp(0, ui.dp(40), 1f))
+        wpRow.addView(ui.fit(ui.button(tr("웨이포인트 목록", "Waypoints"), "plain") { openWaypointList() }), ui.lp(0, ui.dp(40), 1f).apply { leftMargin = ui.dp(6) })
         mapCard.addView(wpRow, ui.lp())
         addView(mapCard, ui.lp(Ui.MATCH, 0, 1f))
 
@@ -74,7 +74,7 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
         right.addView(JumpButton(), ui.lp(ui.dp(88), ui.dp(88)))
         grid.addView(right, ui.lp(0, Ui.WRAP, 1f))
         pad.addView(grid)
-        pad.addView(ui.hint("조이스틱을 누른 채 끌면 그 방향으로 걷습니다 (위 = 북쪽, 지도와 같음). 0.6칸 이하 턱(반 블록, 계단)은 자동으로 올라갑니다. 아이템 사용은 인벤 탭에서 합니다."))
+        pad.addView(ui.hint(tr("조이스틱을 누른 채 끌면 그 방향으로 걷습니다 (위 = 북쪽, 지도와 같음). 0.6칸 이하 턱(반 블록, 계단)은 자동으로 올라갑니다. 아이템 사용은 인벤 탭에서 합니다.", "Hold and drag the joystick to walk that way (up = north, same as the map). Steps of 0.6 blocks or less (slabs, stairs) are climbed automatically. Use items in the Inventory tab.")))
         addView(pad, ui.lp().apply { topMargin = ui.dp(8) })
     }
 
@@ -210,13 +210,13 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
         val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(4), ui.dp(20), ui.dp(4)) }
         fun label(s: String) = ui.text(s, 12f, p.muted).apply { setPadding(0, ui.dp(8), 0, ui.dp(2)) }
 
-        box.addView(label("이름"))
-        val nameIn = ui.input("예: 집, 광산 입구").apply { setText(existing?.name ?: "웨이포인트 ${store.waypoints(serverId).size + 1}") }
+        box.addView(label(tr("이름", "Name")))
+        val nameIn = ui.input(tr("예: 집, 광산 입구", "e.g. Home, Mine entrance")).apply { setText(existing?.name ?: tr("웨이포인트 ${store.waypoints(serverId).size + 1}", "Waypoint ${store.waypoints(serverId).size + 1}")) }
         box.addView(nameIn, ui.lp())
-        box.addView(label("월드 (멀티버스 등 월드가 여러 개인 서버 구분용)"))
-        val worldIn = ui.input("예: minecraft:overworld").apply { setText(existing?.world ?: currentWorld()) }
+        box.addView(label(tr("월드 (멀티버스 등 월드가 여러 개인 서버 구분용)", "World (to tell worlds apart on multi-world servers)")))
+        val worldIn = ui.input(tr("예: minecraft:overworld", "e.g. minecraft:overworld")).apply { setText(existing?.world ?: currentWorld()) }
         box.addView(worldIn, ui.lp())
-        box.addView(label("좌표 X / Y / Z"))
+        box.addView(label(tr("좌표 X / Y / Z", "Coordinates X / Y / Z")))
         val xyz = ui.horizontal()
         fun numIn(v: Int) = ui.input("0").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
@@ -230,14 +230,14 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
         xyz.addView(zIn, ui.lp(0, Ui.WRAP, 1f).apply { leftMargin = ui.dp(6) })
         box.addView(xyz, ui.lp())
         if (conn != null) {
-            box.addView(ui.button("지금 내 위치로", "ghost") {
+            box.addView(ui.button(tr("지금 내 위치로", "Use my position"), "ghost") {
                 xIn.setText(floor(conn.currentX).toInt().toString())
                 yIn.setText(floor(conn.currentY).toInt().toString())
                 zIn.setText(floor(conn.currentZ).toInt().toString())
                 worldIn.setText(conn.worldName)
             }, ui.lp(Ui.WRAP, ui.dp(36)))
         }
-        box.addView(label("색"))
+        box.addView(label(tr("색", "Color")))
         var color = existing?.color ?: COLORS[store.waypoints(serverId).size % COLORS.size]
         val colorRow = ui.horizontal()
         val swatches = ArrayList<View>()
@@ -256,26 +256,26 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
         box.addView(colorRow, ui.lp().apply { bottomMargin = ui.dp(8) })
 
         val b = AlertDialog.Builder(activity)
-            .setTitle(if (existing == null) "웨이포인트 만들기" else "웨이포인트 수정")
+            .setTitle(if (existing == null) tr("웨이포인트 만들기", "New waypoint") else tr("웨이포인트 수정", "Edit waypoint"))
             .setView(ScrollView(activity).apply { addView(box) })
-            .setPositiveButton("저장") { _, _ ->
+            .setPositiveButton(tr("저장", "Save")) { _, _ ->
                 val x = xIn.text.toString().toIntOrNull()
                 val y = yIn.text.toString().toIntOrNull()
                 val z = zIn.text.toString().toIntOrNull()
                 if (x == null || y == null || z == null) {
-                    Toast.makeText(activity, "좌표를 숫자로 입력해 주세요", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, tr("좌표를 숫자로 입력해 주세요", "Please enter numbers for the coordinates"), Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                val name = nameIn.text.toString().trim().ifBlank { "웨이포인트" }.take(30)
+                val name = nameIn.text.toString().trim().ifBlank { tr("웨이포인트", "Waypoint") }.take(30)
                 val wp = existing?.copy(name = name, world = worldIn.text.toString().trim(), x = x, y = y, z = z, color = color)
                     ?: Waypoint(name = name, world = worldIn.text.toString().trim(), x = x, y = y, z = z, color = color)
                 store.saveWaypoint(serverId, wp)
                 wps = store.waypoints(serverId)
                 mapView.invalidate()
             }
-            .setNegativeButton("취소", null)
+            .setNegativeButton(tr("취소", "Cancel"), null)
         if (existing != null) {
-            b.setNeutralButton("삭제") { _, _ ->
+            b.setNeutralButton(tr("삭제", "Delete")) { _, _ ->
                 store.deleteWaypoint(serverId, existing.id)
                 wps = store.waypoints(serverId)
                 mapView.invalidate()
@@ -287,7 +287,7 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
     private fun openWaypointList() {
         val list = store.waypoints(serverId)
         if (list.isEmpty()) {
-            Toast.makeText(activity, "웨이포인트가 없습니다. 지도를 누르거나 + 웨이포인트로 만드세요", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, tr("웨이포인트가 없습니다. 지도를 누르거나 + 웨이포인트로 만드세요", "No waypoints. Tap the map or use + Waypoint to create one"), Toast.LENGTH_LONG).show()
             return
         }
         val conn = SessionHub.live(serverId)
@@ -305,7 +305,7 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
             val texts = ui.vertical()
             texts.addView(ui.marquee(ui.text(wp.name, 15f, bold = true)))
             val dist = if (conn != null && (wp.world == world || wp.world.isBlank())) " · ${hypot(wp.x - conn.currentX, wp.z - conn.currentZ).toInt()}m" else ""
-            texts.addView(ui.marquee(ui.text("${wp.x}, ${wp.y}, ${wp.z} · ${wp.world.ifBlank { "월드 미지정" }}$dist", 12f, p.muted)))
+            texts.addView(ui.marquee(ui.text("${wp.x}, ${wp.y}, ${wp.z} · ${wp.world.ifBlank { tr("월드 미지정", "No world") }}$dist", 12f, p.muted)))
             row.addView(texts, ui.lp(0, Ui.WRAP, 1f))
             row.setOnClickListener {
                 dialog?.dismiss()
@@ -314,9 +314,9 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
             box.addView(row, ui.lp().apply { topMargin = ui.dp(6) })
         }
         dialog = AlertDialog.Builder(activity)
-            .setTitle("웨이포인트 (${list.size}개)")
+            .setTitle(tr("웨이포인트 (${list.size}개)", "Waypoints (${list.size})"))
             .setView(ScrollView(activity).apply { addView(box) })
-            .setPositiveButton("닫기", null)
+            .setPositiveButton(tr("닫기", "Close"), null)
             .show()
     }
 
@@ -509,7 +509,7 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
             if (conn == null) {
                 text.color = p.muted
                 text.textAlign = Paint.Align.CENTER
-                canvas.drawText("접속하면 지도가 보입니다", w / 2, h / 2, text)
+                canvas.drawText(tr("접속하면 지도가 보입니다", "Connect to see the map"), w / 2, h / 2, text)
                 coords.setTextIfChanged("")
                 postInvalidateDelayed(500)
                 return
@@ -612,7 +612,7 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
 
             val worldShort = worldName.removePrefix("minecraft:")
             coords.setTextIfChanged("X ${floor(px).toInt()}  Y ${floor(py).toInt()}  Z ${floor(pz).toInt()}\n" +
-                (if (worldShort.isNotBlank()) "$worldShort  ·  " else "") + "주변 ${world.players.size}명")
+                (if (worldShort.isNotBlank()) "$worldShort  ·  " else "") + tr("주변 ${world.players.size}명", "${world.players.size} nearby"))
             postInvalidateDelayed(100)
         }
     }

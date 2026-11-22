@@ -63,7 +63,7 @@ object Glyphs {
                 set to null
             } catch (t: Throwable) {
                 val why = if (maxFull == 0L && t.message?.contains("부분 다운로드") == true) {
-                    "이 서버의 리소스팩은 통째로 받아야 해서 와이파이에 연결되면 받습니다"
+                    tr("이 서버의 리소스팩은 통째로 받아야 해서 와이파이에 연결되면 받습니다", "This server's resource pack must be downloaded whole, so it will download on Wi-Fi")
                 } else {
                     t.message ?: t.javaClass.simpleName
                 }

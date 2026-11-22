@@ -45,18 +45,18 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
         elevation = ui.dp(8).toFloat()
 
         val inner = ui.vertical()
-        emptyView = ui.text("접속하면 체력과 배고픔이 보입니다", 14f, p.muted).apply { setPadding(0, ui.dp(4), 0, ui.dp(12)) }
+        emptyView = ui.text(tr("접속하면 체력과 배고픔이 보입니다", "Connect to see health and hunger"), 14f, p.muted).apply { setPadding(0, ui.dp(4), 0, ui.dp(12)) }
         inner.addView(emptyView)
 
         body = ui.vertical()
-        body.addView(ui.text("체력", 13f, p.muted))
+        body.addView(ui.text(tr("체력", "Health"), 13f, p.muted))
         healthText = ui.text("", 20f, bold = true)
         body.addView(healthText)
         body.addView(healthBar, ui.lp(Ui.MATCH, ui.dp(16)).apply { topMargin = ui.dp(6) })
         healthSub = ui.text("", 12f, p.muted).apply { setPadding(0, ui.dp(4), 0, 0) }
         body.addView(healthSub)
 
-        body.addView(ui.text("배고픔", 13f, p.muted).apply { setPadding(0, ui.dp(16), 0, 0) })
+        body.addView(ui.text(tr("배고픔", "Hunger"), 13f, p.muted).apply { setPadding(0, ui.dp(16), 0, 0) })
         foodText = ui.text("", 20f, bold = true)
         body.addView(foodText)
         body.addView(foodBar, ui.lp(Ui.MATCH, ui.dp(16)).apply { topMargin = ui.dp(6) })
@@ -64,13 +64,13 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
         body.addView(foodSub)
         inner.addView(body)
 
-        inner.addView(ui.text("데이터 사용량", 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
+        inner.addView(ui.text(tr("데이터 사용량", "Data usage"), 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
         dataText = ui.text("", 15f, bold = true)
         inner.addView(dataText)
         dataSub = ui.text("", 12f, p.muted).apply { setPadding(0, ui.dp(2), 0, 0) }
         inner.addView(dataSub)
 
-        inner.addView(ui.text("리소스팩 그림 글자 (칭호·아이콘)", 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
+        inner.addView(ui.text(tr("리소스팩 그림 글자 (칭호·아이콘)", "Resource pack glyphs (titles, icons)"), 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
         packText = ui.text("", 15f, bold = true)
         inner.addView(packText)
         packSub = ui.text("", 12f, p.muted).apply {
@@ -79,7 +79,7 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
         }
         inner.addView(packSub)
 
-        inner.addView(ui.text("마지막 사망", 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
+        inner.addView(ui.text(tr("마지막 사망", "Last death"), 13f, p.muted).apply { setPadding(0, ui.dp(20), 0, 0) })
         deathTitle = ui.text("", 15f, bold = true)
         inner.addView(deathTitle)
         deathText = ui.text("", 13f).apply { setPadding(0, ui.dp(2), 0, 0) }
@@ -95,13 +95,13 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
     fun show(v: Vitals?, death: DeathInfo?, traffic: Traffic?, rate: Long?, packs: List<SessionHub.PackState>) {
         showPacks(packs)
         if (traffic == null || traffic.total == 0L) {
-            dataText.setTextIfChanged("아직 없습니다")
+            dataText.setTextIfChanged(tr("아직 없습니다", "None yet"))
             dataSub.setTextIfChanged("")
         } else {
-            dataText.setTextIfChanged("받음 ${bytes(traffic.received)} · 보냄 ${bytes(traffic.sent)}")
+            dataText.setTextIfChanged(tr("받음 ${bytes(traffic.received)} · 보냄 ${bytes(traffic.sent)}", "Received ${bytes(traffic.received)} · Sent ${bytes(traffic.sent)}"))
             dataSub.setTextIfChanged(
-                (if (rate != null) "시간당 약 ${bytes(rate)} (알림과 같은 값, 1분마다 갱신)" else "1분 넘게 접속하면 시간당 사용량이 보입니다") +
-                    "\n이번에 잠수를 시작한 뒤 합계 · 마인크래프트 데이터 기준이라 통신사 집계는 조금 더 많을 수 있습니다",
+                (if (rate != null) tr("시간당 약 ${bytes(rate)} (알림과 같은 값, 1분마다 갱신)", "About ${bytes(rate)}/h (same as the notification, updated every minute)") else tr("1분 넘게 접속하면 시간당 사용량이 보입니다", "Hourly usage appears after a minute online")) +
+                    tr("\n이번에 잠수를 시작한 뒤 합계 · 마인크래프트 데이터 기준이라 통신사 집계는 조금 더 많을 수 있습니다", "\nTotal since this AFK session started · counts Minecraft data only, so your carrier may count a bit more"),
             )
         }
         if (v == null) {
@@ -113,29 +113,29 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
             val max = if (v.maxHealth > 0f) v.maxHealth else 20f
             val hp = v.health.coerceAtLeast(0f)
             healthText.setTextIfChanged(
-                (if (v.dead) "사망 · " else "") + "${num(hp)} / ${num(max)}" + (if (v.absorption > 0f) "  (+${num(v.absorption)})" else ""),
+                (if (v.dead) tr("사망 · ", "Dead · ") else "") + "${num(hp)} / ${num(max)}" + (if (v.absorption > 0f) "  (+${num(v.absorption)})" else ""),
             )
             // 흡수 체력이 있으면 막대 전체 길이를 최대 체력 + 흡수로 잡고 뒤에 노란색으로 붙인다
             val total = max + v.absorption
             healthBar.set(hp / total, v.absorption / total)
             healthSub.setTextIfChanged(
-                "하트 ${num(hp / 2f)} / ${num(max / 2f)}칸" +
-                    (if (max != 20f) " · 최대 체력이 기본(20)과 다른 서버입니다" else "") +
-                    (if (v.absorption > 0f) " · 흡수 ${num(v.absorption / 2f)}칸" else ""),
+                tr("하트 ${num(hp / 2f)} / ${num(max / 2f)}칸", "Hearts ${num(hp / 2f)} / ${num(max / 2f)}") +
+                    (if (max != 20f) tr(" · 최대 체력이 기본(20)과 다른 서버입니다", " · This server uses a non-default max health (20)") else "") +
+                    (if (v.absorption > 0f) tr(" · 흡수 ${num(v.absorption / 2f)}칸", " · Absorption ${num(v.absorption / 2f)} hearts") else ""),
             )
             foodText.setTextIfChanged("${v.food} / 20")
             foodBar.set(v.food / 20f, 0f)
             foodSub.setTextIfChanged(
-                "포화 ${num(v.saturation)}" + when {
-                    v.food == 0 -> " · 굶주려서 체력이 줄어듭니다"
-                    v.food <= 6 -> " · 배가 고파서 달리기를 할 수 없습니다"
-                    v.food < 18 -> " · 18 이상이면 체력이 저절로 찹니다"
+                tr("포화 ${num(v.saturation)}", "Saturation ${num(v.saturation)}") + when {
+                    v.food == 0 -> tr(" · 굶주려서 체력이 줄어듭니다", " · Starving, losing health")
+                    v.food <= 6 -> tr(" · 배가 고파서 달리기를 할 수 없습니다", " · Too hungry to sprint")
+                    v.food < 18 -> tr(" · 18 이상이면 체력이 저절로 찹니다", " · Health regenerates at 18 or more")
                     else -> ""
                 },
             )
         }
         if (death == null) {
-            deathTitle.setTextIfChanged("아직 없습니다")
+            deathTitle.setTextIfChanged(tr("아직 없습니다", "None yet"))
             deathText.visibility = GONE
         } else {
             deathTitle.setTextIfChanged("☠ " + timeOf(death.atMs))
@@ -146,34 +146,34 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
 
     private fun showPacks(packs: List<SessionHub.PackState>) {
         if (packs.isEmpty()) {
-            packText.setTextIfChanged("서버가 리소스팩을 보내지 않았습니다")
-            packSub.setTextIfChanged("리소스팩이 없는 서버는 칭호가 글자 그대로 보입니다")
+            packText.setTextIfChanged(tr("서버가 리소스팩을 보내지 않았습니다", "The server did not send a resource pack"))
+            packSub.setTextIfChanged(tr("리소스팩이 없는 서버는 칭호가 글자 그대로 보입니다", "Without a resource pack, titles are shown as plain text"))
             return
         }
         val total = packs.sumOf { it.glyphs ?: 0 }
         packText.setTextIfChanged(
             when {
-                packs.all { it.skipped } -> "꺼져 있음 (서버 설정에서 켤 수 있습니다)"
-                packs.any { it.glyphs == null && it.error == null && !it.skipped } -> "받는 중…"
-                total > 0 -> "그림 글자 ${total}개 사용 중"
-                packs.any { it.error != null } -> "불러오지 못함"
-                else -> "리소스팩에 그림 글자가 없습니다"
+                packs.all { it.skipped } -> tr("꺼져 있음 (서버 설정에서 켤 수 있습니다)", "Off (can be turned on in server settings)")
+                packs.any { it.glyphs == null && it.error == null && !it.skipped } -> tr("받는 중…", "Downloading…")
+                total > 0 -> tr("그림 글자 ${total}개 사용 중", "Using ${total} glyphs")
+                packs.any { it.error != null } -> tr("불러오지 못함", "Failed to load")
+                else -> tr("리소스팩에 그림 글자가 없습니다", "The resource pack has no glyphs")
             },
         )
         val diag = buildString {
-            if (Glyphs.broken.isNotEmpty()) append("\n읽지 못한 그림 ${Glyphs.broken.size}개: " + Glyphs.broken.take(3).joinToString { it.substringAfterLast('/') })
-            if (Glyphs.missing.isNotEmpty()) append("\n팩에 없는 글자 ${Glyphs.missing.size}개: " + Glyphs.missing.take(4).joinToString())
+            if (Glyphs.broken.isNotEmpty()) append(tr("\n읽지 못한 그림 ${Glyphs.broken.size}개: ", "\n${Glyphs.broken.size} unreadable images: ") + Glyphs.broken.take(3).joinToString { it.substringAfterLast('/') })
+            if (Glyphs.missing.isNotEmpty()) append(tr("\n팩에 없는 글자 ${Glyphs.missing.size}개: ", "\n${Glyphs.missing.size} glyphs missing from pack: ") + Glyphs.missing.take(4).joinToString())
         }
         packSub.setTextIfChanged(diag.trimStart() + (if (diag.isNotEmpty()) "\n" else "") +
             packs.joinToString("\n") { s ->
                 val state = when {
-                    s.skipped -> "꺼짐"
-                    s.error != null -> "실패: ${s.error}"
-                    s.glyphs == null -> "받는 중"
-                    else -> "글자 ${s.glyphs}개 · 글꼴 ${s.fonts}개" +
+                    s.skipped -> tr("꺼짐", "Off")
+                    s.error != null -> tr("실패: ${s.error}", "Failed: ${s.error}")
+                    s.glyphs == null -> tr("받는 중", "Downloading")
+                    else -> tr("글자 ${s.glyphs}개 · 글꼴 ${s.fonts}개", "${s.glyphs} glyphs · ${s.fonts} fonts") +
                         (s.report?.lines()?.firstOrNull { it.startsWith("받는 데") }?.let { " · $it" } ?: "")
                 }
-                "• $state\n  ${s.url}" + (s.report?.takeIf { s.glyphs == 0 || Glyphs.missing.isNotEmpty() }?.let { "\n  [팩 안 모습]\n  " + it.replace("\n", "\n  ") } ?: "")
+                "• $state\n  ${s.url}" + (s.report?.takeIf { s.glyphs == 0 || Glyphs.missing.isNotEmpty() }?.let { tr("\n  [팩 안 모습]\n  ", "\n  [Pack contents]\n  ") + it.replace("\n", "\n  ") } ?: "")
             },
         )
     }
