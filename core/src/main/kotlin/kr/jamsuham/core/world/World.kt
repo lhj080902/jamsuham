@@ -178,6 +178,22 @@ class World {
         return false
     }
 
+    /** 발 높이 [y] 바로 근처(±0.01)에 있는 블록 윗면 중 가장 높은 값 (없으면 null) */
+    private fun floorTop(x: Double, y: Double, z: Double): Double? {
+        val x0 = floor(x - HALF + EPS).toInt()
+        val x1 = floor(x + HALF - EPS).toInt()
+        val z0 = floor(z - HALF + EPS).toInt()
+        val z1 = floor(z + HALF - EPS).toInt()
+        var best: Double? = null
+        for (bx in x0..x1) for (bz in z0..z1) for (by in floor(y - 0.01).toInt() - 1..floor(y + 0.01).toInt()) {
+            val h = heightAt(bx, by, bz)
+            if (h <= 0.0) continue
+            val top = by + h
+            if (kotlin.math.abs(top - y) < 0.01 && (best == null || top > best)) best = top
+        }
+        return best
+    }
+
     /** 발 아래로 얼마나 떨어질 수 있는지 (최대 maxDrop) */
     fun dropDistance(x: Double, y: Double, z: Double, maxDrop: Double): Double {
         var d = 0.0
@@ -192,7 +208,10 @@ class World {
                     val mid = (lo + hi) / 2
                     if (collides(x, y - mid, z)) hi = mid else lo = mid
                 }
-                return lo
+                // 이분 탐색은 바닥보다 아주 조금(EPS 이하) 아래에서 멈춘다. 발이 블록 안에 0.0001칸 묻히면
+                // 서버가 "블록에 낀 이동"으로 보고 제자리로 되돌려서(바들바들 떨림·점프해야만 이동) 정확한 블록 윗면에 맞춘다
+                val top = floorTop(x, y - lo, z)
+                return if (top != null && top <= y + 1e-9) y - top else lo
             }
             d += next
         }
