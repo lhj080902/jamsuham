@@ -368,7 +368,8 @@ object PackFonts {
 
     /** HTTP Range 로 필요한 부분만 받는 zip */
     private class RangedZip(private val url: String, private val total: Long) : ZipSource {
-        private class Entry(val method: Int, val compSize: Long, val size: Long, val offset: Long)
+        /** [offset] 바로잡은 위치, [rawOffset] 목록에 적힌 위치 (바로잡은 곳에 파일이 없으면 이쪽을 시도) */
+        private class Entry(val method: Int, val compSize: Long, val size: Long, val offset: Long, val rawOffset: Long = offset)
 
         private val entries = LinkedHashMap<String, Entry>()
         private var fetched = 0L
@@ -380,9 +381,16 @@ object PackFonts {
             val e = entries[name] ?: throw IOException("없음: $name")
             if (e.size > max || e.compSize > max) throw IOException("너무 큼: $name")
             // 로컬 헤더(30바이트 + 이름 + extra) 뒤에 압축 데이터. extra 길이를 모르니 넉넉히 받는다
-            val head = range(e.offset, e.offset + 30 + 1024 + e.compSize - 1)
+            var at = e.offset
+            var head = range(at, at + 30 + 1024 + e.compSize - 1)
+            if (u32(head, 0) != 0x04034b50L && e.rawOffset != e.offset) {
+                at = e.rawOffset
+                head = range(at, at + 30 + 1024 + e.compSize - 1)
+            }
             if (u32(head, 0) != 0x04034b50L) throw IOException("zip 형식이 이상합니다: $name")
             val start = 30 + u16(head, 26) + u16(head, 28)
+            // 보호된 팩은 로컬 헤더에 큰 extra 를 넣기도 한다: 모자라면 정확한 길이로 다시 받는다
+            if (start + e.compSize > head.size) head = range(at, at + start + e.compSize - 1)
             val data = head.copyOfRange(start, (start + e.compSize).toInt().coerceAtMost(head.size))
             return when (e.method) {
                 0 -> data
@@ -406,23 +414,58 @@ object PackFonts {
             }
         }
 
-        /** zip 끝(EOCD)과 목록을 읽어 항목 표를 만든다 */
+        /**
+         * zip 끝(EOCD)과 목록을 읽어 항목 표를 만든다.
+         * 자바(마인크래프트)처럼 목록의 실제 위치는 "끝 기록 위치 - 목록 크기"로 계산한다. 보호된 팩은 끝 기록의
+         * 목록 위치(cdOffset)를 일부러 틀리게 적거나 앞에 다른 데이터를 붙이고, 가짜 끝 기록을 주석에 숨기기도 한다.
+         * 자바는 cdOffset 을 무시하고 실제 위치와의 차이(delta)를 각 파일 위치에 더하므로 똑같이 한다.
+         * 끝에서부터 끝 기록 후보를 찾아, 계산한 위치에 실제로 목록이 있는 것을 쓴다.
+         */
         private fun readDirectory() {
             val tailLen = minOf(total, 66_000L)
             val tail = range(total - tailLen, total - 1)
-            var eocd = -1
-            for (i in tail.size - 22 downTo 0) if (u32(tail, i) == 0x06054b50L) { eocd = i; break }
-            if (eocd < 0) throw IOException("zip 목록을 찾지 못했습니다")
-            val declared = u16(tail, eocd + 10)
-            val cdSize = u32(tail, eocd + 12)
-            val cdOffset = u32(tail, eocd + 16)
-            if (cdOffset == 0xFFFFFFFFL || cdSize == 0xFFFFFFFFL) throw IOException("ZIP64 는 부분 다운로드를 지원하지 않습니다")
             val tailStart = total - tailLen
-            val cd = if (cdOffset >= tailStart) {
-                tail.copyOfRange((cdOffset - tailStart).toInt(), (cdOffset - tailStart + cdSize).toInt())
-            } else {
-                range(cdOffset, cdOffset + cdSize - 1)
+            var lastDeclared = 0
+            for (eocd in tail.size - 22 downTo 0) {
+                if (u32(tail, eocd) != 0x06054b50L) continue
+                val declared = u16(tail, eocd + 10)
+                val cdSize = u32(tail, eocd + 12)
+                val cdOffset = u32(tail, eocd + 16)
+                lastDeclared = declared
+                if (cdOffset == 0xFFFFFFFFL || cdSize == 0xFFFFFFFFL) throw IOException("ZIP64 는 부분 다운로드를 지원하지 않습니다")
+                val eocdAbs = tailStart + eocd
+                // 실제 위치(자바 방식) → 안 되면 적힌 위치
+                for (cdStart in listOf(eocdAbs - cdSize, cdOffset).distinct()) {
+                    if (cdStart < 0 || cdStart + cdSize > eocdAbs || cdSize < 46) continue
+                    val cd = if (cdStart >= tailStart) {
+                        tail.copyOfRange((cdStart - tailStart).toInt(), (cdStart - tailStart + cdSize).toInt())
+                    } else {
+                        // 목록 첫 부분만 먼저 확인해서 엉뚱한 곳을 몇 MB 씩 받지 않게
+                        if (u32(range(cdStart, cdStart + 3), 0) != 0x02014b50L) continue
+                        range(cdStart, cdStart + cdSize - 1)
+                    }
+                    if (u32(cd, 0) != 0x02014b50L) continue
+                    val delta = cdStart - cdOffset
+                    val parsed = parseDirectory(cd, delta)
+                    if (parsed == 0) continue
+                    note = when {
+                        parsed < declared -> "zip 목록 ${declared}개 중 ${parsed}개만 읽음 (보호된 팩일 수 있음)"
+                        delta != 0L -> "보호된 팩: zip 목록 위치를 바로잡아 읽음"
+                        else -> null
+                    }
+                    return
+                }
             }
+            if (lastDeclared > 0) {
+                note = "zip 목록 ${lastDeclared}개 중 0개만 읽음 (보호된 팩일 수 있음)"
+                return
+            }
+            throw IOException("zip 목록을 찾지 못했습니다")
+        }
+
+        /** 목록을 읽어 항목 표에 넣는다. 읽은 개수를 돌려준다 */
+        private fun parseDirectory(cd: ByteArray, delta: Long): Int {
+            entries.clear()
             var p = 0
             var parsed = 0
             while (p + 46 <= cd.size && u32(cd, p) == 0x02014b50L) {
@@ -433,12 +476,14 @@ object PackFonts {
                 val extraLen = u16(cd, p + 30)
                 val commentLen = u16(cd, p + 32)
                 val offset = u32(cd, p + 42)
+                if (p + 46 + nameLen > cd.size) break
                 val name = String(cd, p + 46, nameLen, Charsets.UTF_8)
-                if (!name.endsWith("/")) entries[name] = Entry(method, comp, size, offset)
+                // 같은 이름이 여러 번 있으면 뒤의 것 (자바 ZipFile 과 같음)
+                if (!name.endsWith("/")) entries[name] = Entry(method, comp, size, offset + delta, offset)
                 p += 46 + nameLen + extraLen + commentLen
                 parsed++
             }
-            if (parsed < declared) note = "zip 목록 ${declared}개 중 ${parsed}개만 읽음 (보호된 팩일 수 있음)"
+            return parsed
         }
 
         companion object {

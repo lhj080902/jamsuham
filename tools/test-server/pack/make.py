@@ -30,3 +30,16 @@ with zipfile.ZipFile('broken.zip','w',zipfile.ZIP_DEFLATED) as z:
     z.writestr('assets/minecraft/font/default.json',json.dumps({"providers":[{"type":"bitmap","file":"minecraft:font/nothere.png","ascent":7,"chars":[""]},{"type":"ttf","file":"minecraft:x.ttf"}]}))
     z.writestr('assets/minecraft/textures/block/stone.png',icons)
 print(os.path.getsize('broken.zip'))
+# 보호된 팩 흉내: (1) 앞에 쓰레기를 붙여 목록 위치가 어긋남 (2) 끝 기록의 목록 위치를 엉터리로 (3) 로컬 헤더 extra 를 크게
+import struct as _st
+data=open('pack.zip','rb').read()
+open('prefixed.zip','wb').write(os.urandom(5000)+data)
+i=data.rfind(b'PK\x05\x06'); bad=bytearray(data); bad[i+16:i+20]=_st.pack('<I',0x12345)
+open('fakeoffset.zip','wb').write(bytes(bad))
+with zipfile.ZipFile('bigextra.zip','w',zipfile.ZIP_DEFLATED) as z:
+    for info in zipfile.ZipFile('pack.zip').infolist():
+        if info.filename.endswith('.ogg'): continue
+        zi=zipfile.ZipInfo(info.filename); zi.compress_type=zipfile.ZIP_DEFLATED
+        zi.extra=_st.pack('<HH',0xCAFE,3000)+os.urandom(3000)
+        z.writestr(zi, zipfile.ZipFile('pack.zip').read(info.filename))
+print('protected ok')

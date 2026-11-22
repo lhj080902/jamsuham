@@ -194,7 +194,9 @@ class Ui(val ctx: Context) {
      * 칸에 맞게 글자를 줄인다 (최대는 원래 크기). 너비가 내용에 맞춰지는(WRAP) 뷰에는 쓰지 않는다.
      */
     fun fit(tv: TextView, maxSp: Float = 15f, minSp: Float = 8f): TextView = tv.apply {
-        setSingleLine(true)
+        // setSingleLine 은 가로 길이를 무한으로 재서 글자 줄이기가 동작하지 않는다 → 최대 1줄 + 가로 스크롤 끄기
+        maxLines = 1
+        setHorizontallyScrolling(false)
         val max = (maxSp * scale).toInt().coerceAtLeast(minSp.toInt() + 1)
         setAutoSizeTextTypeUniformWithConfiguration(minSp.toInt(), max, 1, TypedValue.COMPLEX_UNIT_SP)
     }
