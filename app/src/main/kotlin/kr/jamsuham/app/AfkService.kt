@@ -108,7 +108,7 @@ class AfkService : Service() {
                 if (!goForeground()) return START_NOT_STICKY
                 for (id in resume.take(Plan.maxConcurrent(this))) {
                     // 접속을 시작하면 채팅 기록을 비우므로 안내는 시작한 뒤에 남긴다
-                    if (begin(id)) SessionHub.note(id, intent?.getStringExtra(EXTRA_REASON) ?: "앱이 시스템에 의해 종료됐다가 다시 실행되어 이어서 접속합니다")
+                    if (begin(id)) SessionHub.note(id, intent?.getStringExtra(EXTRA_REASON) ?: tr("앱이 시스템에 의해 종료됐다가 다시 실행되어 이어서 접속합니다", "The app was stopped by the system and restarted, so reconnecting"))
                 }
                 // 그 사이 지워진 서버뿐이라 아무것도 시작하지 못했으면 "준비 중" 알림만 남기지 말고 정리한다
                 if (!SessionHub.anyActive) {
@@ -128,7 +128,7 @@ class AfkService : Service() {
         val server = store.server(serverId) ?: return false
         val accountId = server.accountId
         if (accountId == null || accounts.get(accountId) == null) {
-            SessionHub.note(serverId, "이 서버에 사용할 계정이 없습니다. 서버 설정에서 계정을 골라 주세요", LogLine.Kind.ERROR)
+            SessionHub.note(serverId, tr("이 서버에 사용할 계정이 없습니다. 서버 설정에서 계정을 골라 주세요", "No account set for this server. Please choose one in the server settings"), LogLine.Kind.ERROR)
             return false
         }
         acquireLocks()
@@ -256,8 +256,8 @@ class AfkService : Service() {
 
     private fun createChannel() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val ch = NotificationChannel(CHANNEL_ID, "잠수 접속 유지", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "잠수 중인 동안 표시되는 알림"
+        val ch = NotificationChannel(CHANNEL_ID, tr("잠수 접속 유지", "AFK connection"), NotificationManager.IMPORTANCE_LOW).apply {
+            description = tr("잠수 중인 동안 표시되는 알림", "Shown while AFK")
             setShowBadge(false)
         }
         nm.createNotificationChannel(ch)
@@ -277,16 +277,16 @@ class AfkService : Service() {
         val now = System.currentTimeMillis()
         val online = active.count { it.second.state == SessionState.ONLINE }
         val title = when {
-            active.isEmpty() -> "잠수크래프트"
+            active.isEmpty() -> tr("잠수크래프트", "Jamsucraft")
             active.size == 1 -> "${active[0].first.displayName} · ${stateText(active[0].second)}"
-            else -> "잠수 중 ${online}/${active.size}개 서버"
+            else -> tr("잠수 중 ${online}/${active.size}개 서버", "AFK on ${online}/${active.size} servers")
         }
         val lines = active.flatMap { (server, st) ->
             val time = if (st.state == SessionState.ONLINE && st.onlineSinceMs != null) " · " + Formats.minutes(now - st.onlineSinceMs!!) else ""
-            val rc = if (st.reconnectCount > 0) " · 재접속 ${st.reconnectCount}회" else ""
+            val rc = if (st.reconnectCount > 0) tr(" · 재접속 ${st.reconnectCount}회", " · ${st.reconnectCount} reconnects") else ""
             // 아랫줄: 접속해 있던 시간 기준 시간당 데이터 사용량 (1분 미만이면 측정 중)
             val perHour = SessionHub.ratePerHour(server.id)
-            val data = "데이터 사용량 " + (perHour?.let { StatusPanel.bytes(it) + "/h" } ?: "측정 중")
+            val data = tr("데이터 사용량 ", "Data usage ") + (perHour?.let { StatusPanel.bytes(it) + "/h" } ?: tr("측정 중", "measuring"))
             if (AppSettings.notifyDataUsage) listOf("${server.displayName}: ${stateText(st)}$time$rc", data)
             else listOf("${server.displayName}: ${stateText(st)}$time$rc")
         }
@@ -319,23 +319,23 @@ class AfkService : Service() {
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(icon)
             .setContentTitle(title)
-            .setContentText(lines.firstOrNull() ?: "준비 중…")
-            .setStyle(Notification.BigTextStyle().bigText(lines.joinToString("\n").ifEmpty { "준비 중…" }))
+            .setContentText(lines.firstOrNull() ?: tr("준비 중…", "Preparing…"))
+            .setStyle(Notification.BigTextStyle().bigText(lines.joinToString("\n").ifEmpty { tr("준비 중…", "Preparing…") }))
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_SERVICE)
-            .addAction(Notification.Action.Builder(null, "앱 열기", openChat).build())
-            .addAction(Notification.Action.Builder(null, if (single != null) "연결 끊기" else "모두 끊기", stop).build())
+            .addAction(Notification.Action.Builder(null, tr("앱 열기", "Open app"), openChat).build())
+            .addAction(Notification.Action.Builder(null, if (single != null) tr("연결 끊기", "Disconnect") else tr("모두 끊기", "Disconnect all"), stop).build())
         return builder.build()
     }
 
     private fun stateText(s: SessionStatus) = when (s.state) {
-        SessionState.ONLINE -> "잠수 중"
-        SessionState.WAITING_RECONNECT -> "재접속 대기"
-        SessionState.CONNECTING, SessionState.PREPARING -> "접속 중"
-        else -> "꺼짐"
+        SessionState.ONLINE -> tr("잠수 중", "AFK")
+        SessionState.WAITING_RECONNECT -> tr("재접속 대기", "Waiting to reconnect")
+        SessionState.CONNECTING, SessionState.PREPARING -> tr("접속 중", "Connecting")
+        else -> tr("꺼짐", "Off")
     }
 
     companion object {

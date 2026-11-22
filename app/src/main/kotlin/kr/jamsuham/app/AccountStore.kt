@@ -24,7 +24,7 @@ data class Account(
     val microsoft: Boolean = false,
     val uuid: String? = null,
 ) {
-    val label: String get() = if (microsoft) "$name (정품)" else "$name (비정품)"
+    val label: String get() = if (microsoft) tr("$name (정품)", "$name (premium)") else tr("$name (비정품)", "$name (offline)")
 }
 
 /**
@@ -63,7 +63,7 @@ class AccountStore(context: Context) {
 
     fun addOffline(name: String): Account {
         val n = name.trim()
-        if (!NAME_REGEX.matches(n)) throw IllegalArgumentException("닉네임은 영문/숫자/_ 3~16자로 입력해 주세요")
+        if (!NAME_REGEX.matches(n)) throw IllegalArgumentException(tr("닉네임은 영문/숫자/_ 3~16자로 입력해 주세요", "Nickname must be 3-16 letters, digits or _"))
         val existing = list().firstOrNull { !it.microsoft && it.name.equals(n, true) }
         if (existing != null) return existing
         val acc = Account(id = "offline:$n", name = n, microsoft = false)
@@ -106,7 +106,7 @@ class AccountStore(context: Context) {
         val profile = try {
             manager.minecraftProfile.upToDate
         } catch (e: IOException) {
-            throw AuthException("이 마이크로소프트 계정에서 마인크래프트 자바 에디션을 찾지 못했습니다 (${e.message})", true, e)
+            throw AuthException(tr("이 마이크로소프트 계정에서 마인크래프트 자바 에디션을 찾지 못했습니다 (${e.message})", "Minecraft: Java Edition was not found on this Microsoft account (${e.message})"), true, e)
         }
         manager.minecraftToken.upToDate
         val acc = Account(id = "ms:${profile.id}", name = profile.name, microsoft = true, uuid = profile.id.toString())
@@ -120,16 +120,16 @@ class AccountStore(context: Context) {
     /** 접속 직전에 토큰을 확인(필요하면 갱신)해서 돌려준다 */
     @Throws(Exception::class)
     fun credentials(accountId: String, forceRefresh: Boolean): JoinCredentials {
-        val acc = get(accountId) ?: throw AuthException("계정을 찾을 수 없습니다. 서버 설정에서 계정을 다시 골라 주세요")
+        val acc = get(accountId) ?: throw AuthException(tr("계정을 찾을 수 없습니다. 서버 설정에서 계정을 다시 골라 주세요", "Account not found. Please choose the account again in the server settings"))
         if (!acc.microsoft) return JoinCredentials.offline(acc.name)
         synchronized(LOCK) {
             val f = file(acc.id)
-            if (!f.exists()) throw AuthException("${acc.name} 계정에 다시 로그인해 주세요")
+            if (!f.exists()) throw AuthException(tr("${acc.name} 계정에 다시 로그인해 주세요", "Please sign in to ${acc.name} again"))
             val manager = try {
-                val text = TokenCrypto.open(f.readText()) { tokenKey() ?: throw IllegalStateException("암호화 키를 찾을 수 없습니다") }
+                val text = TokenCrypto.open(f.readText()) { tokenKey() ?: throw IllegalStateException(tr("암호화 키를 찾을 수 없습니다", "Encryption key not found")) }
                 JavaAuthManager.fromJson(http(), JsonParser.parseString(text).asJsonObject)
             } catch (t: Throwable) {
-                throw AuthException("저장된 로그인 정보를 읽지 못했습니다. 다시 로그인해 주세요", true, t)
+                throw AuthException(tr("저장된 로그인 정보를 읽지 못했습니다. 다시 로그인해 주세요", "Couldn't read the saved sign-in data. Please sign in again"), true, t)
             }
             try {
                 val token = if (forceRefresh) manager.minecraftToken.refresh() else {
@@ -143,8 +143,8 @@ class AccountStore(context: Context) {
                 return JoinCredentials(profile.name, profile.id, token.token)
             } catch (e: IOException) {
                 val msg = e.message ?: ""
-                if (looksRevoked(msg)) throw AuthException("${acc.name} 계정의 로그인이 만료됐습니다. 계정 관리에서 다시 로그인해 주세요", true, e)
-                throw IOException("마이크로소프트 인증 서버에 연결하지 못했습니다: $msg", e)
+                if (looksRevoked(msg)) throw AuthException(tr("${acc.name} 계정의 로그인이 만료됐습니다. 계정 관리에서 다시 로그인해 주세요", "The sign-in for ${acc.name} has expired. Please sign in again in account management"), true, e)
+                throw IOException(tr("마이크로소프트 인증 서버에 연결하지 못했습니다: $msg", "Couldn't connect to the Microsoft authentication server: $msg"), e)
             }
         }
     }

@@ -38,7 +38,7 @@ object Updater {
     }
 
     /** 새 릴리스의 버전 (릴리스 제목에 버전이 있으면 "v1.2.0", 없으면 "빌드 N") */
-    fun versionLabel(release: Release): String = release.version?.let { "v$it" } ?: "빌드 ${release.build}"
+    fun versionLabel(release: Release): String = release.version?.let { "v$it" } ?: tr("빌드 ${release.build}", "Build ${release.build}")
 
     /** 최신 릴리스 정보. 네트워크 사용 - 백그라운드에서 호출 */
     @Throws(IOException::class)
@@ -74,7 +74,7 @@ object Updater {
     /** 다른 앱 설치 권한이 없으면 설정 화면으로 보낸다. 바로 설치할 수 있으면 true */
     fun ensureInstallPermission(activity: Activity): Boolean {
         if (activity.packageManager.canRequestPackageInstalls()) return true
-        Toast.makeText(activity, "'이 출처의 앱 허용'을 켠 뒤 다시 업데이트를 눌러 주세요", Toast.LENGTH_LONG).show()
+        Toast.makeText(activity, tr("'이 출처의 앱 허용'을 켠 뒤 다시 업데이트를 눌러 주세요", "Turn on 'Allow from this source', then tap Update again"), Toast.LENGTH_LONG).show()
         try {
             activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
         } catch (_: Throwable) {
@@ -104,7 +104,7 @@ object Updater {
                 hops++
                 continue
             }
-            if (code != 200) throw IOException("다운로드 실패 (HTTP $code)")
+            if (code != 200) throw IOException(tr("다운로드 실패 (HTTP $code)", "Download failed (HTTP $code)"))
             break
         }
         try {
@@ -175,8 +175,8 @@ class UpdateReceiver : BroadcastReceiver() {
             }
             PackageInstaller.STATUS_SUCCESS -> {}
             else -> {
-                val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "알 수 없는 오류"
-                Toast.makeText(context, "업데이트 설치 실패: $msg", Toast.LENGTH_LONG).show()
+                val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: tr("알 수 없는 오류", "Unknown error")
+                Toast.makeText(context, tr("업데이트 설치 실패: $msg", "Update install failed: $msg"), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -184,22 +184,22 @@ class UpdateReceiver : BroadcastReceiver() {
     private fun notifyInstall(context: Context, confirm: Intent) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
         nm.createNotificationChannel(
-            android.app.NotificationChannel(CHANNEL, "앱 업데이트", android.app.NotificationManager.IMPORTANCE_HIGH),
+            android.app.NotificationChannel(CHANNEL, tr("앱 업데이트", "App updates"), android.app.NotificationManager.IMPORTANCE_HIGH),
         )
         val open = PendingIntent.getActivity(context, NOTIFY_ID, confirm, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val icon = context.resources.getIdentifier("ic_stat_afk", "drawable", context.packageName).takeIf { it != 0 }
             ?: android.R.drawable.stat_sys_download_done
         val n = android.app.Notification.Builder(context, CHANNEL)
             .setSmallIcon(icon)
-            .setContentTitle("업데이트를 받았습니다")
-            .setContentText("눌러서 설치를 마쳐 주세요")
+            .setContentTitle(tr("업데이트를 받았습니다", "Update downloaded"))
+            .setContentText(tr("눌러서 설치를 마쳐 주세요", "Tap to finish installing"))
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
         try {
             nm.notify(NOTIFY_ID, n)
         } catch (_: SecurityException) {
-            Toast.makeText(context, "업데이트를 받았습니다. 앱에서 다시 업데이트를 눌러 주세요", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, tr("업데이트를 받았습니다. 앱에서 다시 업데이트를 눌러 주세요", "Update downloaded. Tap Update again in the app"), Toast.LENGTH_LONG).show()
         }
     }
 

@@ -34,7 +34,7 @@ data class ServerEntry(
     /** 들어가면 한두 걸음 걸었다가 돌아오기 (움직여야 채팅이 되는 서버용) */
     val walkOnJoin: Boolean = true,
 ) {
-    val displayName: String get() = name.ifBlank { address.ifBlank { "이름 없는 서버" } }
+    val displayName: String get() = name.ifBlank { address.ifBlank { tr("이름 없는 서버", "Unnamed server") } }
 
     fun sessionConfig() = SessionConfig(
         address = address,

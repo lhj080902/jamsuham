@@ -44,10 +44,10 @@ object MenuNotifier {
 
     fun show(context: Context, serverId: String, title: String) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "서버 메뉴 알림", NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = "잠수 중 서버가 메뉴 창을 열었을 때 (자동 클릭 규칙에 없는 메뉴)"
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, tr("서버 메뉴 알림", "Server menu alerts"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = tr("잠수 중 서버가 메뉴 창을 열었을 때 (자동 클릭 규칙에 없는 메뉴)", "When a server opens a menu while AFK (menus not covered by auto-click rules)")
         })
-        val name = Store(context).server(serverId)?.displayName ?: "서버"
+        val name = Store(context).server(serverId)?.displayName ?: tr("서버", "Server")
         val open = PendingIntent.getActivities(
             context, id(serverId),
             arrayOf(
@@ -60,8 +60,8 @@ object MenuNotifier {
             ?: android.R.drawable.stat_notify_more
         val n = Notification.Builder(context, CHANNEL)
             .setSmallIcon(icon)
-            .setContentTitle("$name · 서버 메뉴가 열렸습니다")
-            .setContentText(title.ifBlank { "(제목 없음)" } + " — 눌러서 직접 선택")
+            .setContentTitle(tr("$name · 서버 메뉴가 열렸습니다", "$name · A server menu opened"))
+            .setContentText(title.ifBlank { tr("(제목 없음)", "(untitled)") } + tr(" — 눌러서 직접 선택", " — tap to choose"))
             .setContentIntent(open)
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_REMINDER)
@@ -85,10 +85,10 @@ object DeathNotifier {
 
     fun show(context: Context, serverId: String, death: kr.jamsuham.core.DeathInfo) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "사망 알림", NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = "잠수 중 캐릭터가 죽었을 때"
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, tr("사망 알림", "Death alerts"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = tr("잠수 중 캐릭터가 죽었을 때", "When your character dies while AFK")
         })
-        val name = Store(context).server(serverId)?.displayName ?: "서버"
+        val name = Store(context).server(serverId)?.displayName ?: tr("서버", "Server")
         val open = PendingIntent.getActivities(
             context, id(serverId),
             arrayOf(
@@ -101,7 +101,7 @@ object DeathNotifier {
             ?: android.R.drawable.stat_notify_error
         val n = Notification.Builder(context, CHANNEL)
             .setSmallIcon(icon)
-            .setContentTitle("$name · 사망했습니다")
+            .setContentTitle(tr("$name · 사망했습니다", "$name · You died"))
             .setContentText(death.describe())
             .setContentIntent(open)
             .setAutoCancel(true)
@@ -119,8 +119,8 @@ object Formats {
         val h = total / 3600
         val m = (total % 3600) / 60
         val s = total % 60
-        return if (h > 0) String.format(Locale.ROOT, "%d시간 %02d분", h, m)
-        else String.format(Locale.ROOT, "%d분 %02d초", m, s)
+        return if (h > 0) String.format(Locale.ROOT, tr("%d시간 %02d분", "%dh %02dm"), h, m)
+        else String.format(Locale.ROOT, tr("%d분 %02d초", "%dm %02ds"), m, s)
     }
 
     /** 분 단위만: "45분", "2시간 13분" */
@@ -128,7 +128,7 @@ object Formats {
         val total = (ms / 60_000).coerceAtLeast(0)
         val h = total / 60
         val m = total % 60
-        return if (h > 0) "${h}시간 ${m}분" else "${m}분"
+        return if (h > 0) tr("${h}시간 ${m}분", "${h}h ${m}m") else tr("${m}분", "${m}m")
     }
 
     fun clock(ms: Long): String {

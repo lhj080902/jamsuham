@@ -79,9 +79,9 @@ object ChatLog {
         }
         var lines = 0
         out.bufferedWriter(Charsets.UTF_8).let { w ->
-            w.write("잠수크래프트 채팅 기록 · $serverName\n")
-            w.write("내보낸 시각: " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date()) + "\n")
-            w.write("(* = 앱 안내, ! = 오류)\n")
+            w.write(tr("잠수크래프트 채팅 기록 · $serverName\n", "Jamsucraft chat log · $serverName\n"))
+            w.write(tr("내보낸 시각: ", "Exported at: ") + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date()) + "\n")
+            w.write(tr("(* = 앱 안내, ! = 오류)\n", "(* = app notice, ! = error)\n"))
             for (day in picked) {
                 w.write("\n===== $day =====\n")
                 File(dir(serverId), "$day.txt").forEachLine(Charsets.UTF_8) { l ->

@@ -39,9 +39,9 @@ class LoginActivity : Activity() {
         val root = ui.vertical()
         val header = ui.horizontal()
         header.addView(ui.button("←", "ghost") { cancel() }, ui.lp(ui.dp(48), ui.dp(44)))
-        header.addView(ui.text("마이크로소프트 로그인", 18f, bold = true), ui.lp(0, Ui.WRAP, 1f))
+        header.addView(ui.text(tr("마이크로소프트 로그인", "Microsoft sign-in"), 18f, bold = true), ui.lp(0, Ui.WRAP, 1f))
         root.addView(header)
-        status = ui.text("마인크래프트를 구매한 마이크로소프트 계정으로 로그인하세요", 13f, ui.p.muted).apply {
+        status = ui.text(tr("마인크래프트를 구매한 마이크로소프트 계정으로 로그인하세요", "Sign in with the Microsoft account that owns Minecraft"), 13f, ui.p.muted).apply {
             setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(8))
         }
         root.addView(status)
@@ -103,17 +103,17 @@ class LoginActivity : Activity() {
         web.stopLoading()
         web.visibility = View.INVISIBLE
         progress.visibility = View.VISIBLE
-        status.text = "계정 정보를 확인하는 중…"
+        status.text = tr("계정 정보를 확인하는 중…", "Checking account information…")
         Thread {
             try {
                 val acc = accounts.finishMicrosoftLogin(code)
                 runOnUiThread {
-                    Toast.makeText(this, "${acc.name} 계정으로 로그인했습니다", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("${acc.name} 계정으로 로그인했습니다", "Signed in as ${acc.name}"), Toast.LENGTH_SHORT).show()
                     setResult(RESULT_OK, intent.putExtra(EXTRA_ACCOUNT_ID, acc.id))
                     finish()
                 }
             } catch (t: Throwable) {
-                SessionHub.log.w("로그인 실패", t)
+                SessionHub.log.w(tr("로그인 실패", "Sign-in failed"), t)
                 runOnUiThread { fail(t.message ?: t.javaClass.simpleName) }
             }
         }.apply { isDaemon = true; start() }
@@ -123,9 +123,9 @@ class LoginActivity : Activity() {
     private fun fail(message: String) {
         if (isFinishing) return
         android.app.AlertDialog.Builder(this)
-            .setTitle("로그인 실패")
+            .setTitle(tr("로그인 실패", "Sign-in failed"))
             .setMessage(message)
-            .setPositiveButton("확인") { _, _ -> cancel() }
+            .setPositiveButton(tr("확인", "OK")) { _, _ -> cancel() }
             .setCancelable(false)
             .show()
     }

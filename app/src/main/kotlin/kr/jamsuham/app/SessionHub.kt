@@ -43,7 +43,7 @@ object SessionHub {
     private class Entry {
         var session: AfkSession? = null
         var token: Any? = null
-        var status = SessionStatus(SessionState.IDLE, "꺼짐")
+        var status = SessionStatus(SessionState.IDLE, tr("꺼짐", "Off"))
         val lines = ArrayDeque<LogLine>()
         var players: PlayerList = PlayerList.EMPTY
         var menu: Menu? = null
@@ -91,7 +91,7 @@ object SessionHub {
         observers.remove(o)
     }
 
-    fun status(serverId: String): SessionStatus = entries[serverId]?.status ?: SessionStatus(SessionState.IDLE, "꺼짐")
+    fun status(serverId: String): SessionStatus = entries[serverId]?.status ?: SessionStatus(SessionState.IDLE, tr("꺼짐", "Off"))
 
     fun lines(serverId: String): List<LogLine> = entries[serverId]?.lines?.let { ArrayList(it) } ?: emptyList()
 
@@ -240,8 +240,8 @@ object SessionHub {
                     Glyphs.load(appContext, url, hash, server?.packWifiOnly ?: true) { set, why ->
                         if (e.token !== myToken) return@load
                         if (set == null) {
-                            e.packStates[url] = PackState(url, null, error = why ?: "알 수 없는 오류")
-                            publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of("리소스팩 그림 글자를 불러오지 못했습니다: $why")))
+                            e.packStates[url] = PackState(url, null, error = why ?: tr("알 수 없는 오류", "Unknown error"))
+                            publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(tr("리소스팩 그림 글자를 불러오지 못했습니다: $why", "Couldn't load resource pack glyphs: $why"))))
                             notifyGlyphs(serverId)
                             return@load
                         }
@@ -249,8 +249,8 @@ object SessionHub {
                         // 받아 둔 팩들을 서버가 보낸 순서대로 겹친다
                         val sets = e.packUrls.mapNotNull { u -> if (u == url) set else Glyphs.cached(u) }
                         e.glyphs = kr.jamsuham.core.pack.PackFonts.FontSet.merge(sets)
-                        val msg = if (set.glyphCount > 0) "리소스팩 그림 글자 ${set.glyphCount}개를 불러왔습니다"
-                        else "이 서버의 리소스팩에는 그림 글자가 없습니다"
+                        val msg = if (set.glyphCount > 0) tr("리소스팩 그림 글자 ${set.glyphCount}개를 불러왔습니다", "Loaded ${set.glyphCount} resource pack glyphs")
+                        else tr("이 서버의 리소스팩에는 그림 글자가 없습니다", "This server's resource pack has no glyphs")
                         publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(msg)))
                         notifyGlyphs(serverId)
                     }
@@ -279,7 +279,7 @@ object SessionHub {
         }
         val s = AfkSession(context.filesDir, config, credentials, listener, log, AndroidDns(context))
         e.session = s
-        publishStatus(serverId, SessionStatus(SessionState.PREPARING, "준비 중…"))
+        publishStatus(serverId, SessionStatus(SessionState.PREPARING, tr("준비 중…", "Preparing…")))
         s.start()
     }
 
@@ -288,7 +288,7 @@ object SessionHub {
         val e = entries[serverId] ?: return
         val s = e.session
         if (s == null || !e.status.state.isActive()) {
-            publishStatus(serverId, e.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
+            publishStatus(serverId, e.status.copy(state = SessionState.STOPPED, message = tr("꺼짐", "Off"), onlineSinceMs = null))
         } else {
             s.stop()
         }
@@ -304,7 +304,7 @@ object SessionHub {
             e.menu = null
             e.inventory = Inventory.EMPTY
             if (::appContext.isInitialized) MenuNotifier.cancel(appContext, id)
-            if (e.status.state.isActive()) publishStatus(id, e.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
+            if (e.status.state.isActive()) publishStatus(id, e.status.copy(state = SessionState.STOPPED, message = tr("꺼짐", "Off"), onlineSinceMs = null))
         }
     }
 

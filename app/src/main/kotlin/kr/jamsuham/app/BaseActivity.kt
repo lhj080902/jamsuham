@@ -37,17 +37,17 @@ abstract class BaseActivity : Activity(), Starter {
         val store = Store(this)
         val server = store.server(serverId) ?: return false
         if (server.address.isBlank()) {
-            toast("서버 주소를 먼저 입력해 주세요")
+            toast(tr("서버 주소를 먼저 입력해 주세요", "Please enter the server address first"))
             openEditor(serverId)
             return false
         }
         val accounts = AccountStore(this)
         if (accounts.get(server.accountId) == null) {
             AlertDialog.Builder(this)
-                .setTitle("계정이 필요합니다")
-                .setMessage("이 서버에 접속할 계정을 서버 설정에서 골라 주세요.")
-                .setPositiveButton("서버 설정") { _, _ -> openEditor(serverId) }
-                .setNegativeButton("취소", null)
+                .setTitle(tr("계정이 필요합니다", "Account required"))
+                .setMessage(tr("이 서버에 접속할 계정을 서버 설정에서 골라 주세요.", "Choose an account for this server in the server settings."))
+                .setPositiveButton(tr("서버 설정", "Server settings")) { _, _ -> openEditor(serverId) }
+                .setNegativeButton(tr("취소", "Cancel"), null)
                 .show()
             return false
         }
@@ -56,13 +56,13 @@ abstract class BaseActivity : Activity(), Starter {
         if (checkLimit && others.size >= Plan.maxConcurrent(this)) {
             val names = others.mapNotNull { store.server(it)?.displayName }.joinToString(", ")
             AlertDialog.Builder(this)
-                .setTitle("동시 잠수는 ${Plan.FREE_CONCURRENT}개 서버까지")
-                .setMessage("무료 버전은 한 번에 ${Plan.FREE_CONCURRENT}개 서버에만 잠수할 수 있습니다.\n지금 잠수 중: $names\n\n그 서버를 끊고 '${server.displayName}'(으)로 바꿀까요?\n(여러 서버 동시 잠수는 프리미엄에서 제공할 예정입니다)")
-                .setPositiveButton("바꾸기") { _, _ ->
+                .setTitle(tr("동시 잠수는 ${Plan.FREE_CONCURRENT}개 서버까지", "Up to ${Plan.FREE_CONCURRENT} server(s) at once"))
+                .setMessage(tr("무료 버전은 한 번에 ${Plan.FREE_CONCURRENT}개 서버에만 잠수할 수 있습니다.\n지금 잠수 중: $names\n\n그 서버를 끊고 '${server.displayName}'(으)로 바꿀까요?\n(여러 서버 동시 잠수는 프리미엄에서 제공할 예정입니다)", "The free version can AFK on only ${Plan.FREE_CONCURRENT} server(s) at a time.\nCurrently AFK: $names\n\nDisconnect it and switch to '${server.displayName}'?\n(AFK on multiple servers at once is planned for premium)"))
+                .setPositiveButton(tr("바꾸기", "Switch")) { _, _ ->
                     for (id in others) AfkService.stop(this, id)
                     startServer(serverId, checkLimit = false)
                 }
-                .setNegativeButton("취소", null)
+                .setNegativeButton(tr("취소", "Cancel"), null)
                 .show()
             return false
         }
@@ -74,7 +74,7 @@ abstract class BaseActivity : Activity(), Starter {
             AfkService.start(this, serverId)
             true
         } catch (t: Throwable) {
-            toast("잠수 서비스를 시작하지 못했습니다: ${t.message}")
+            toast(tr("잠수 서비스를 시작하지 못했습니다: ${t.message}", "Couldn't start the AFK service: ${t.message}"))
             false
         }
     }
@@ -100,13 +100,13 @@ abstract class BaseActivity : Activity(), Starter {
     fun exportChatLog(serverId: String) {
         val days = ChatLog.days(serverId)
         if (days.isEmpty()) {
-            toast("아직 저장된 채팅 기록이 없습니다")
+            toast(tr("아직 저장된 채팅 기록이 없습니다", "No saved chat logs yet"))
             return
         }
-        val choices = arrayOf("오늘", "최근 7일", "전체 (${days.size}일치)")
+        val choices = arrayOf(tr("오늘", "Today"), tr("최근 7일", "Last 7 days"), tr("전체 (${days.size}일치)", "All (${days.size} days)"))
         val ranges = arrayOf<Int?>(1, 7, null)
         AlertDialog.Builder(this)
-            .setTitle("채팅 기록 저장")
+            .setTitle(tr("채팅 기록 저장", "Save chat log"))
             .setItems(choices) { _, which ->
                 pendingExport = serverId to ranges[which]
                 val name = (Store(this).server(serverId)?.displayName ?: "서버").replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
@@ -120,10 +120,10 @@ abstract class BaseActivity : Activity(), Starter {
                     startActivityForResult(intent, REQ_EXPORT_LOG)
                 } catch (_: Throwable) {
                     pendingExport = null
-                    toast("파일 저장 화면을 열 수 없습니다")
+                    toast(tr("파일 저장 화면을 열 수 없습니다", "Couldn't open the save file screen"))
                 }
             }
-            .setNegativeButton("취소", null)
+            .setNegativeButton(tr("취소", "Cancel"), null)
             .show()
     }
 
@@ -137,18 +137,18 @@ abstract class BaseActivity : Activity(), Starter {
         val uri = data?.data
         if (resultCode != RESULT_OK || uri == null) return
         if (job == null) {
-            toast("다시 시도해 주세요")
+            toast(tr("다시 시도해 주세요", "Please try again"))
             return
         }
         val (serverId, range) = job
-        val serverName = Store(this).server(serverId)?.displayName ?: "서버"
+        val serverName = Store(this).server(serverId)?.displayName ?: tr("서버", "Server")
         Thread {
             val result = try {
                 val n = contentResolver.openOutputStream(uri)?.use { ChatLog.export(serverId, serverName, range, it) }
-                    ?: throw java.io.IOException("파일을 열 수 없습니다")
-                "채팅 기록 ${n}줄을 저장했습니다"
+                    ?: throw java.io.IOException(tr("파일을 열 수 없습니다", "Couldn't open the file"))
+                tr("채팅 기록 ${n}줄을 저장했습니다", "Saved ${n} lines of chat log")
             } catch (t: Throwable) {
-                "저장하지 못했습니다: ${t.message}"
+                tr("저장하지 못했습니다: ${t.message}", "Couldn't save: ${t.message}")
             }
             runOnUiThread { toast(result) }
         }.apply { isDaemon = true; start() }

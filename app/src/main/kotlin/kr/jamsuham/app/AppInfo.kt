@@ -13,7 +13,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * "정보" 화면: 버전, 비공식 고지, 그리고 정책 문서를 **앱 안에서** 연다
+ * tr("정보", "About") 화면: 버전, 비공식 고지, 그리고 정책 문서를 **앱 안에서** 연다
  * (개인정보처리방침·이름/아이콘 이용 안내·오픈소스 라이선스 전문 — app/src/main/assets/legal/).
  * ViaVersion(GPL-3.0)을 포함해 배포하므로 라이선스 전문과 소스 코드 위치를 함께 알린다.
  */
@@ -24,40 +24,40 @@ object AppInfo {
     const val PRIVACY_URL = "https://github.com/lhj080902/jamsuham/blob/main/app/src/main/assets/legal/privacy-policy.md"
 
     /** 앱에 들어간 오픈소스: 이름, 라이선스, 라이선스 전문 파일 */
-    private val LIBRARIES = listOf(
+    private val LIBRARIES get() = listOf(
         Triple("ViaVersion · ViaBackwards · ViaRewind", "GPL-3.0", "GPL-3.0.txt"),
         Triple("MinecraftAuth (RaphiMC)", "LGPL-3.0", "LGPL-3.0.txt"),
         Triple("Netty", "Apache-2.0", "Apache-2.0.txt"),
         Triple("Gson", "Apache-2.0", "Apache-2.0.txt"),
         Triple("Guava", "Apache-2.0", "Apache-2.0.txt"),
-        Triple("Kotlin 표준 라이브러리", "Apache-2.0", "Apache-2.0.txt"),
+        Triple(tr("Kotlin 표준 라이브러리", "Kotlin standard library"), "Apache-2.0", "Apache-2.0.txt"),
     )
 
     fun show(activity: Activity, ui: Ui) {
         val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
-        box.addView(ui.text("잠수크래프트 " + Updater.versionLabel(activity) + " (빌드 ${Updater.currentBuild(activity)})" + if (Flavor.PLAY) "" else " · GitHub 판", 15f, bold = true))
+        box.addView(ui.text(tr("잠수크래프트 ", "Jamsucraft ") + Updater.versionLabel(activity) + tr(" (빌드 ${Updater.currentBuild(activity)})", " (build ${Updater.currentBuild(activity)})") + if (Flavor.PLAY) "" else tr(" · GitHub 판", " · GitHub edition"), 15f, bold = true))
         box.addView(ui.hint(
-            "마인크래프트 공식 제품이 아닙니다. Mojang 또는 Microsoft 가 승인하거나 관련된 앱이 아닙니다.\n" +
+            tr("마인크래프트 공식 제품이 아닙니다. Mojang 또는 Microsoft 가 승인하거나 관련된 앱이 아닙니다.\n", "") +
                 "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
         ))
-        box.addView(ui.hint("서버마다 잠수·비공식 클라이언트에 대한 규칙이 다를 수 있으니, 서버 규칙을 확인하고 사용해 주세요."))
+        box.addView(ui.hint(tr("서버마다 잠수·비공식 클라이언트에 대한 규칙이 다를 수 있으니, 서버 규칙을 확인하고 사용해 주세요.", "Rules on AFK and unofficial clients differ between servers, so check the server rules before using it.")))
 
-        box.addView(ui.label("정책"))
-        box.addView(ui.button("개인정보처리방침", "plain") { showDocument(activity, ui, "개인정보처리방침", "privacy-policy.md") }, ui.gap(4))
-        box.addView(ui.button("이름·아이콘 이용 안내", "plain") { showDocument(activity, ui, "이름·아이콘 이용 안내", "trademark.md") }, ui.gap(6))
+        box.addView(ui.label(tr("정책", "Policies")))
+        box.addView(ui.button(tr("개인정보처리방침", "Privacy policy"), "plain") { showDocument(activity, ui, tr("개인정보처리방침", "Privacy policy"), "privacy-policy.md") }, ui.gap(4))
+        box.addView(ui.button(tr("이름·아이콘 이용 안내", "Name and icon usage"), "plain") { showDocument(activity, ui, tr("이름·아이콘 이용 안내", "Name and icon usage"), "trademark.md") }, ui.gap(6))
 
-        box.addView(ui.label("오픈소스 라이선스"))
-        box.addView(ui.hint("이 앱의 코드는 GPL-3.0 에 따라 공개되어 있습니다. 이름 \"잠수크래프트\"와 아이콘은 라이선스에 포함되지 않습니다."))
+        box.addView(ui.label(tr("오픈소스 라이선스", "Open source licenses")))
+        box.addView(ui.hint(tr("이 앱의 코드는 GPL-3.0 에 따라 공개되어 있습니다. 이름 \"잠수크래프트\"와 아이콘은 라이선스에 포함되지 않습니다.", "This app’s code is published under GPL-3.0. The name \"Jamsucraft\" and the icon are not covered by the license.")))
         for ((name, license, file) in LIBRARIES) {
             box.addView(ui.button("$name — $license", "plain") { showDocument(activity, ui, license, file) }, ui.gap(4))
         }
-        box.addView(ui.button("소스 코드 (GitHub)", "plain") { open(activity, SOURCE_URL) }, ui.gap(6))
+        box.addView(ui.button(tr("소스 코드 (GitHub)", "Source code (GitHub)"), "plain") { open(activity, SOURCE_URL) }, ui.gap(6))
 
         val scroll = ScrollView(activity).apply { addView(box) }
         AlertDialog.Builder(activity)
-            .setTitle("정보")
+            .setTitle(tr("정보", "About"))
             .setView(scroll)
-            .setPositiveButton("닫기", null)
+            .setPositiveButton(tr("닫기", "Close"), null)
             .show()
     }
 
@@ -66,7 +66,7 @@ object AppInfo {
         val raw = try {
             activity.assets.open("legal/$file").bufferedReader(Charsets.UTF_8).use { it.readText() }
         } catch (t: Throwable) {
-            "문서를 열지 못했습니다: ${t.message}"
+            tr("문서를 열지 못했습니다: ${t.message}", "Couldn't open the document: ${t.message}")
         }
         val text: CharSequence = if (file.endsWith(".md")) renderMarkdown(raw) else raw
         val tv = TextView(activity).apply {
@@ -80,7 +80,7 @@ object AppInfo {
         AlertDialog.Builder(activity)
             .setTitle(title)
             .setView(ScrollView(activity).apply { addView(tv) })
-            .setPositiveButton("닫기", null)
+            .setPositiveButton(tr("닫기", "Close"), null)
             .show()
     }
 

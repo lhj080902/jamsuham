@@ -13,8 +13,8 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val reason = when (intent.action) {
-            Intent.ACTION_BOOT_COMPLETED -> "폰이 다시 켜져서 이어서 접속합니다"
-            Intent.ACTION_MY_PACKAGE_REPLACED -> "앱이 업데이트되어 이어서 접속합니다"
+            Intent.ACTION_BOOT_COMPLETED -> tr("폰이 다시 켜져서 이어서 접속합니다", "The phone restarted, so reconnecting")
+            Intent.ACTION_MY_PACKAGE_REPLACED -> tr("앱이 업데이트되어 이어서 접속합니다", "The app was updated, so reconnecting")
             else -> return
         }
         val store = Store(context)

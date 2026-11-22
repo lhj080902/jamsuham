@@ -120,7 +120,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             } else {
                 detailPane = null
                 val empty = ui.card().apply { gravity = Gravity.CENTER }
-                empty.addView(ui.text("왼쪽에서 서버를 추가해 주세요", 15f, ui.p.muted))
+                empty.addView(ui.text(tr("왼쪽에서 서버를 추가해 주세요", "Add a server on the left"), 15f, ui.p.muted))
                 root.addView(empty, ui.lp(0, Ui.MATCH, 6f).apply { leftMargin = ui.dp(12) })
             }
         } else {
@@ -158,7 +158,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         val footer = ui.horizontal().apply { setPadding(0, ui.dp(6), 0, 0) }
         // 작은 회색 글씨로 버전 표시 (예: v1.1.13)
         val version = Updater.versionLabel(this)
-        val buildLabel = ui.text(version + if (Plan.isPremium(this)) " · 프리미엄(테스트)" else "", 11f, ui.p.muted)
+        val buildLabel = ui.text(version + if (Plan.isPremium(this)) tr(" · 프리미엄(테스트)", " · Premium (test)") else "", 11f, ui.p.muted)
         var taps = 0
         buildLabel.setOnClickListener {
             // 결제를 붙이기 전 테스트용: 7번 누르면 프리미엄 켜기/끄기 (GitHub 판만. Play 판에는 없음)
@@ -167,8 +167,8 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
                 taps = 0
                 val on = !Plan.isPremium(this)
                 Plan.setPremiumTest(this, on)
-                buildLabel.text = version + if (on) " · 프리미엄(테스트)" else ""
-                toast(if (on) "테스트용 프리미엄을 켰습니다 (동시 잠수 제한 없음)" else "테스트용 프리미엄을 껐습니다")
+                buildLabel.text = version + if (on) tr(" · 프리미엄(테스트)", " · Premium (test)") else ""
+                toast(if (on) tr("테스트용 프리미엄을 켰습니다 (동시 잠수 제한 없음)", "Test premium turned on (no limit on simultaneous AFK)") else tr("테스트용 프리미엄을 껐습니다", "Test premium turned off"))
             }
         }
         footer.addView(buildLabel, ui.lp(0, Ui.WRAP, 1f))
@@ -212,25 +212,25 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             val info = ServerInfos.info(s.id)
             views.motd.setTextIfChanged(when {
                 info == null -> s.address
-                info.motd.isNotBlank() -> info.motd.lines().joinToString(" ") { it.trim() } + "  ·  ${info.online}/${info.max}명"
-                else -> "${s.address}  ·  ${info.online}/${info.max}명"
+                info.motd.isNotBlank() -> info.motd.lines().joinToString(" ") { it.trim() } + tr("  ·  ${info.online}/${info.max}명", "  ·  ${info.online}/${info.max} online")
+                else -> tr("${s.address}  ·  ${info.online}/${info.max}명", "${s.address}  ·  ${info.online}/${info.max} online")
             })
             val st = SessionHub.status(s.id)
             val (label, color) = when (st.state) {
-                SessionState.ONLINE -> "잠수 중" to ui.p.ok
-                SessionState.WAITING_RECONNECT -> "재접속 대기" to ui.p.warn
-                SessionState.PREPARING, SessionState.CONNECTING -> "접속 중" to ui.p.warn
-                else -> "꺼짐" to ui.p.muted
+                SessionState.ONLINE -> tr("잠수 중", "AFK") to ui.p.ok
+                SessionState.WAITING_RECONNECT -> tr("재접속 대기", "Waiting to reconnect") to ui.p.warn
+                SessionState.PREPARING, SessionState.CONNECTING -> tr("접속 중", "Connecting") to ui.p.warn
+                else -> tr("꺼짐", "Off") to ui.p.muted
             }
             (dot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
             val parts = arrayListOf(label)
             if (st.state == SessionState.ONLINE) st.onlineSinceMs?.let { parts.add(Formats.minutes(now - it)) }
-            if (st.state == SessionState.WAITING_RECONNECT) st.nextAttemptAtMs?.let { parts.add("${((it - now).coerceAtLeast(0)) / 1000}초 뒤") }
-            if (st.reconnectCount > 0 && st.state.isActive()) parts.add("재접속 ${st.reconnectCount}회")
-            accounts.get(s.accountId)?.let { parts.add(it.name) } ?: parts.add("계정 없음")
+            if (st.state == SessionState.WAITING_RECONNECT) st.nextAttemptAtMs?.let { parts.add(tr("${((it - now).coerceAtLeast(0)) / 1000}초 뒤", "in ${((it - now).coerceAtLeast(0)) / 1000}s")) }
+            if (st.reconnectCount > 0 && st.state.isActive()) parts.add(tr("재접속 ${st.reconnectCount}회", "${st.reconnectCount} reconnects"))
+            accounts.get(s.accountId)?.let { parts.add(it.name) } ?: parts.add(tr("계정 없음", "No account"))
             detail.setTextIfChanged(parts.joinToString(" · "))
             val active = st.state.isActive()
-            val label2 = if (active) "끊기" else "시작"
+            val label2 = if (active) tr("끊기", "Disconnect") else tr("시작", "Start")
             if (button.text.toString() != label2) {
                 button.text = label2
                 ui.style(button, if (active) "danger" else "primary")
@@ -243,9 +243,9 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         cardViews.clear()
         if (servers.isEmpty()) {
             val empty = ui.card().apply { gravity = Gravity.CENTER_HORIZONTAL }
-            empty.addView(ui.text("아직 서버가 없습니다", 16f, bold = true))
-            empty.addView(ui.text("오른쪽 위 '+ 서버'를 눌러 잠수할 서버를 추가하세요", 13f, ui.p.muted).apply { setPadding(0, ui.dp(6), 0, ui.dp(10)) })
-            empty.addView(ui.button("+ 서버 추가", "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(44)))
+            empty.addView(ui.text(tr("아직 서버가 없습니다", "No servers yet"), 16f, bold = true))
+            empty.addView(ui.text(tr("오른쪽 위 '+ 서버'를 눌러 잠수할 서버를 추가하세요", "Tap '+ Server' at the top right to add a server to AFK on"), 13f, ui.p.muted).apply { setPadding(0, ui.dp(6), 0, ui.dp(10)) })
+            empty.addView(ui.button(tr("+ 서버 추가", "+ Add server"), "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(44)))
             listBox.addView(empty, ui.lp())
             return
         }
@@ -280,13 +280,13 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             val detail = ui.marquee(ui.text("", 12f, ui.p.muted)).apply { setPadding(0, ui.dp(2), 0, 0) }
             texts.addView(detail)
             row.addView(texts, ui.lp(0, Ui.WRAP, 1f))
-            val button = ui.button("시작", "primary") { toggle(s.id) }
+            val button = ui.button(tr("시작", "Start"), "primary") { toggle(s.id) }
             row.addView(button, ui.lp(Ui.WRAP, ui.dp(42)).apply { leftMargin = ui.dp(12) })
             card.addView(row)
             listBox.addView(card, ui.lp().apply { if (i > 0) topMargin = ui.dp(10) })
             cardViews[s.id] = CardViews(dot, detail, button, icon, motd)
         }
-        listBox.addView(ui.hint("서버를 길게 누르면 설정을 바꿀 수 있습니다."), ui.lp())
+        listBox.addView(ui.hint(tr("서버를 길게 누르면 설정을 바꿀 수 있습니다.", "Long-press a server to change its settings.")), ui.lp())
     }
 
     private fun select(id: String) {
@@ -312,17 +312,17 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
         if (!nm.areNotificationsEnabled()) {
             bannerBox.addView(banner(
-                "알림이 꺼져 있어요",
-                "잠수 중 알림(끊기 버튼)과 서버 메뉴·보상 알림을 받으려면 알림을 켜 주세요.",
-                "켜기",
+                tr("알림이 꺼져 있어요", "Notifications are off"),
+                tr("잠수 중 알림(끊기 버튼)과 서버 메뉴·보상 알림을 받으려면 알림을 켜 주세요.", "Turn on notifications to get the AFK notification (with a disconnect button) and server menu/reward alerts."),
+                tr("켜기", "Turn on"),
             ) { requestNotifications() }, ui.gap(10))
         }
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
             bannerBox.addView(banner(
-                "화면이 꺼지면 끊길 수 있어요",
-                "배터리 최적화에서 이 앱을 빼 두면 오래 잠수해도 안정적입니다.",
-                "설정하기",
+                tr("화면이 꺼지면 끊길 수 있어요", "You may be disconnected when the screen turns off"),
+                tr("배터리 최적화에서 이 앱을 빼 두면 오래 잠수해도 안정적입니다.", "Exclude this app from battery optimization to stay connected reliably for long AFK sessions."),
+                tr("설정하기", "Settings"),
             ) { requestBatteryExemption() }, ui.gap(10))
         }
         updateBanner?.let { bannerBox.addView(it, ui.gap(10)) }
@@ -352,7 +352,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         try {
             startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
         } catch (_: Throwable) {
-            toast("설정 화면을 열 수 없습니다")
+            toast(tr("설정 화면을 열 수 없습니다", "Couldn't open the settings screen"))
         }
     }
 
@@ -364,11 +364,11 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
     private fun requestBatteryExemption() {
         if (Flavor.PLAY) {
             // Play 판: 예외를 직접 요청하지 않고 설정 화면으로 안내만 한다 (Play 정책상 직접 요청은 허용 용도가 제한됨)
-            toast("목록에서 '잠수크래프트'를 찾아 '최적화 안 함'(또는 '제한 없음')으로 바꿔 주세요")
+            toast(tr("목록에서 '잠수크래프트'를 찾아 '최적화 안 함'(또는 '제한 없음')으로 바꿔 주세요", "Find 'Jamsucraft' in the list and set it to 'Don't optimize' (or 'Unrestricted')"))
             try {
                 startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             } catch (_: Throwable) {
-                toast("설정 화면을 열 수 없습니다")
+                toast(tr("설정 화면을 열 수 없습니다", "Couldn't open the settings screen"))
             }
             return
         }
@@ -379,7 +379,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             try {
                 startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             } catch (_: Throwable) {
-                toast("설정 화면을 열 수 없습니다")
+                toast(tr("설정 화면을 열 수 없습니다", "Couldn't open the settings screen"))
             }
         }
     }
@@ -389,7 +389,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         val now = System.currentTimeMillis()
         if (!manual && now - store.lastUpdateCheck < 10 * 60 * 1000) return
         store.lastUpdateCheck = now
-        if (manual) toast("업데이트 확인 중…")
+        if (manual) toast(tr("업데이트 확인 중…", "Checking for updates…"))
         Thread {
             val release = try {
                 Updater.fetchLatest()
@@ -401,13 +401,13 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
                 val current = Updater.currentBuild(this)
                 if (release != null && release.build > current) {
                     updateBanner = banner(
-                        "새 버전이 있어요 (${Updater.versionLabel(release)})",
-                        "지금 버전: ${Updater.versionLabel(this)}. 누르면 받아서 바로 설치합니다.",
-                        "업데이트",
+                        tr("새 버전이 있어요 (${Updater.versionLabel(release)})", "A new version is available (${Updater.versionLabel(release)})"),
+                        tr("지금 버전: ${Updater.versionLabel(this)}. 누르면 받아서 바로 설치합니다.", "Current version: ${Updater.versionLabel(this)}. Tap to download and install it."),
+                        tr("업데이트", "Update"),
                     ) { startUpdate(release) }
                     renderBanners()
                 } else if (manual) {
-                    toast(if (release == null) "업데이트 정보를 가져오지 못했습니다" else "최신 버전입니다 (${Updater.versionLabel(this)})")
+                    toast(if (release == null) tr("업데이트 정보를 가져오지 못했습니다", "Couldn't get update information") else tr("최신 버전입니다 (${Updater.versionLabel(this)})", "You're up to date (${Updater.versionLabel(this)})"))
                 }
             }
         }.apply { isDaemon = true; start() }
@@ -419,30 +419,30 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         val go = {
             updating = true
             val dialog = AlertDialog.Builder(this)
-                .setTitle("업데이트 받는 중")
+                .setTitle(tr("업데이트 받는 중", "Downloading update"))
                 .setMessage("0%")
                 .setCancelable(false)
                 .show()
             Thread {
                 try {
                     Updater.downloadAndInstall(this, release) { pct -> runOnUiThread { dialog.setMessage("$pct%") } }
-                    runOnUiThread { dialog.setMessage("설치 창을 여는 중…") }
+                    runOnUiThread { dialog.setMessage(tr("설치 창을 여는 중…", "Opening the installer…")) }
                     main.postDelayed({ if (dialog.isShowing) dialog.dismiss(); updating = false }, 4000)
                 } catch (t: Throwable) {
                     runOnUiThread {
                         dialog.dismiss()
                         updating = false
-                        toast("업데이트 실패: ${t.message}")
+                        toast(tr("업데이트 실패: ${t.message}", "Update failed: ${t.message}"))
                     }
                 }
             }.apply { isDaemon = true; start() }
         }
         if (SessionHub.anyActive) {
             AlertDialog.Builder(this)
-                .setTitle("업데이트")
-                .setMessage("설치하는 동안 앱이 다시 시작돼서 지금 잠수 중인 접속이 끊깁니다. 계속할까요?")
-                .setPositiveButton("업데이트") { _, _ -> go() }
-                .setNegativeButton("나중에", null)
+                .setTitle(tr("업데이트", "Update"))
+                .setMessage(tr("설치하는 동안 앱이 다시 시작돼서 지금 잠수 중인 접속이 끊깁니다. 계속할까요?", "The app restarts while installing, so current AFK connections will be dropped. Continue?"))
+                .setPositiveButton(tr("업데이트", "Update")) { _, _ -> go() }
+                .setNegativeButton(tr("나중에", "Later"), null)
                 .show()
         } else {
             go()
