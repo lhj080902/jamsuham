@@ -60,6 +60,8 @@ interface ConnectionEvents {
     fun onInventory(inventory: Inventory) {}
     fun onVitals(vitals: Vitals) {}
     fun onDeath(death: DeathInfo) {}
+    /** 서버가 리소스팩을 보내라고 함 (그림 글자를 읽어 오는 데 씀). [hash] = SHA-1 (없으면 빈 글자) */
+    fun onResourcePack(url: String, hash: String) {}
 }
 
 /**
@@ -1288,8 +1290,9 @@ class McConnection(
     private fun resourcePack(buf: ByteBuf, responseId: Int) {
         val uuid = buf.readUuid()
         val url = buf.readMcString()
-        buf.readMcString(40) // hash
+        val hash = buf.readMcString(40)
         val forced = buf.readBoolean()
+        events.onResourcePack(url, hash)
         events.onInfo("리소스팩 요청${if (forced) "(필수)" else ""} → 실제로 받지 않고 적용한 것으로 응답: $url")
         // 3 = 수락, 4 = 다운로드 완료, 0 = 적용 성공. 실제 클라이언트처럼 약간 시간차를 둔다.
         val ch = channel ?: return

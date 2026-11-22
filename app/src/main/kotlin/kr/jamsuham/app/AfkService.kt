@@ -273,10 +273,13 @@ class AfkService : Service() {
             active.size == 1 -> "${active[0].first.displayName} · ${stateText(active[0].second)}"
             else -> "잠수 중 ${online}/${active.size}개 서버"
         }
-        val lines = active.map { (server, st) ->
+        val lines = active.flatMap { (server, st) ->
             val time = if (st.state == SessionState.ONLINE && st.onlineSinceMs != null) " · " + Formats.minutes(now - st.onlineSinceMs!!) else ""
             val rc = if (st.reconnectCount > 0) " · 재접속 ${st.reconnectCount}회" else ""
-            "${server.displayName}: ${stateText(st)}$time$rc"
+            // 아랫줄: 접속해 있던 시간 기준 시간당 데이터 사용량 (1분 미만이면 측정 중)
+            val perHour = SessionHub.traffic(server.id)?.perHour
+            val data = "데이터 사용량 " + (perHour?.let { StatusPanel.bytes(it) + "/h" } ?: "측정 중")
+            listOf("${server.displayName}: ${stateText(st)}$time$rc", data)
         }
         val open = PendingIntent.getActivity(
             this, 0,

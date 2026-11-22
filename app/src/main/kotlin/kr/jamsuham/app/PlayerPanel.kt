@@ -67,16 +67,11 @@ class PlayerPanel(private val activity: Activity, private val ui: Ui) : LinearLa
         tv.text = spannable(text, p.text)
     }
 
-    private fun spannable(text: ChatText, base: Int): SpannableStringBuilder {
-        val sb = SpannableStringBuilder()
-        for (s in text.spans) {
-            val start = sb.length
-            sb.append(s.text)
-            sb.setSpan(ForegroundColorSpan(s.color?.let { p.readable(it) } ?: base), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            if (s.bold) sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        }
-        return sb
-    }
+    /** 서버 리소스팩 그림 글자 (칭호 아이콘 등). ChatPanel 이 넣어 준다 */
+    var glyphs: kr.jamsuham.core.pack.PackFonts.FontSet? = null
+
+    private fun spannable(text: ChatText, base: Int, textPx: Float = ui.dp(14).toFloat()): SpannableStringBuilder =
+        Glyphs.build(text, { s -> s.color?.let { p.readable(it) } ?: base }, textPx, glyphs)
 
     private inner class Adapter : BaseAdapter() {
         override fun getCount() = players.size

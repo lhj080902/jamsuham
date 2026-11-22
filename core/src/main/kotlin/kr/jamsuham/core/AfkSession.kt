@@ -387,6 +387,10 @@ class AfkSession(
             if (generation == gen) listener.onDeath(death)
         }
 
+        override fun onResourcePack(url: String, hash: String) {
+            if (generation == gen) listener.onResourcePack(url, hash)
+        }
+
         // 이미 처리한(세대가 지난) 연결의 종료 알림은 무시한다
         override fun onClosed(reason: CloseReason) = submit { if (generation == gen) handleClosed(reason) }
     }

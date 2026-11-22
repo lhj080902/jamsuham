@@ -25,6 +25,10 @@ data class ServerEntry(
     val reconnectOnKick: Boolean = true,
     /** 메뉴 자동 클릭 규칙 ("제목 > 아이템") */
     val autoClickRules: List<String> = emptyList(),
+    /** 서버 리소스팩의 그림 글자(칭호·아이콘)를 받아 채팅에 그림으로 표시 */
+    val packGlyphs: Boolean = true,
+    /** 통째로 받아야 하는 리소스팩은 와이파이에서만 받기 (부분 다운로드가 되는 팩은 모바일 데이터에서도 필요한 부분만 받음) */
+    val packWifiOnly: Boolean = true,
 ) {
     val displayName: String get() = name.ifBlank { address.ifBlank { "이름 없는 서버" } }
 

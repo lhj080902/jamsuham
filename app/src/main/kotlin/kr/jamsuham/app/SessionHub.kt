@@ -36,6 +36,8 @@ object SessionHub {
         fun onVitals(serverId: String, vitals: Vitals?) {}
         /** 사망했을 때, 또는 사망 알림을 지웠을 때(null) */
         fun onDeath(serverId: String, death: DeathInfo?) {}
+        /** 리소스팩 그림 글자를 새로 불러왔을 때 (채팅을 다시 그림) */
+        fun onGlyphs(serverId: String) {}
     }
 
     private class Entry {
@@ -50,6 +52,10 @@ object SessionHub {
         var vitals: Vitals? = null
         /** 마지막 사망 (화면 위 알림 줄에 띄움. 닫으면 null) */
         var lastDeath: DeathInfo? = null
+        /** 이번 접속에서 서버가 보낸 리소스팩 주소 (순서대로, 뒤의 팩이 덮어씀) */
+        val packUrls = ArrayList<String>()
+        /** 그 팩들에서 읽은 그림 글자 (아직 없으면 null) */
+        var glyphs: kr.jamsuham.core.pack.PackFonts.FontSet? = null
     }
 
     private const val MAX_LINES = 500
@@ -102,6 +108,9 @@ object SessionHub {
 
     fun lastDeath(serverId: String): DeathInfo? = entries[serverId]?.lastDeath
 
+    /** 이 서버 리소스팩의 그림 글자 (없으면 null → 그림 글자는 숨김) */
+    fun glyphs(serverId: String): kr.jamsuham.core.pack.PackFonts.FontSet? = entries[serverId]?.glyphs
+
     /** 사망 알림 줄 닫기 */
     fun clearDeath(serverId: String) {
         val e = entries[serverId] ?: return
@@ -124,6 +133,8 @@ object SessionHub {
         e.token = myToken
         e.session?.shutdown()
         e.lines.clear()
+        // 새 접속에서 서버가 리소스팩을 다시 보내면 그 순서대로 다시 겹친다 (그림 글자는 받기 전까지 이전 것을 그대로 씀)
+        e.packUrls.clear()
         // 이전 세션의 체력·메뉴·인벤·접속자가 새 접속에 남아 보이지 않게 비운다
         // (토큰을 먼저 바꿔서 이전 세션의 "비움" 알림은 무시되므로 여기서 직접 비움)
         e.vitals = null
@@ -178,6 +189,29 @@ object SessionHub {
                     if (e.token === myToken) {
                         e.vitals = vitals
                         for (o in observers.toList()) o.onVitals(serverId, vitals)
+                    }
+                }
+            }
+
+            override fun onResourcePack(url: String, hash: String) {
+                main.post {
+                    if (e.token !== myToken) return@post
+                    val server = Store(appContext).server(serverId)
+                    if (server?.packGlyphs == false || !url.startsWith("http")) return@post
+                    if (url !in e.packUrls) e.packUrls.add(url)
+                    Glyphs.load(appContext, url, hash, server?.packWifiOnly ?: true) { set, why ->
+                        if (e.token !== myToken) return@load
+                        if (set == null) {
+                            publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of("리소스팩 그림 글자를 불러오지 못했습니다: $why")))
+                            return@load
+                        }
+                        // 받아 둔 팩들을 서버가 보낸 순서대로 겹친다
+                        val sets = e.packUrls.mapNotNull { u -> if (u == url) set else Glyphs.cached(u) }
+                        e.glyphs = kr.jamsuham.core.pack.PackFonts.FontSet.merge(sets)
+                        if (set.glyphCount > 0) {
+                            publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of("리소스팩 그림 글자 ${set.glyphCount}개를 불러왔습니다")))
+                        }
+                        for (o in observers.toList()) o.onGlyphs(serverId)
                     }
                 }
             }

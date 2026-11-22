@@ -226,6 +226,8 @@ interface SessionListener {
     fun onVitals(vitals: Vitals?) {}
     /** 내 캐릭터가 죽었을 때 */
     fun onDeath(death: DeathInfo) {}
+    /** 서버가 리소스팩을 보내라고 함 (앱은 실제로 적용하지 않고, 그림 글자만 읽어 채팅에 그린다) */
+    fun onResourcePack(url: String, hash: String) {}
 }
 
 /** 아주 단순한 로거 (안드로이드에서는 Logcat 으로 연결) */

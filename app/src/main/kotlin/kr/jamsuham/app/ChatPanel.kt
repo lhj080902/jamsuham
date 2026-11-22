@@ -314,6 +314,7 @@ class ChatPanel(
         if (live) return
         live = true
         SessionHub.addObserver(this)
+        playerPanel.glyphs = SessionHub.glyphs(serverId)
         adapter.reload()
         onPlayers(serverId, SessionHub.players(serverId))
         lastMenuWindow = SessionHub.menu(serverId)?.windowId ?: -1
@@ -449,15 +450,8 @@ class ChatPanel(
             .show()
     }
 
-    private fun spans(t: kr.jamsuham.core.text.ChatText): CharSequence {
-        val sb = SpannableStringBuilder()
-        for (s in t.spans) {
-            val start = sb.length
-            sb.append(s.text)
-            sb.setSpan(ForegroundColorSpan(s.color?.let { p.readable(it) } ?: p.text), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        }
-        return sb
-    }
+    private fun spans(t: kr.jamsuham.core.text.ChatText): CharSequence =
+        Glyphs.build(t, { s -> s.color?.let { p.readable(it) } ?: p.text }, ui.dp(15).toFloat(), SessionHub.glyphs(serverId))
 
     private fun addRule(menu: Menu, item: kr.jamsuham.core.MenuItem) {
         val server = store.server(serverId) ?: return
@@ -521,6 +515,16 @@ class ChatPanel(
         }
         deathBannerText.text = "☠ ${StatusPanel.timeOf(death.atMs)} 사망\n${death.describe()}"
         deathBanner.visibility = VISIBLE
+    }
+
+    override fun onGlyphs(serverId: String) {
+        if (serverId != this.serverId) return
+        // 그림 글자가 생겼으니 채팅·접속자·인벤·메뉴를 다시 그린다
+        playerPanel.glyphs = SessionHub.glyphs(serverId)
+        adapter.notifyDataSetChanged()
+        playerPanel.show(SessionHub.players(serverId))
+        if (page == 2) invPanel.show(SessionHub.inventory(serverId))
+        SessionHub.menu(serverId)?.let { if (menuDialog?.isShowing == true) fillMenu(it) }
     }
 
     override fun onPlayers(serverId: String, list: PlayerList) {
@@ -790,6 +794,7 @@ class ChatPanel(
             }
             val line = items[position]
             val sb = SpannableStringBuilder()
+            val glyphs = SessionHub.glyphs(serverId)
             append(sb, time.format(Date(line.timeMs)) + "  ", p.muted, false)
             val base = when (line.kind) {
                 LogLine.Kind.CHAT -> p.text
@@ -799,9 +804,10 @@ class ChatPanel(
             for (span in line.text.spans) {
                 val c = if (line.kind == LogLine.Kind.CHAT && span.color != null) p.readable(span.color!!) else base
                 val start = sb.length
-                append(sb, span.text, c, span.bold)
-                // 서버가 붙인 클릭 동작(링크·명령어 버튼 등)이나 설명 글이 있으면 누를 수 있게 밑줄
-                if (span.click != null || span.hover != null) {
+                // 글자 + 리소스팩 그림 글자 (그림이 없으면 숨김)
+                Glyphs.append(sb, span, c, tv.textSize, glyphs)
+                // 서버가 붙인 클릭 동작(링크·명령어 버튼 등)이나 설명 글이 있으면 누를 수 있게 (빈 조각은 건너뜀)
+                if ((span.click != null || span.hover != null) && sb.length > start) {
                     sb.setSpan(ChatLinkSpan(span), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
             }
@@ -810,12 +816,7 @@ class ChatPanel(
             return tv
         }
 
-        private fun append(sb: SpannableStringBuilder, s: String, color: Int, bold: Boolean) {
-            val start = sb.length
-            sb.append(s)
-            sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            if (bold) sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        }
+        private fun append(sb: SpannableStringBuilder, s: String, color: Int, bold: Boolean) = Glyphs.appendText(sb, s, color, bold)
     }
 }
 

@@ -104,13 +104,6 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
         return row
     }
 
-    private fun spans(t: ChatText): CharSequence {
-        val sb = SpannableStringBuilder()
-        for (s in t.spans) {
-            val start = sb.length
-            sb.append(s.text)
-            sb.setSpan(ForegroundColorSpan(s.color?.let { p.readable(it) } ?: p.text), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        }
-        return sb
-    }
+    private fun spans(t: ChatText): CharSequence =
+        Glyphs.build(t, { s -> s.color?.let { p.readable(it) } ?: p.text }, ui.dp(14).toFloat(), SessionHub.glyphs(serverId))
 }

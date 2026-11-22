@@ -33,6 +33,8 @@ class ServerEditActivity : BaseActivity() {
     private lateinit var rulesInput: EditText
     private lateinit var autoReconnect: Switch
     private lateinit var reconnectOnKick: Switch
+    private lateinit var packGlyphs: Switch
+    private lateinit var packWifiOnly: Switch
 
     private val versionNames = ArrayList<String>()
     private var accountList: List<Account> = emptyList()
@@ -156,6 +158,16 @@ class ServerEditActivity : BaseActivity() {
             "\"이미 프록시에 접속 중\"이라고 나오면 서버가 예전 접속을 정리할 때까지 기다렸다 다시 시도합니다."))
         form.addView(optCard, ui.gap(10))
 
+        // 리소스팩 그림 글자
+        val packCard = ui.card()
+        packCard.addView(ui.section("리소스팩 그림 글자"))
+        packGlyphs = ui.switch("리소스팩 그림 글자(칭호·아이콘) 표시").apply { isChecked = s.packGlyphs }
+        packWifiOnly = ui.switch("큰 리소스팩은 와이파이에서만 받기").apply { isChecked = s.packWifiOnly }
+        packCard.addView(packGlyphs)
+        packCard.addView(packWifiOnly)
+        packCard.addView(ui.hint("서버 리소스팩에서 글꼴 그림만 골라 받습니다(보통 1MB 이하). 부분 다운로드가 안 되는 팩은 통째로 받아야 해서, 위 옵션을 켜 두면 와이파이에서만 받습니다."))
+        form.addView(packCard, ui.gap(10))
+
         if (original != null) {
             form.addView(ui.button("이 서버 삭제", "danger") { confirmDelete() }, ui.gap(16))
         }
@@ -222,6 +234,8 @@ class ServerEditActivity : BaseActivity() {
             autoClickRules = rulesInput.text.toString().lines().map { it.trim() }.filter { it.contains('>') }.take(20),
             autoReconnect = autoReconnect.isChecked,
             reconnectOnKick = reconnectOnKick.isChecked,
+            packGlyphs = packGlyphs.isChecked,
+            packWifiOnly = packWifiOnly.isChecked,
         )
         store.saveServer(entry)
         if (SessionHub.isActive(entry.id)) toast("저장했습니다. 바뀐 설정은 다음 접속부터 적용됩니다") else toast("저장했습니다")

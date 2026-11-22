@@ -23,7 +23,12 @@ data class ChatClick(val action: Action, val value: String) {
     }
 }
 
-/** [click] 누르면 할 일, [hover] 마우스를 올리면 보이는 설명 글(앱에서는 눌러서 봄) */
+/**
+ * [click] 누르면 할 일, [hover] 마우스를 올리면 보이는 설명 글(앱에서는 눌러서 봄).
+ * [glyphs] 서버 리소스팩 그림 글자(전용 글꼴의 글자, 개인 사용 영역 문자). 앱 글꼴로는 깨지므로 [text] 에는 넣지 않고
+ * 따로 보관한다 → 리소스팩을 받았으면 그림으로 그리고, 아니면 숨긴다.
+ * [font] 이 조각의 글꼴 ("server:rank" 등, null = 기본 글꼴). 리소스팩이 기본 글꼴의 한자 등을 그림으로 바꾼 경우도 이걸로 찾는다.
+ */
 data class ChatSpan(
     val text: String,
     val color: Int? = null,
@@ -31,6 +36,8 @@ data class ChatSpan(
     val italic: Boolean = false,
     val click: ChatClick? = null,
     val hover: String? = null,
+    val glyphs: String? = null,
+    val font: String? = null,
 )
 
 data class ChatText(val spans: List<ChatSpan>) {
@@ -81,6 +88,8 @@ data class ChatText(val spans: List<ChatSpan>) {
             val hidden: Boolean = false,
             val click: ChatClick? = null,
             val hover: String? = null,
+            /** 글꼴 id (minecraft: 를 붙인 형태). null = 기본 글꼴 */
+            val font: String? = null,
         )
 
         /** 글 속의 http(s) 주소 (서버가 클릭 동작을 안 붙여도 눌러서 열 수 있게) */
@@ -91,16 +100,16 @@ data class ChatText(val spans: List<ChatSpan>) {
         private fun addSpan(text: String, style: Style, out: MutableList<ChatSpan>) {
             if (text.isEmpty()) return
             if (style.click != null || !text.contains("http")) {
-                out.add(ChatSpan(text, style.color, style.bold, style.italic, style.click, style.hover))
+                out.add(ChatSpan(text, style.color, style.bold, style.italic, style.click, style.hover, font = style.font))
                 return
             }
             var last = 0
             for (m in URL_REGEX.findAll(text)) {
-                if (m.range.first > last) out.add(ChatSpan(text.substring(last, m.range.first), style.color, style.bold, style.italic, null, style.hover))
-                out.add(ChatSpan(m.value, style.color, style.bold, style.italic, ChatClick(ChatClick.Action.OPEN_URL, m.value), style.hover))
+                if (m.range.first > last) out.add(ChatSpan(text.substring(last, m.range.first), style.color, style.bold, style.italic, null, style.hover, font = style.font))
+                out.add(ChatSpan(m.value, style.color, style.bold, style.italic, ChatClick(ChatClick.Action.OPEN_URL, m.value), style.hover, font = style.font))
                 last = m.range.last + 1
             }
-            if (last < text.length) out.add(ChatSpan(text.substring(last), style.color, style.bold, style.italic, null, style.hover))
+            if (last < text.length) out.add(ChatSpan(text.substring(last), style.color, style.bold, style.italic, null, style.hover, font = style.font))
         }
 
         /** clickEvent (1.21.4 이하 형식) / click_event (1.21.5+ 형식) */
@@ -209,7 +218,13 @@ data class ChatText(val spans: List<ChatSpan>) {
             obj.get("color")?.let { c -> if (c.isJsonPrimitive) parseColor(c.asString)?.let { s = s.copy(color = it) } }
             obj.get("bold")?.let { b -> if (b.isJsonPrimitive) s = s.copy(bold = b.asBooleanLoose()) }
             obj.get("italic")?.let { b -> if (b.isJsonPrimitive) s = s.copy(italic = b.asBooleanLoose()) }
-            obj.get("font")?.let { f -> if (f.isJsonPrimitive) s = s.copy(hidden = f.asString !in STANDARD_FONTS) }
+            obj.get("font")?.let { f ->
+                if (f.isJsonPrimitive) {
+                    val id = f.asString.let { if (':' in it) it else "minecraft:$it" }
+                    // 기본·유니코드 글꼴이 아니면 서버 리소스팩 전용 글꼴 → 글자는 숨기고 그림 글자로 보관
+                    s = s.copy(hidden = f.asString !in STANDARD_FONTS, font = if (id == "minecraft:default") null else id)
+                }
+            }
             clickOf(obj)?.let { s = s.copy(click = it) }
             hoverOf(obj)?.let { s = s.copy(hover = it) }
             return s
@@ -241,10 +256,9 @@ data class ChatText(val spans: List<ChatSpan>) {
         }
 
         private fun appendLegacy(text: String, base: Style, out: MutableList<ChatSpan>) {
-            if (text.isEmpty() || base.hidden) return
+            if (text.isEmpty()) return
             if (text.indexOf('§') < 0) {
-                val clean = stripPrivateUse(text)
-                addSpan(clean, base, out)
+                emit(text, base, out)
                 return
             }
             var style = base
@@ -254,7 +268,7 @@ data class ChatText(val spans: List<ChatSpan>) {
                 val ch = text[i]
                 if (ch == '§' && i + 1 < text.length) {
                     if (sb.isNotEmpty()) {
-                        addSpan(stripPrivateUse(sb.toString()), style, out)
+                        emit(sb.toString(), style, out)
                         sb.setLength(0)
                     }
                     val code = text[i + 1].lowercaseChar()
@@ -272,22 +286,70 @@ data class ChatText(val spans: List<ChatSpan>) {
                 sb.append(ch)
                 i++
             }
-            if (sb.isNotEmpty()) addSpan(stripPrivateUse(sb.toString()), style, out)
+            if (sb.isNotEmpty()) emit(sb.toString(), style, out)
         }
 
-        /** 개인 사용 영역 문자(서버 전용 아이콘 글꼴에 흔히 쓰임)는 앱 글꼴에 없으니 뺀다 */
-        private fun stripPrivateUse(s: String): String {
-            if (s.none { it in '\uE000'..'\uF8FF' }) return s
-            return s.filterNot { it in '\uE000'..'\uF8FF' }
+        /**
+         * 글자 조각을 넣는다. 서버 전용 글꼴이면 통째로, 기본 글꼴이면 개인 사용 영역 문자만 그림 글자([ChatSpan.glyphs])로 따로 보관한다.
+         * (앱 글꼴에는 없는 글자라 네모로 깨지므로 글자로는 보이지 않게)
+         */
+        private fun emit(text: String, style: Style, out: MutableList<ChatSpan>) {
+            if (text.isEmpty()) return
+            if (style.hidden) {
+                out.add(ChatSpan("", style.color, style.bold, style.italic, style.click, style.hover, glyphs = text, font = style.font))
+                return
+            }
+            if (!hasPrivateUse(text)) {
+                addSpan(text, style, out)
+                return
+            }
+            val run = StringBuilder()
+            var runIsPua = false
+            fun flush() {
+                if (run.isEmpty()) return
+                if (runIsPua) out.add(ChatSpan("", style.color, style.bold, style.italic, style.click, style.hover, glyphs = run.toString(), font = style.font))
+                else addSpan(run.toString(), style, out)
+                run.setLength(0)
+            }
+            var i = 0
+            while (i < text.length) {
+                val cp = text.codePointAt(i)
+                val pua = isPrivateUse(cp)
+                if (pua != runIsPua) {
+                    flush()
+                    runIsPua = pua
+                }
+                run.appendCodePoint(cp)
+                i += Character.charCount(cp)
+            }
+            flush()
+        }
+
+        /** 개인 사용 영역 (서버 전용 아이콘 글꼴에 흔히 쓰임): U+E000–F8FF, 보조 평면 U+F0000–10FFFF */
+        fun isPrivateUse(cp: Int): Boolean = cp in 0xE000..0xF8FF || cp >= 0xF0000
+
+        private fun hasPrivateUse(s: String): Boolean {
+            for (ch in s) if (ch in '\uE000'..'\uF8FF' || Character.isSurrogate(ch)) {
+                var i = 0
+                while (i < s.length) {
+                    val cp = s.codePointAt(i)
+                    if (isPrivateUse(cp)) return true
+                    i += Character.charCount(cp)
+                }
+                return false
+            }
+            return false
         }
 
         private fun merge(spans: List<ChatSpan>): List<ChatSpan> {
             val out = ArrayList<ChatSpan>(spans.size)
             for (s in spans) {
-                if (s.text.isEmpty()) continue
+                if (s.text.isEmpty() && s.glyphs.isNullOrEmpty()) continue
                 val last = out.lastOrNull()
-                if (last != null && last.color == s.color && last.bold == s.bold && last.italic == s.italic &&
-                    last.click == s.click && last.hover == s.hover
+                // 그림 글자 조각은 합치지 않는다 (글꼴·위치를 그대로 둠)
+                if (last != null && s.glyphs == null && last.glyphs == null &&
+                    last.color == s.color && last.bold == s.bold && last.italic == s.italic &&
+                    last.click == s.click && last.hover == s.hover && last.font == s.font
                 ) {
                     out[out.size - 1] = last.copy(text = last.text + s.text)
                 } else {

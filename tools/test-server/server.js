@@ -1,7 +1,7 @@
 // 테스트용 마인크래프트 서버 (node-minecraft-protocol)
 // node server.js <version> <port> [scenario]
 // scenario: full (기본) = 1번째 접속: "already connected" 킥 / 2번째: 소켓 강제 끊기 / 3번째: 밴 킥
-//           stay = 계속 유지 / dupe = 중복 로그인 킥 / authkick = 정품 인증 실패 킥 / vitals = 체력·사망 / click = 클릭 채팅
+//           stay = 계속 유지 / dupe = 중복 로그인 킥 / authkick = 정품 인증 실패 킥 / vitals = 체력·사망 / click = 클릭 채팅 / pack = 그림 글자 채팅(PACK_URL)
 const mc = require('minecraft-protocol')
 const nbt = require('prismarine-nbt')
 const crypto = require('crypto')
@@ -86,6 +86,22 @@ server.on('playerJoin', (client) => {
   // authkick = 매번 "Failed to verify username!" 킥 (앱은 몇 번 다시 시도한 뒤 멈춰야 함)
   if (scenario === 'authkick') {
     setTimeout(() => { log('>> kick failed to verify'); kick(client, 'Failed to verify username!') }, 1000)
+  }
+  // pack = 리소스팩 그림 글자가 섞인 채팅 (PACK_URL 로 시험용 팩을 가리키고 실행). 기본 글꼴 U+E001, 전용 글꼴 server:rank U+E100, 한자 鱗(U+9C57)
+  if (scenario === 'pack') {
+    setTimeout(() => safe(() => {
+      log('>> glyph chat')
+      const json = { text: '\ue001[VIP] 철수 \u9c57', extra: [{ text: '\ue100', font: 'server:rank', color: 'gold' }, { text: ' 안녕' }] }
+      if (nbtChat) {
+        const content = nbt.comp({ text: nbt.string('\ue001[VIP] 철수 \u9c57'), extra: nbt.list(nbt.comp([
+          { text: nbt.string('\ue100'), font: nbt.string('server:rank'), color: nbt.string('gold') }, { text: nbt.string(' 안녕') }])) })
+        client.write('system_chat', { content, isActionBar: false })
+      } else if (mcData.isNewerOrEqualTo('1.19')) {
+        client.write('system_chat', { content: JSON.stringify(json), isActionBar: false, type: 1, formattedMessage: JSON.stringify(json) })
+      } else {
+        client.write('chat', { message: JSON.stringify(json), position: 1, sender: '00000000-0000-0000-0000-000000000000' })
+      }
+    }), 2000)
   }
   // click = 클릭할 수 있는 채팅 ([수락] 명령어 버튼 + 설명 글, 링크). 앱에서 누르면 동작해야 함
   if (scenario === 'click') {
@@ -283,13 +299,17 @@ function openPackMenu (client) {
   }
 }
 
+// 리소스팩 주소 (PACK_URL 환경변수로 바꿀 수 있음 — pack 시나리오에서 시험용 팩 서버를 가리킴)
+const PACK_URL = process.env.PACK_URL || 'https://example.com/pack.zip'
+const PACK_HASH = process.env.PACK_HASH || 'a'.repeat(40)
+
 function sendResourcePack (client) {
   if (mcData.isNewerOrEqualTo('1.20.3')) {
     client.write('add_resource_pack', {
-      uuid: crypto.randomUUID(), url: 'https://example.com/pack.zip', hash: 'a'.repeat(40), forced: true, promptMessage: undefined
+      uuid: crypto.randomUUID(), url: PACK_URL, hash: PACK_HASH, forced: true, promptMessage: undefined
     })
   } else {
-    client.write('resource_pack_send', { url: 'https://example.com/pack.zip', hash: 'a'.repeat(40) })
+    client.write('resource_pack_send', { url: PACK_URL, hash: PACK_HASH })
   }
 }
 
