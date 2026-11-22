@@ -66,23 +66,16 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
         mapCard.addView(wpRow, ui.lp())
         addView(mapCard, ui.lp(Ui.MATCH, 0, 1f))
 
-        // 이동 버튼: 누르고 있는 동안 움직임
+        // 이동: 왼쪽 조이스틱(누른 채 끌면 그 방향으로 걷기, 위 = 북쪽) + 오른쪽 점프
         val pad = ui.card().apply { setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10)) }
-        val grid = ui.horizontal()
-        val dpad = ui.vertical()
-        val size = ui.dp(54)
-        fun spacer() = View(activity)
-        val r1 = ui.horizontal(); r1.addView(spacer(), ui.lp(size, size)); r1.addView(holdButton("▲", 1), ui.lp(size, size)); r1.addView(spacer(), ui.lp(size, size))
-        val r2 = ui.horizontal(); r2.addView(holdButton("◀", 4), ui.lp(size, size)); r2.addView(spacer(), ui.lp(size, size)); r2.addView(holdButton("▶", 8), ui.lp(size, size))
-        val r3 = ui.horizontal(); r3.addView(spacer(), ui.lp(size, size)); r3.addView(holdButton("▼", 2), ui.lp(size, size)); r3.addView(spacer(), ui.lp(size, size))
-        dpad.addView(r1); dpad.addView(r2); dpad.addView(r3)
-        grid.addView(dpad)
+        val grid = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+        grid.addView(Joystick(), ui.lp(ui.dp(150), ui.dp(150)))
         val right = ui.vertical().apply { gravity = Gravity.CENTER }
         right.addView(holdButton("점프", 16, primary = true), ui.lp(ui.dp(90), ui.dp(90)))
-        right.addView(ui.text("▲ 북  ▼ 남  ◀ 서  ▶ 동", 11f, p.muted).apply { setPadding(0, ui.dp(8), 0, 0) })
+        right.addView(ui.text("위 = 북쪽 (지도와 같음)", 11f, p.muted).apply { setPadding(0, ui.dp(8), 0, 0); gravity = Gravity.CENTER })
         grid.addView(right, ui.lp(0, Ui.WRAP, 1f))
         pad.addView(grid)
-        pad.addView(ui.hint("0.6칸 이하 턱(반 블록, 계단)은 자동으로 올라갑니다. 아이템 사용은 인벤 탭에서 합니다."))
+        pad.addView(ui.hint("조이스틱을 누른 채 끌면 그 방향으로 걷습니다. 0.6칸 이하 턱(반 블록, 계단)은 자동으로 올라갑니다. 아이템 사용은 인벤 탭에서 합니다."))
         addView(pad, ui.lp().apply { topMargin = ui.dp(8) })
     }
 
@@ -111,6 +104,76 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
     fun stopMoving() {
         mask = 0
         SessionHub.setMovement(serverId, 0)
+        SessionHub.setStick(serverId, 0f, 0f)
+    }
+
+    /**
+     * 조이스틱: 가운데에서 손가락까지의 방향으로 걷는다 (위 = 북쪽, 오른쪽 = 동쪽).
+     * 가운데 근처(반지름의 20%)는 멈춤. 페이지 넘기기 동작이 끼어들지 않게 누르는 동안 부모의 터치 가로채기를 막는다.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private inner class Joystick : View(this@MapPanel.context) {
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = ui.dp(12).toFloat(); isFakeBoldText = true }
+        private var kx = 0f
+        private var ky = 0f
+        private var active = false
+
+        override fun onTouchEvent(ev: MotionEvent): Boolean {
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = minOf(width, height) / 2f - ui.dp(22)
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    active = true
+                    var dx = ev.x - cx
+                    var dy = ev.y - cy
+                    val len = kotlin.math.hypot(dx, dy)
+                    if (len > r) { dx = dx / len * r; dy = dy / len * r }
+                    kx = dx; ky = dy
+                    if (len < r * 0.2f) SessionHub.setStick(serverId, 0f, 0f)
+                    else SessionHub.setStick(serverId, dx / r, dy / r) // 화면 아래 = 남쪽(+Z)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    active = false
+                    kx = 0f; ky = 0f
+                    SessionHub.setStick(serverId, 0f, 0f)
+                }
+            }
+            invalidate()
+            return true
+        }
+
+        override fun onDetachedFromWindow() {
+            SessionHub.setStick(serverId, 0f, 0f)
+            super.onDetachedFromWindow()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val outer = minOf(width, height) / 2f - ui.dp(2)
+            fill.color = p.input
+            canvas.drawCircle(cx, cy, outer, fill)
+            if (p.stroke != 0) {
+                fill.style = Paint.Style.STROKE; fill.strokeWidth = ui.dp(2).toFloat(); fill.color = p.stroke
+                canvas.drawCircle(cx, cy, outer, fill)
+                fill.style = Paint.Style.FILL
+            }
+            // 방위 글자
+            text.color = p.muted
+            val off = outer - ui.dp(12)
+            val base = (text.descent() + text.ascent()) / 2
+            canvas.drawText("북", cx, cy - off - base, text)
+            canvas.drawText("남", cx, cy + off - base, text)
+            canvas.drawText("서", cx - off, cy - base, text)
+            canvas.drawText("동", cx + off, cy - base, text)
+            // 손잡이
+            fill.color = if (active) p.accent else p.muted
+            canvas.drawCircle(cx + kx, cy + ky, ui.dp(26).toFloat(), fill)
+        }
     }
 
     override fun onDetachedFromWindow() {

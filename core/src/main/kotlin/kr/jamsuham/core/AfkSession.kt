@@ -163,6 +163,11 @@ class AfkSession(
         connection?.movementInput = mask
     }
 
+    /** 조이스틱 방향 (동쪽·남쪽 성분 -1~1, 0·0 이면 멈춤) */
+    fun setStick(east: Float, south: Float) {
+        connection?.setStick(east, south)
+    }
+
     /** 열린 메뉴의 칸 클릭 (왼쪽 클릭) */
     fun clickMenu(slot: Int): Boolean = connection?.clickMenuSlot(slot) ?: false
 

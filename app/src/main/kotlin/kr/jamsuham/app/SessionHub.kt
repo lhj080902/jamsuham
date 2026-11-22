@@ -313,6 +313,11 @@ object SessionHub {
         entries[serverId]?.session?.setMovement(mask)
     }
 
+    /** 조이스틱 입력 (동쪽·남쪽 성분) */
+    fun setStick(serverId: String, east: Float, south: Float) {
+        entries[serverId]?.session?.setStick(east, south)
+    }
+
     /** 미니맵용: 지금 접속 중인 연결 (위치·주변 블록·다른 플레이어) */
     fun live(serverId: String): kr.jamsuham.core.net.McConnection? {
         val e = entries[serverId] ?: return null

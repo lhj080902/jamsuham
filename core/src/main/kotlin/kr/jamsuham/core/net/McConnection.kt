@@ -1119,6 +1119,20 @@ class McConnection(
             if (wake) wakeTicks()
         }
 
+    @Volatile private var stickX = 0f
+    @Volatile private var stickZ = 0f
+
+    /**
+     * 조이스틱 방향: [east] 동(+X)쪽, [south] 남(+Z)쪽 성분 (-1~1). 0, 0 이면 멈춤.
+     * 기울기와 상관없이 바닐라 걷기 속도로 그 방향으로 걷는다. 아무 스레드나 불러도 된다.
+     */
+    fun setStick(east: Float, south: Float) {
+        val wake = (east != 0f || south != 0f) && stickX == 0f && stickZ == 0f
+        stickX = east
+        stickZ = south
+        if (wake) wakeTicks()
+    }
+
     // ------------------------------------------------------------------ 데이터 사용량
 
     private val rxBytes = java.util.concurrent.atomic.AtomicLong()
@@ -1154,6 +1168,11 @@ class McConnection(
         if (input and 2 != 0) dz += 1.0
         if (input and 4 != 0) dx -= 1.0
         if (input and 8 != 0) dx += 1.0
+        // 방향 비트가 없으면 조이스틱 방향 (아무 방향이나)
+        if (dx == 0.0 && dz == 0.0) {
+            dx = stickX.toDouble()
+            dz = stickZ.toDouble()
+        }
         val wantsJump = input and 16 != 0
         val moving = dx != 0.0 || dz != 0.0
         val physics = (moving || wantsJump || !onGround) && Collision.loaded &&
