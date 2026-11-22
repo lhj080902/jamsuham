@@ -146,3 +146,9 @@ Gradle 로 APK 를 만드는 과정, 실제 폰에서의 실행, 정품 로그�
 - Netty — https://netty.io (Apache 2.0)
 - Gson, Guava — Google (Apache 2.0)
 - 패킷 번호·구조 확인: ViaVersion 소스의 패킷 정의, minecraft-data(https://github.com/PrismarineJS/minecraft-data)
+
+## 라이선스 · 이름 이용
+- 코드: **GPL-3.0** (ViaVersion·ViaBackwards·ViaRewind 포함). 라이선스 전문은 `app/src/main/assets/legal/`
+- 이름 "잠수함"·아이콘·패키지 이름은 라이선스에 포함되지 않습니다. 고친 판을 배포하려면 바꿔 주세요 → [TRADEMARKS.md](TRADEMARKS.md)
+- 개인정보처리방침: [app/src/main/assets/legal/privacy-policy.md](app/src/main/assets/legal/privacy-policy.md)
+- 마인크래프트 공식 제품이 아니며 Mojang·Microsoft 와 관련이 없습니다.

@@ -32,7 +32,7 @@
   - 주(맨 앞): 엔진·구조 변경 / 부(가운데): 큰 기능·대규모 패치(수는 0) / 수(맨 뒤): 버그 수정·작은 변경
   - versionCode 는 GitHub Actions 실행 번호(자동). 릴리스 제목 "잠수함 vX.Y.Z (빌드 #N)" 에서 앱이 버전을 읽어 업데이트 배너에 표시
 - 서명: GitHub 판은 저장소의 `app/debug.keystore`(공개). Play 판 release 는 Secrets 업로드 키(`docs/RELEASE_KEY.md`), 없으면 디버그 키
-- 출시 문서: `docs/PLAYSTORE_PLAN.md`(전체 과정), `docs/store-listing.md`(Play Console 입력 초안), `docs/privacy-policy.md`, 앱 "정보" 화면 `AppInfo.kt`
+- 출시 문서: `docs/PLAYSTORE_PLAN.md`(전체 과정), `docs/store-listing.md`(Play Console 입력 초안), `app/src/main/assets/legal/privacy-policy.md`, 앱 "정보" 화면 `AppInfo.kt`
 - 로컬: `./gradlew :app:assembleGithubDebug` / `:app:bundlePlayRelease` (JDK 17, Android SDK 필요)
 
 ## 테스트 (PC)
