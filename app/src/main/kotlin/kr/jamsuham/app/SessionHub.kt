@@ -54,6 +54,8 @@ object SessionHub {
         var lastDeath: DeathInfo? = null
         /** 이번 접속에서 서버가 보낸 리소스팩 주소 (순서대로, 뒤의 팩이 덮어씀) */
         val packUrls = ArrayList<String>()
+        /** 팩 주소 → 서버가 알려 준 SHA-1 (캐시 위치를 찾는 데 씀) */
+        val packHashes = HashMap<String, String>()
         /** 팩별 그림 글자 상태 (상태 탭에 보여 줌) */
         val packStates = LinkedHashMap<String, PackState>()
         /** 그 팩들에서 읽은 그림 글자 (아직 없으면 null) */
@@ -61,7 +63,16 @@ object SessionHub {
     }
 
     /** 리소스팩 하나의 그림 글자 상태. [glyphs] 읽은 그림 글자 수 (받는 중·실패면 null), [error] 실패 이유 */
-    data class PackState(val url: String, val glyphs: Int?, val fonts: Int = 0, val error: String? = null, val skipped: Boolean = false, val report: String? = null)
+    data class PackState(
+        val url: String,
+        val glyphs: Int?,
+        val fonts: Int = 0,
+        val error: String? = null,
+        val skipped: Boolean = false,
+        val report: String? = null,
+        /** 앱이 뒤에 있어서 메모리에 올리지 않음 (앱을 열면 다시 읽음) */
+        val deferred: Boolean = false,
+    )
 
     /** 1분마다 다시 계산하는 시간당 데이터 사용량 (알림과 상태 탭이 같은 값을 보도록) */
     private val rates = HashMap<String, Long>()
@@ -136,6 +147,69 @@ object SessionHub {
     /** 이 서버 리소스팩의 그림 글자 (없으면 null → 그림 글자는 숨김) */
     fun glyphs(serverId: String): kr.jamsuham.core.pack.PackFonts.FontSet? = entries[serverId]?.glyphs
 
+    /**
+     * 팩 [url] 의 그림 글자를 읽어 [e] 에 겹친다 (받아 둔 것이 있으면 기기에서 바로 읽음).
+     * 앱이 뒤로 가 있으면 메모리를 아끼려고 읽지 않고, 앱을 다시 열 때 [restoreGlyphs] 가 읽는다.
+     * [announce] 채팅에 "N개를 불러왔습니다" 를 남길지 (앱을 다시 열 때 다시 읽는 경우는 조용히).
+     */
+    private fun loadPack(serverId: String, e: Entry, url: String, announce: Boolean) {
+        val token = e.token
+        if (!JamsuApp.inForeground) {
+            e.packStates[url] = PackState(url, null, error = null, deferred = true)
+            notifyGlyphs(serverId)
+            return
+        }
+        e.packStates[url] = PackState(url, null)
+        notifyGlyphs(serverId)
+        val server = Store(appContext).server(serverId)
+        Glyphs.load(appContext, url, e.packHashes[url].orEmpty(), server?.packWifiOnly ?: true) { set, why ->
+            if (e.token !== token) return@load
+            if (set == null) {
+                e.packStates[url] = PackState(url, null, error = why ?: tr("알 수 없는 오류", "Unknown error"))
+                publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(tr("리소스팩 그림 글자를 불러오지 못했습니다: $why", "Couldn't load resource pack glyphs: $why"))))
+                notifyGlyphs(serverId)
+                return@load
+            }
+            e.packStates[url] = PackState(url, set.glyphCount, set.fonts.size, report = set.report)
+            // 받아 둔 팩들을 서버가 보낸 순서대로 겹친다
+            val sets = e.packUrls.mapNotNull { u -> if (u == url) set else Glyphs.cached(u) }
+            e.glyphs = kr.jamsuham.core.pack.PackFonts.FontSet.merge(sets)
+            if (announce) {
+                val msg = if (set.glyphCount > 0) tr("리소스팩 그림 글자 ${set.glyphCount}개를 불러왔습니다", "Loaded ${set.glyphCount} resource pack glyphs")
+                else tr("이 서버의 리소스팩에는 그림 글자가 없습니다", "This server's resource pack has no glyphs")
+                publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(msg)))
+            }
+            // 지금 쓰는 팩만 기기에 남기고 예전 서버의 팩은 지운다 (저장 공간 절약)
+            Glyphs.pruneCache(appContext, entries.values.flatMap { en -> en.packUrls.map { it to en.packHashes[it].orEmpty() } })
+            notifyGlyphs(serverId)
+        }
+    }
+
+    /** 앱이 뒤로 갔다: 그림 글자를 메모리에서 내린다 (큰 팩은 수십 MB). 기기에 받아 둔 파일은 그대로 */
+    fun releaseGlyphs() {
+        var any = false
+        for ((id, e) in entries) {
+            if (e.glyphs == null) continue
+            e.glyphs = null
+            for (url in e.packUrls) e.packStates[url]?.let { if (it.glyphs != null) e.packStates[url] = it.copy(deferred = true) }
+            any = true
+            notifyGlyphs(id)
+        }
+        if (any) Glyphs.releaseMemory()
+    }
+
+    /** 앱을 다시 열었다: 내렸던(또는 뒤에 있을 때 미뤘던) 그림 글자를 기기에서 다시 읽는다 */
+    fun restoreGlyphs() {
+        if (!::appContext.isInitialized) return
+        for ((id, e) in entries) {
+            if (!e.status.state.isActive() && e.session == null) continue
+            for (url in e.packUrls.toList()) {
+                val st = e.packStates[url]
+                if (e.glyphs == null && st != null && !st.skipped && (st.deferred || st.glyphs != null)) loadPack(id, e, url, announce = false)
+            }
+        }
+    }
+
     private fun notifyGlyphs(serverId: String) {
         for (o in observers.toList()) o.onGlyphs(serverId)
     }
@@ -164,6 +238,7 @@ object SessionHub {
         e.lines.clear()
         // 새 접속에서 서버가 리소스팩을 다시 보내면 그 순서대로 다시 겹친다 (그림 글자는 받기 전까지 이전 것을 그대로 씀)
         e.packUrls.clear()
+        e.packHashes.clear()
         e.packStates.clear()
         rates.remove(serverId)
         // 이전 세션의 체력·메뉴·인벤·접속자가 새 접속에 남아 보이지 않게 비운다
@@ -235,25 +310,8 @@ object SessionHub {
                         return@post
                     }
                     if (url !in e.packUrls) e.packUrls.add(url)
-                    e.packStates[url] = PackState(url, null)
-                    notifyGlyphs(serverId)
-                    Glyphs.load(appContext, url, hash, server?.packWifiOnly ?: true) { set, why ->
-                        if (e.token !== myToken) return@load
-                        if (set == null) {
-                            e.packStates[url] = PackState(url, null, error = why ?: tr("알 수 없는 오류", "Unknown error"))
-                            publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(tr("리소스팩 그림 글자를 불러오지 못했습니다: $why", "Couldn't load resource pack glyphs: $why"))))
-                            notifyGlyphs(serverId)
-                            return@load
-                        }
-                        e.packStates[url] = PackState(url, set.glyphCount, set.fonts.size, report = set.report)
-                        // 받아 둔 팩들을 서버가 보낸 순서대로 겹친다
-                        val sets = e.packUrls.mapNotNull { u -> if (u == url) set else Glyphs.cached(u) }
-                        e.glyphs = kr.jamsuham.core.pack.PackFonts.FontSet.merge(sets)
-                        val msg = if (set.glyphCount > 0) tr("리소스팩 그림 글자 ${set.glyphCount}개를 불러왔습니다", "Loaded ${set.glyphCount} resource pack glyphs")
-                        else tr("이 서버의 리소스팩에는 그림 글자가 없습니다", "This server's resource pack has no glyphs")
-                        publishLine(serverId, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(msg)))
-                        notifyGlyphs(serverId)
-                    }
+                    e.packHashes[url] = hash
+                    loadPack(serverId, e, url, announce = true)
                 }
             }
 

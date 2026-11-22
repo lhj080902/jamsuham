@@ -154,6 +154,7 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
         packText.setTextIfChanged(
             when {
                 packs.all { it.skipped } -> tr("꺼져 있음 (서버 설정에서 켤 수 있습니다)", "Off (can be turned on in server settings)")
+                packs.any { it.deferred && it.glyphs == null } -> tr("앱을 열어 두면 불러옵니다", "Loads while the app is open")
                 packs.any { it.glyphs == null && it.error == null && !it.skipped } -> tr("받는 중…", "Downloading…")
                 total > 0 -> tr("그림 글자 ${total}개 사용 중", "Using ${total} glyphs")
                 packs.any { it.error != null } -> tr("불러오지 못함", "Failed to load")
@@ -169,8 +170,10 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
                 val state = when {
                     s.skipped -> tr("꺼짐", "Off")
                     s.error != null -> tr("실패: ${s.error}", "Failed: ${s.error}")
+                    s.deferred && s.glyphs == null -> tr("앱을 열면 불러옴", "Loads when the app is opened")
                     s.glyphs == null -> tr("받는 중", "Downloading")
                     else -> tr("글자 ${s.glyphs}개 · 글꼴 ${s.fonts}개", "${s.glyphs} glyphs · ${s.fonts} fonts") +
+                        (if (s.deferred) tr(" · 앱이 뒤에 있어 메모리에서 내림", " · unloaded while in background") else "") +
                         (s.report?.lines()?.firstOrNull { it.startsWith("받는 데") || it.startsWith("Download took") }?.let { " · $it" } ?: "")
                 }
                 "• $state\n  ${s.url}" + (s.report?.takeIf { s.glyphs == 0 || Glyphs.missing.isNotEmpty() }?.let { tr("\n  [팩 안 모습]\n  ", "\n  [Pack contents]\n  ") + it.replace("\n", "\n  ") } ?: "")

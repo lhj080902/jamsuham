@@ -75,6 +75,27 @@ object Glyphs {
         }
     }
 
+    /** 메모리에 올린 그림 글자를 모두 내린다 (앱이 뒤로 갔을 때). 기기의 파일은 그대로라 다시 열면 빠르게 읽는다 */
+    fun releaseMemory() {
+        loaded.clear()
+        bitmaps.evictAll()
+        cells.evictAll()
+    }
+
+    /** 지금 쓰는 팩([inUse]: 주소, SHA-1)만 남기고 예전 서버의 팩 파일을 지운다 (백그라운드에서) */
+    fun pruneCache(context: Context, inUse: List<Pair<String, String>>) {
+        if (inUse.isEmpty()) return
+        val dir = File(context.applicationContext.filesDir, "packfonts")
+        val keep = inUse.map { (u, h) -> u to h.ifBlank { null } }
+        loader.execute {
+            try {
+                val freed = PackFonts.pruneCache(dir, keep)
+                if (freed > 0) SessionHub.log.i("예전 리소스팩 그림 글자 ${freed / 1024}KB 를 지웠습니다")
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     /** 받아 둔 리소스팩 그림 글자 용량 (바이트) */
     fun cacheBytes(context: Context): Long =
         File(context.filesDir, "packfonts").walkTopDown().filter { it.isFile }.sumOf { it.length() }

@@ -98,9 +98,9 @@ object PackFonts {
      */
     @Throws(IOException::class)
     fun load(url: String, hash: String?, cacheDir: File, maxFullBytes: Long, log: CoreLog = CoreLog.STDOUT): FontSet {
-        val key = hash?.takeIf { it.matches(Regex("[0-9a-fA-F]{40}")) }?.lowercase() ?: sha1(url)
+        val key = cacheKey(url, hash)
         // 읽는 방식이 바뀌면 예전 캐시를 쓰지 않도록 판 번호를 붙인다 (v2: 오버레이 폴더 지원)
-        val dir = File(cacheDir, "$key-v$CACHE_VERSION")
+        val dir = File(cacheDir, cacheName(url, hash))
         readCache(dir)?.let { return it }
 
         val started = System.currentTimeMillis()
@@ -252,6 +252,27 @@ object PackFonts {
             }
         }
         return FontSet(fonts, images, report)
+    }
+
+    private fun cacheKey(url: String, hash: String?): String =
+        hash?.takeIf { it.matches(Regex("[0-9a-fA-F]{40}")) }?.lowercase() ?: sha1(url)
+
+    /** 이 팩을 저장하는 폴더 이름 ([cacheDir] 아래) */
+    fun cacheName(url: String, hash: String?): String = "${cacheKey(url, hash)}-v$CACHE_VERSION"
+
+    /**
+     * [keep] 에 든 팩(주소, SHA-1)만 남기고 [cacheDir] 의 다른 팩·받다 만 파일을 지운다.
+     * 다른 서버로 옮기면 예전 서버의 팩을 지워 저장 공간을 아낀다. 지운 바이트 수를 돌려준다.
+     */
+    fun pruneCache(cacheDir: File, keep: Collection<Pair<String, String?>>): Long {
+        val keepNames = keep.flatMap { (u, h) -> listOf(cacheName(u, h), "${cacheKey(u, h)}.download") }.toSet()
+        var freed = 0L
+        for (f in cacheDir.listFiles().orEmpty()) {
+            if (f.name in keepNames) continue
+            freed += f.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            f.deleteRecursively()
+        }
+        return freed
     }
 
     /** 마인크래프트처럼 너그럽게 읽는다 (BOM, 주석, 따옴표 없는 이름 등) */

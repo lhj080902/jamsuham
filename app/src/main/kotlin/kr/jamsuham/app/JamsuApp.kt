@@ -20,8 +20,18 @@ class JamsuApp : Application() {
         AppSettings.init(this)
         // 화면이 하나라도 보이는지 (메뉴 알림을 띄울지 판단용)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
-            override fun onActivityStarted(a: Activity) { started++ }
-            override fun onActivityStopped(a: Activity) { started = (started - 1).coerceAtLeast(0) }
+            override fun onActivityStarted(a: Activity) {
+                if (started++ == 0) {
+                    // 앱을 다시 열었다: 내려 둔 리소스팩 그림 글자를 다시 읽는다
+                    main.removeCallbacks(release)
+                    SessionHub.restoreGlyphs()
+                }
+            }
+            override fun onActivityStopped(a: Activity) {
+                started = (started - 1).coerceAtLeast(0)
+                // 앱이 뒤로 갔다: 잠깐 다른 앱을 보는 경우를 위해 30초 뒤에 그림 글자를 메모리에서 내린다
+                if (started == 0) main.postDelayed(release, 30_000)
+            }
             override fun onActivityCreated(a: Activity, b: Bundle?) {}
             override fun onActivityResumed(a: Activity) {}
             override fun onActivityPaused(a: Activity) {}
@@ -29,6 +39,9 @@ class JamsuApp : Application() {
             override fun onActivityDestroyed(a: Activity) {}
         })
     }
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val release = Runnable { if (!inForeground) SessionHub.releaseGlyphs() }
 
     companion object {
         private var started = 0
