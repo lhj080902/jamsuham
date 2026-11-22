@@ -5,7 +5,8 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "HttpUtilMixin",
-    "MinecraftMixin"
+    "MinecraftMixin",
+    "DownloadedPackSourceMixin"
   ],
   "injectors": {
     "defaultRequire": 1

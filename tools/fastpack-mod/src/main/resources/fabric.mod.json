@@ -3,7 +3,7 @@
   "id": "fastpack",
   "version": "${version}",
   "name": "FastPack (잠수크래프트)",
-  "description": "서버 리소스팩을 여러 개의 HTTP Range 연결로 나눠 동시에 받아 다운로드를 빠르게 합니다. 안 되면 바닐라 방식으로 받습니다. 비공식 모드입니다.",
+  "description": "서버 리소스팩을 빠르게: ① 재접속할 때 같은 팩이면 다시 적용하지 않음(나갈 때도 내리지 않음) ② 팩을 여러 HTTP Range 연결로 나눠 동시에 받음. 비공식 모드입니다.",
   "authors": [
     "jamsuham"
   ],
