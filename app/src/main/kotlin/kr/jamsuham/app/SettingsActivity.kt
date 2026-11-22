@@ -60,8 +60,8 @@ class SettingsActivity : BaseActivity() {
         look.addView(ui.label(tr("언어 · Language", "Language · 언어")))
         look.addView(choices(AppSettings.Language.entries, AppSettings.language, { tr(it.ko, it.en) }) { AppSettings.setLanguage(it); rebuild() })
         look.addView(ui.hint(tr(
-            "영어 번역은 화면별로 옮기는 중이라 일부 문구는 아직 한국어로 나옵니다. 서버 채팅은 번역되지 않습니다.",
-            "English translation is in progress; some screens still show Korean. Server chat is not translated.",
+            "서버가 보내는 채팅과 메뉴 글자는 서버가 정한 언어 그대로 나옵니다.",
+            "Chat and menu text sent by the server stays in the server's language.",
         )))
         look.addView(ui.label(tr("글자 크기", "Text size")))
         look.addView(choices(AppSettings.TextScale.entries, AppSettings.textScale, { tr(it.ko, it.en) }) { AppSettings.setTextScale(it); rebuild() })
