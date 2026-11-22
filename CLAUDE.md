@@ -17,7 +17,7 @@
   - `text/ChatText.kt` 채팅 JSON/NBT → 색 있는 글자 + 클릭 동작(clickEvent/click_event)·설명(hoverEvent), 글 속 http 주소 자동 링크 (리소스팩 전용 글꼴 글자는 숨김), `text/ItemNames.kt` 아이템 한국어 이름,
     `text/DeathMessages.kt` 사망 메시지(death.* 번역 키) → 누구·원인·무기. 체력은 SET_HEALTH + 속성 0x7C(max_health=18) + 엔티티 정보 0x5D(흡수=15번)
   - `pack/PackFonts.kt` 서버 리소스팩의 그림 글자(비트맵 글꼴)만 읽음: zip 끝 목록 + 글꼴 json + png 만 HTTP Range 로 골라 받고(안 되면 전체, 상한),
-    pack.mcmeta 오버레이(팩 형식 46 이상용 폴더)도 겹쳐 읽음, json 은 너그럽게(BOM·주석) 읽음. files/packfonts/<sha1>-v6/ 에 캐시(그림 글자 0개면 저장 안 함). 보호된 팩 대응: 목록 위치를 자바처럼 계산·엉터리 크기 무시·망가진 PNG 는 `repairPng`. 묶어 받기(간격 64KB)+동시 6개. 배경 띠 건너뛰기: space 공급자의 음수 빈칸(`FontSet.spaces`) 바로 앞 그림(뒤로 당기는 거리 ≥ 그림 폭 절반)은 `Glyphs.backgroundMarks` 로 건너뜀, 그 밖에 꽉 찬 단색 띠·꽉 찬 5배 긴 띠도 건너뜀. ChatText 는 전용 글꼴·개인 사용 영역 글자를 버리지 않고 `ChatSpan.glyphs`(+`font`)로 보관 → 앱 `Glyphs.kt` 가 ImageSpan 으로 그림
+    pack.mcmeta 오버레이(팩 형식 46 이상용 폴더)도 겹쳐 읽음, json 은 너그럽게(BOM·주석) 읽음. files/packfonts/<sha1>-v6/ 에 캐시(그림 글자 0개면 저장 안 함). 보호된 팩 대응: 목록 위치를 자바처럼 계산·엉터리 크기 무시·망가진 PNG 는 `repairPng`. 묶어 받기(간격 64KB)+동시 6개. 배경 띠 건너뛰기: 뒤로 당기는 빈칸(space 공급자 음수 이동 `FontSet.spaces` 또는 **높이가 음수인 1×1 그림 글자** — 도스온라인 방식, U+F80x h-130 등)이 이어지면 그 합이 바로 앞 그림 폭의 절반 이상일 때 그 그림을 `Glyphs.backgroundMarks` 로 건너뜀(음수 높이 그림은 안 그림), 예비로 꽉 찬 5배 긴 띠만. 채팅 줄 길게 누르기 = 그림 글자 진단 창(복사). ChatText 는 전용 글꼴·개인 사용 영역 글자를 버리지 않고 `ChatSpan.glyphs`(+`font`)로 보관 → 앱 `Glyphs.kt` 가 ImageSpan 으로 그림
   - `world/World.kt` 청크·충돌(이동 물리용), `BlockColors`(미니맵 색), 리소스 `core/src/main/resources/jamsuham/`
 - `app/` — 안드로이드 UI (XML 없이 코드로 화면 구성, `Ui.kt` 도우미). minSdk 26, target/compile 36
   - `SessionHub` 서버별 세션 상태(메인 스레드 콜백), `AfkService` 포그라운드 서비스(알림, 화면 꺼져도 유지)

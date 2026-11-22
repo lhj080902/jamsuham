@@ -238,7 +238,7 @@ object Glyphs {
      * (-1~-2 같은 작은 음수는 글자 사이 좁히기라서 무시: 뒤로 당기는 거리가 앞 그림 폭의 절반 이상일 때만)
      */
     fun backgroundMarks(spans: List<ChatSpan>, set: PackFonts.FontSet?): Set<Long> {
-        if (set == null || set.spaces.isEmpty()) return emptySet()
+        if (set == null) return emptySet()
         class E(val key: Long, val font: String?, val cp: Int)
         val seq = ArrayList<E>()
         spans.forEachIndexed { si, sp ->
@@ -249,23 +249,48 @@ object Glyphs {
             while (i < gl.length) { val cp = gl.codePointAt(i); seq += E(key(si, 1, i), sp.font, cp); i += Character.charCount(cp) }
         }
         val marks = HashSet<Long>()
-        for ((idx, e) in seq.withIndex()) {
-            val adv = set.advance(e.font, e.cp) ?: continue
-            if (adv >= 0) continue
-            // 바로 앞에 이어진 그림 글자들
+        var idx = 0
+        while (idx < seq.size) {
+            val adv = negativeAdvance(set, seq[idx].font, seq[idx].cp)
+            if (adv == null) { idx++; continue }
+            // 이어진 음수 빈칸들의 합 (예: -130, -66, -10, -8 → -214)
+            var total = 0f
+            var end = idx
+            while (end < seq.size) {
+                val a = negativeAdvance(set, seq[end].font, seq[end].cp) ?: break
+                total += a
+                end++
+            }
+            // 바로 앞에 이어진 (보이는) 그림 글자들
             var j = idx - 1
             var width = 0f
             val run = ArrayList<Long>()
             while (j >= 0) {
                 val p = seq[j]
                 val g = glyphOf(set, p.font, p.cp) ?: break
+                if (g.height <= 0) break
                 width += glyphAdvance(set, g)
                 run += p.key
                 j--
             }
-            if (run.isNotEmpty() && -adv >= width * 0.5f) marks += run
+            if (run.isNotEmpty() && -total >= width * 0.5f) marks += run
+            idx = end
         }
         return marks
+    }
+
+    /**
+     * 뒤로 당기는 빈칸이면 그 가로 이동(음수, 픽셀), 아니면 null.
+     * ① space 공급자의 음수 이동 ② 높이가 음수인 그림 글자(예전 방식: 1×1 그림에 height -130 → 약 -130 이동)
+     */
+    private fun negativeAdvance(set: PackFonts.FontSet, font: String?, cp: Int): Float? {
+        set.advance(font, cp)?.let { return if (it < 0) it else null }
+        val g = glyphOf(set, font, cp) ?: return null
+        if (g.height >= 0) return null
+        val bmp = cell(set, g)
+        val w = bmp?.width ?: 1
+        val h = bmp?.height ?: 1
+        return w * (g.height.toFloat() / h.coerceAtLeast(1))
     }
 
     /** 그림 글자의 마인크래프트 가로 이동(픽셀, 대략): 잘라 낸 폭을 글자 높이에 맞춘 값 + 1 */
@@ -340,7 +365,9 @@ object Glyphs {
                 val font = sp.font ?: PackFonts.DEFAULT_FONT
                 val g = glyphOf(set, sp.font, cp)
                 val adv = set.advance(sp.font, cp)
+                val neg = negativeAdvance(set, sp.font, cp)
                 val what = when {
+                    neg != null -> tr("뒤로 빈칸 ${"%.0f".format(neg)}", "back-space ${"%.0f".format(neg)}") + (if (g != null) " (h${g.height})" else "")
                     g != null -> {
                         val bmp = cell(set, g)
                         val size = bmp?.let { "${it.width}×${it.height}" } ?: tr("그림 못 읽음", "unreadable")
@@ -392,9 +419,12 @@ object Glyphs {
      * 채팅 앱은 겹쳐 그릴 수 없어서 긴 막대만 남는다 → 그리지 않고 건너뛴다 (true 를 돌려 글자로도 넣지 않음).
      */
     private fun appendGlyph(sb: SpannableStringBuilder, set: PackFonts.FontSet, g: PackFonts.Glyph, textPx: Float, tint: Int?, flush: () -> Unit): Boolean {
+        // 높이가 0 이하인 그림 글자는 빈칸(뒤로 당기기) 용도라 그리지 않는다
+        if (g.height <= 0) return true
         val bmp = cell(set, g) ?: return false
-        val drawTint = if (tint != null && tint != 0xFFFFFF) tint else null
-        if ((bmp.width > bmp.height * BACKGROUND_ASPECT && isSolid(bmp)) || isFlatBar(bmp, drawTint)) return true
+        // 배경 띠는 주로 backgroundMarks(뒤 빈칸)로 건너뛴다. 여기서는 빈칸 없이 오는 아주 긴 꽉 찬 띠만 예비로 건너뜀
+        // (단색 띠 추정은 칭호까지 숨길 수 있어 쓰지 않음, 진단 창에만 표시)
+        if (bmp.width > bmp.height * BACKGROUND_ASPECT && isSolid(bmp)) return true
         flush()
         // 바닐라 기본 글자 높이 8 = 글자 크기 정도. 너무 큰 그림은 줄 높이의 2.5배로 제한
         val targetH = (textPx * 0.95f * g.height / 8f).coerceIn(textPx * 0.4f, textPx * 2.5f)
