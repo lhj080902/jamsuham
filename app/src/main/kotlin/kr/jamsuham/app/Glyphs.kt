@@ -159,6 +159,8 @@ object Glyphs {
                     val g = set.glyph(span.font, cp)
                     if (g != null && appendGlyph(sb, set, g, textPx, tintColor, flush = { if (run.isNotEmpty()) { appendText(sb, run.toString(), color, span.bold); run.setLength(0) } })) {
                         // 그림으로 넣음
+                    } else if (ChatText.isPrivateUse(cp)) {
+                        // 그리지 못한 개인 사용 영역 글자는 앱 글꼴로 깨지므로 넣지 않는다
                     } else {
                         run.appendCodePoint(cp)
                     }
@@ -194,8 +196,17 @@ object Glyphs {
         if (bold) sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
+    /** 배경 띠로 보고 빼는 가로세로 비율 (칭호·아이콘은 이보다 짧다) */
+    private const val BACKGROUND_ASPECT = 5f
+
+    /**
+     * 그림 글자 하나를 붙인다. 못 그리면 false.
+     * 가로로 아주 긴 그림(공지 배경 띠, 밑줄 등)은 마인크래프트에서 "뒤로 당기는 빈칸 글자"로 글자 밑에 겹쳐 깔리는데,
+     * 채팅 앱은 겹쳐 그릴 수 없어서 긴 막대만 남는다 → 그리지 않고 건너뛴다 (true 를 돌려 글자로도 넣지 않음).
+     */
     private fun appendGlyph(sb: SpannableStringBuilder, set: PackFonts.FontSet, g: PackFonts.Glyph, textPx: Float, tint: Int?, flush: () -> Unit): Boolean {
         val bmp = cell(set, g) ?: return false
+        if (bmp.width > bmp.height * BACKGROUND_ASPECT) return true
         flush()
         // 바닐라 기본 글자 높이 8 = 글자 크기 정도. 너무 큰 그림은 줄 높이의 2.5배로 제한
         val targetH = (textPx * 0.95f * g.height / 8f).coerceIn(textPx * 0.4f, textPx * 2.5f)
