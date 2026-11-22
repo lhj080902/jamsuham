@@ -77,6 +77,7 @@ object AppSettings {
         notifyDataUsage = sp.getBoolean("notify_data_usage", true)
         keepScreenOn = sp.getBoolean("keep_screen_on", false)
         chatTimestamps = sp.getBoolean("chat_timestamps", true)
+        kr.jamsuham.core.Lang.english = english
         applyNightMode(context)
     }
 
@@ -89,7 +90,12 @@ object AppSettings {
 
     fun setTheme(v: Theme) { theme = v; sp.edit().putString("theme", v.name).apply(); changed() }
     fun setNight(context: Context, v: Night) { night = v; sp.edit().putString("night", v.name).apply(); applyNightMode(context); changed() }
-    fun setLanguage(v: Language) { language = v; sp.edit().putString("language", v.name).apply(); changed() }
+    fun setLanguage(v: Language) {
+        language = v
+        sp.edit().putString("language", v.name).apply()
+        kr.jamsuham.core.Lang.english = english // 엔진이 보내는 채팅 안내 문구도 같은 언어로
+        changed()
+    }
     fun setTextScale(v: TextScale) { textScale = v; sp.edit().putString("text_scale", v.name).apply(); changed() }
     fun setChatTextSp(v: Int) { chatTextSp = v.coerceIn(10, 24); sp.edit().putInt("chat_text_sp", chatTextSp).apply(); changed() }
     fun setDefaultPackGlyphs(v: Boolean) { defaultPackGlyphs = v; sp.edit().putBoolean("default_pack_glyphs", v).apply(); changed() }
