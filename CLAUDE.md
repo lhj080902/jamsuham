@@ -63,7 +63,9 @@
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
 ## 해결 못 한 것 / 다음 할 일
-- **도스온라인 리소스팩 창**: 실제 클라이언트에는 상자 창이 뜨는데 앱에는 "서버 메뉴 열림" 이 안 온다. 접속 직후 채팅 로그 확인 필요
+- (해결) 도스온라인: 리소스팩 창 메뉴 열림·자동 클릭, 보호된 팩의 칭호 그림 표시까지 확인됨 (v1.5.11~1.5.13)
+- **출시 전 가장 큰 남은 일**: 정품 로그인이 마인크래프트 공식 런처의 client ID(`MsaConstants.JAVA_TITLE_ID`, AccountStore.msaConfig)를 쓴다 →
+  Play 출시 전 자체 Azure 앱 + Mojang 의 Minecraft API 승인을 받아 교체해야 함 (docs/PLAYSTORE_PLAN.md 0-2)
 - **플레이스토어 출시 준비**: 개발자 계정(만 18세 이상 명의), 테스터 12명·14일, 비공개 서명 키, 앱 안 업데이트(REQUEST_INSTALL_PACKAGES) 빼기,
   포그라운드 서비스 신고(문구는 store-listing.md), Play 결제로 `Plan.isPremium` 연결 (GitHub 판만 버전 글씨 7번 테스트 토글, Play 판은 항상 무료),
   자체 MS client ID(Mojang 승인) — Play 판 빌드 분리·정보 화면·개인정보처리방침은 완료
