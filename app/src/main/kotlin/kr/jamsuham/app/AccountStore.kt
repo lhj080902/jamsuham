@@ -84,7 +84,32 @@ class AccountStore(context: Context) {
 
     private fun http(): HttpClient = MinecraftAuth.createHttpClient("Jamsuham/1.0 (Android)")
 
-    private val msaConfig = MsaApplicationConfig(MsaConstants.JAVA_TITLE_ID, MsaConstants.SCOPE_TITLE_AUTH)
+    /**
+     * 로그인 설정. 빌드할 때 자체 Azure 앱 client ID(Mojang 의 Minecraft API 승인 필요)를 넣었으면 그걸 쓰고
+     * (마이크로소프트 계정 전용 엔드포인트, 표준 리디렉트 nativeclient), 없으면 마인크래프트 공식 런처 ID 로 로그인한다.
+     * 이미 저장된 계정은 저장할 때의 설정(client ID)을 그대로 갖고 있어서 바꿔도 계속 갱신된다.
+     */
+    private val msaConfig: MsaApplicationConfig = run {
+        val own = try {
+            app.packageManager.getApplicationInfo(app.packageName, android.content.pm.PackageManager.GET_META_DATA)
+                .metaData?.getString("kr.jamsuham.MS_CLIENT_ID")?.trim().orEmpty()
+        } catch (_: Throwable) {
+            ""
+        }
+        if (own.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))) {
+            // Azure 앱 등록의 "모바일 및 데스크톱" 리디렉트 URI 에 아래 주소를 넣어야 한다 (docs/MS_LOGIN.md)
+            MsaApplicationConfig(
+                own, "XboxLive.signin offline_access", null,
+                "https://login.microsoftonline.com/consumers/oauth2/nativeclient",
+                net.raphimc.minecraftauth.msa.data.MsaEnvironment.MICROSOFT_ONLINE_CONSUMERS,
+            )
+        } else {
+            MsaApplicationConfig(MsaConstants.JAVA_TITLE_ID, MsaConstants.SCOPE_TITLE_AUTH)
+        }
+    }
+
+    /** 자체 client ID 로 로그인하는지 (정보 화면 표시용) */
+    val usesOwnClientId: Boolean get() = msaConfig.clientId != MsaConstants.JAVA_TITLE_ID
 
     /** 로그인 화면에 띄울 주소 */
     fun loginUrl(): String {

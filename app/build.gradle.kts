@@ -18,6 +18,9 @@ android {
         versionCode = build
         // 보이는 버전 = gradle.properties 의 jamsuham.version (주.부.수, 바꿀 때만 직접 고침)
         versionName = (project.findProperty("jamsuham.version") as String?) ?: "0.0.0"
+        // 정품 로그인용 자체 Azure 앱 client ID (Mojang 의 Minecraft API 승인을 받은 것).
+        // 비어 있으면 앱은 공식 런처 ID 로 로그인한다. GitHub 저장소 변수/Secret MS_CLIENT_ID → 환경 변수 JAMSUHAM_MS_CLIENT_ID
+        manifestPlaceholders["msClientId"] = System.getenv("JAMSUHAM_MS_CLIENT_ID")?.trim().orEmpty()
     }
 
     signingConfigs {

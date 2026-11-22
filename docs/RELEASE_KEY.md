@@ -7,10 +7,20 @@ Play 판(AAB)은 **비공개 업로드 키**로 서명해야 Play Console 에 �
 > 파일은 USB·클라우드 등 **두 곳 이상에 따로 백업**하세요.
 
 ## 1. 키 만들기 (PC 에서 한 번만)
-JDK 가 설치된 PC 의 터미널에서 실행합니다. Android Studio 를 설치했다면 그 안의 `keytool` 을 써도 됩니다.
+`keytool` 이 필요합니다. 아래 중 하나면 됩니다.
+- **Android Studio 가 깔려 있으면** (Windows): `"C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe"` 를 그대로 씁니다.
+- **아무것도 없으면**: https://adoptium.net 에서 **Temurin JDK 17** 을 설치하면 `keytool` 이 같이 깔립니다.
+
+Windows 는 "명령 프롬프트" 또는 PowerShell, macOS 는 "터미널" 에서 키를 저장할 폴더로 이동한 뒤 실행합니다.
 
 ```bash
 keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Android Studio 의 keytool 을 쓰는 경우 (Windows):
+
+```bash
+"C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe" -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000
 ```
 
 - 비밀번호 두 번, 이름·조직 등을 물어봅니다. 이름 정도만 넣고 나머지는 비워도 됩니다.
@@ -38,6 +48,10 @@ GitHub 저장소 → **Settings → Secrets and variables → Actions → New re
 | `UPLOAD_STORE_PASSWORD` | 키 저장소 비밀번호 |
 | `UPLOAD_KEY_ALIAS` | `upload` (1단계 `-alias` 에 넣은 값) |
 | `UPLOAD_KEY_PASSWORD` | 키 비밀번호 (보통 저장소 비밀번호와 같음) |
+
+## 3-1. 잘 됐는지 확인
+Secrets 를 등록한 뒤 GitHub → **Actions** → 맨 위 "Build APK" → 오른쪽 **Re-run all jobs** 로 다시 빌드합니다.
+끝나면 그 실행 화면 아래 **Artifacts** 에 `jamsuham-play-aab` (뒤에 UNSIGNED 가 없는 이름) 가 보이면 성공입니다.
 
 ## 4. 빌드 받기
 - `main` 에 올리면 GitHub Actions 가 Play 판 AAB 를 만듭니다. 실행 결과 화면 아래 **Artifacts** 에서 `jamsuham-play-aab` 를 받습니다.

@@ -21,6 +21,11 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- 정품 로그인용 자체 Azure 앱 client ID (빌드할 때 JAMSUHAM_MS_CLIENT_ID 로 채움, 비면 공식 런처 ID) -->
+        <meta-data
+            android:name="kr.jamsuham.MS_CLIENT_ID"
+            android:value="${msClientId}" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
