@@ -1,4 +1,4 @@
-# 잠수함 — 마인크래프트 잠수용 안드로이드 앱
+# 잠수크래프트 — 마인크래프트 잠수용 안드로이드 앱
 
 챗크래프트처럼 마인크래프트 서버에 채팅 전용으로 접속해서 **잠수(AFK) 시간을 쌓는** 안드로이드 앱입니다.
 폰·태블릿 모두 지원하며, 튕겼을 때 자동으로 다시 접속하는 기능을 중심으로 만들었습니다.
@@ -149,6 +149,6 @@ Gradle 로 APK 를 만드는 과정, 실제 폰에서의 실행, 정품 로그�
 
 ## 라이선스 · 이름 이용
 - 코드: **GPL-3.0** (ViaVersion·ViaBackwards·ViaRewind 포함). 라이선스 전문은 `app/src/main/assets/legal/`
-- 이름 "잠수함"·아이콘·패키지 이름은 라이선스에 포함되지 않습니다. 고친 판을 배포하려면 바꿔 주세요 → [TRADEMARKS.md](TRADEMARKS.md)
+- 이름 "잠수크래프트"·아이콘·패키지 이름은 라이선스에 포함되지 않습니다. 고친 판을 배포하려면 바꿔 주세요 → [TRADEMARKS.md](TRADEMARKS.md)
 - 개인정보처리방침: [app/src/main/assets/legal/privacy-policy.md](app/src/main/assets/legal/privacy-policy.md)
 - 마인크래프트 공식 제품이 아니며 Mojang·Microsoft 와 관련이 없습니다.

@@ -269,7 +269,7 @@ class AfkService : Service() {
         val now = System.currentTimeMillis()
         val online = active.count { it.second.state == SessionState.ONLINE }
         val title = when {
-            active.isEmpty() -> "잠수함"
+            active.isEmpty() -> "잠수크래프트"
             active.size == 1 -> "${active[0].first.displayName} · ${stateText(active[0].second)}"
             else -> "잠수 중 ${online}/${active.size}개 서버"
         }

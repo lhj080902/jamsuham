@@ -702,7 +702,7 @@ class ChatPanel(
 
     private fun copyText(s: String) {
         val cm = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        cm.setPrimaryClip(android.content.ClipData.newPlainText("잠수함", s))
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("잠수크래프트", s))
         Toast.makeText(activity, "복사했습니다", Toast.LENGTH_SHORT).show()
     }
 

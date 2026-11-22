@@ -94,7 +94,7 @@ abstract class BaseActivity : Activity(), Starter {
                 val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
                     .addCategory(Intent.CATEGORY_OPENABLE)
                     .setType("text/plain")
-                    .putExtra(Intent.EXTRA_TITLE, "잠수함_${name}_$date.txt")
+                    .putExtra(Intent.EXTRA_TITLE, "잠수크래프트_${name}_$date.txt")
                 try {
                     @Suppress("DEPRECATION")
                     startActivityForResult(intent, REQ_EXPORT_LOG)

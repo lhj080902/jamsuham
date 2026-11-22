@@ -35,7 +35,7 @@ object AppInfo {
 
     fun show(activity: Activity, ui: Ui) {
         val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
-        box.addView(ui.text("잠수함 " + Updater.versionLabel(activity) + " (빌드 ${Updater.currentBuild(activity)})" + if (Flavor.PLAY) "" else " · GitHub 판", 15f, bold = true))
+        box.addView(ui.text("잠수크래프트 " + Updater.versionLabel(activity) + " (빌드 ${Updater.currentBuild(activity)})" + if (Flavor.PLAY) "" else " · GitHub 판", 15f, bold = true))
         box.addView(ui.hint(
             "마인크래프트 공식 제품이 아닙니다. Mojang 또는 Microsoft 가 승인하거나 관련된 앱이 아닙니다.\n" +
                 "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
@@ -47,7 +47,7 @@ object AppInfo {
         box.addView(ui.button("이름·아이콘 이용 안내", "plain") { showDocument(activity, ui, "이름·아이콘 이용 안내", "trademark.md") }, ui.gap(6))
 
         box.addView(ui.label("오픈소스 라이선스"))
-        box.addView(ui.hint("이 앱의 코드는 GPL-3.0 에 따라 공개되어 있습니다. 이름 \"잠수함\"과 아이콘은 라이선스에 포함되지 않습니다."))
+        box.addView(ui.hint("이 앱의 코드는 GPL-3.0 에 따라 공개되어 있습니다. 이름 \"잠수크래프트\"와 아이콘은 라이선스에 포함되지 않습니다."))
         for ((name, license, file) in LIBRARIES) {
             box.addView(ui.button("$name — $license", "plain") { showDocument(activity, ui, license, file) }, ui.gap(4))
         }

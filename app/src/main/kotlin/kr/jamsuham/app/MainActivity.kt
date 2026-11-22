@@ -135,7 +135,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         listPane = ui.vertical()
         val header = ui.horizontal()
         val titles = ui.vertical()
-        titles.addView(ui.text("잠수함", 26f, bold = true))
+        titles.addView(ui.text("잠수크래프트", 26f, bold = true))
         titles.addView(ui.text("마인크래프트 잠수 클라이언트", 13f, ui.p.muted))
         header.addView(titles, ui.lp(0, Ui.WRAP, 1f))
         header.addView(ui.button("계정", "plain") { startActivity(Intent(this, AccountsActivity::class.java)) }, ui.lp(Ui.WRAP, ui.dp(42)))
@@ -359,7 +359,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
     private fun requestBatteryExemption() {
         if (Flavor.PLAY) {
             // Play 판: 예외를 직접 요청하지 않고 설정 화면으로 안내만 한다 (Play 정책상 직접 요청은 허용 용도가 제한됨)
-            toast("목록에서 '잠수함'을 찾아 '최적화 안 함'(또는 '제한 없음')으로 바꿔 주세요")
+            toast("목록에서 '잠수크래프트'를 찾아 '최적화 안 함'(또는 '제한 없음')으로 바꿔 주세요")
             try {
                 startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             } catch (_: Throwable) {

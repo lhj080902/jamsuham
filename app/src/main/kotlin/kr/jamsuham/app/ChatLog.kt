@@ -79,7 +79,7 @@ object ChatLog {
         }
         var lines = 0
         out.bufferedWriter(Charsets.UTF_8).let { w ->
-            w.write("잠수함 채팅 기록 · $serverName\n")
+            w.write("잠수크래프트 채팅 기록 · $serverName\n")
             w.write("내보낸 시각: " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date()) + "\n")
             w.write("(* = 앱 안내, ! = 오류)\n")
             for (day in picked) {
