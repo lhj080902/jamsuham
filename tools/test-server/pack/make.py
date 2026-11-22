@@ -43,3 +43,15 @@ with zipfile.ZipFile('bigextra.zip','w',zipfile.ZIP_DEFLATED) as z:
         zi.extra=_st.pack('<HH',0xCAFE,3000)+os.urandom(3000)
         z.writestr(zi, zipfile.ZipFile('pack.zip').read(info.filename))
 print('protected ok')
+# fakesize.zip: 목록·로컬 헤더의 '압축 전 크기'를 엉터리(10바이트)로 적은 팩 (도스온라인처럼)
+d=bytearray(open('pack.zip','rb').read())
+p=0
+while True:
+    p=d.find(b'PK\x01\x02',p)
+    if p<0: break
+    nl=_st.unpack('<H',d[p+28:p+30])[0]; name=d[p+46:p+46+nl].decode()
+    if name.endswith('.json'):
+        d[p+24:p+28]=_st.pack('<I',10)
+        lo=_st.unpack('<I',d[p+42:p+46])[0]; d[lo+22:lo+26]=_st.pack('<I',10)
+    p+=4
+open('fakesize.zip','wb').write(bytes(d))

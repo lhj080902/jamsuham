@@ -79,7 +79,7 @@ object PackFonts {
     }
 
     const val DEFAULT_FONT = "minecraft:default"
-    private const val CACHE_VERSION = 4
+    private const val CACHE_VERSION = 5
 
     /** 부분 다운로드로 받는 양의 상한 (글꼴 json + png 합계) */
     private const val MAX_RANGED_BYTES = 40L * 1024 * 1024
@@ -450,8 +450,8 @@ object PackFonts {
         override fun names(): List<String> = zip.entries().toList().map { it.name }
         override fun read(name: String, max: Long): ByteArray {
             val e = zip.getEntry(name) ?: throw IOException("없음: $name")
-            if (e.size > max) throw IOException("너무 큼: $name")
-            return zip.getInputStream(e).use { it.readBytes() }
+            // 적힌 크기는 믿지 않고 읽으면서 max 로 제한
+            return zip.getInputStream(e).use { input -> ByteArrayOutputStream().also { copyLimited(input, it, max) }.toByteArray() }
         }
         override fun close() {
             zip.close()
@@ -491,7 +491,8 @@ object PackFonts {
 
         override fun read(name: String, max: Long): ByteArray {
             val e = entries[name] ?: throw IOException("없음: $name")
-            if (e.size > max || e.compSize > max) throw IOException("너무 큼: $name")
+            // 압축 전 크기(e.size)는 보호된 팩이 틀리게 적기도 해서 보지 않는다 (풀 때 max 로 제한)
+            if (e.compSize > max) throw IOException("너무 큼: $name")
             // 로컬 헤더(30바이트 + 이름 + extra) 뒤에 압축 데이터. extra 길이를 모르니 넉넉히 받는다
             var at = e.offset
             var head = range(at, at + 30 + 1024 + e.compSize - 1)
@@ -506,7 +507,7 @@ object PackFonts {
             val data = head.copyOfRange(start, (start + e.compSize).toInt().coerceAtMost(head.size))
             return when (e.method) {
                 0 -> data
-                8 -> inflate(data, e.size)
+                8 -> inflate(data, e.size, max)
                 else -> throw IOException("지원하지 않는 압축 방식 ${e.method}: $name")
             }
         }
@@ -665,17 +666,21 @@ object PackFonts {
         return out.toByteArray()
     }
 
-    private fun inflate(data: ByteArray, size: Long): ByteArray {
+    /**
+     * deflate 풀기. 목록에 적힌 크기([size])는 참고만 한다: 보호된 팩은 이 값을 틀리게 적는데 자바(마인크래프트)는
+     * 검사하지 않고 끝까지 푼다. 대신 [max] 를 넘으면 멈춘다 (압축 폭탄 방지).
+     */
+    private fun inflate(data: ByteArray, size: Long, max: Long): ByteArray {
         val inf = Inflater(true)
         try {
             inf.setInput(data)
-            val out = ByteArrayOutputStream(size.toInt().coerceIn(0, 1 shl 20))
+            val out = ByteArrayOutputStream(size.toInt().coerceIn(1024, 1 shl 20))
             val buf = ByteArray(64 * 1024)
             while (!inf.finished()) {
                 val n = inf.inflate(buf)
                 if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break
                 out.write(buf, 0, n)
-                if (out.size() > size + 1024) throw IOException("압축 해제 크기가 이상합니다")
+                if (out.size() > max) throw IOException("압축을 풀면 너무 큽니다")
             }
             return out.toByteArray()
         } finally {
