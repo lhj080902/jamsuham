@@ -183,7 +183,20 @@ class Ui(val ctx: Context) {
         }
         b.background = rounded(bg, 12)
         b.setTextColor(fg)
-        b.setPadding(dp(14), dp(8), dp(14), dp(8))
+        // 버튼 높이는 대부분 고정이라 위아래 여백을 작게 (글자를 크게 해도 잘리지 않게).
+        // 기호 하나짜리(←, ▲, ⚙ …) 좁은 버튼은 옆 여백도 거의 없앤다
+        val side = if ((b.text?.length ?: 0) <= 2) dp(2) else dp(12)
+        b.setPadding(side, dp(3), side, dp(3))
+    }
+
+    /**
+     * 너비가 정해진 버튼·글자(탭, 반반 나눈 버튼)는 글자가 길거나 글자 크기를 키우면 잘리므로,
+     * 칸에 맞게 글자를 줄인다 (최대는 원래 크기). 너비가 내용에 맞춰지는(WRAP) 뷰에는 쓰지 않는다.
+     */
+    fun fit(tv: TextView, maxSp: Float = 15f, minSp: Float = 8f): TextView = tv.apply {
+        setSingleLine(true)
+        val max = (maxSp * scale).toInt().coerceAtLeast(minSp.toInt() + 1)
+        setAutoSizeTextTypeUniformWithConfiguration(minSp.toInt(), max, 1, TypedValue.COMPLEX_UNIT_SP)
     }
 
     fun chip(s: String, onClick: () -> Unit) = TextView(ctx).apply {

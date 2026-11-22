@@ -168,7 +168,7 @@ class StatusPanel(activity: Activity, private val ui: Ui) : LinearLayout(activit
                     s.glyphs == null -> "받는 중"
                     else -> "글자 ${s.glyphs}개 · 글꼴 ${s.fonts}개"
                 }
-                "• $state\n  ${s.url}"
+                "• $state\n  ${s.url}" + (s.report?.takeIf { s.glyphs == 0 }?.let { "\n  [팩 안 모습]\n  " + it.replace("\n", "\n  ") } ?: "")
             },
         )
     }

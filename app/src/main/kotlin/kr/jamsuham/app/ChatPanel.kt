@@ -153,8 +153,8 @@ class ChatPanel(
         val tabBar = ui.horizontal()
         tabs = listOf("채팅", "지도", "인벤", "접속자", "상태").mapIndexed { i, label ->
             ui.button(label, "plain") { showPage(i) }.also { b ->
-                b.setPadding(ui.dp(2), 0, ui.dp(2), 0)
-                b.setSingleLine(true)
+                ui.fit(b)
+                b.setPadding(ui.dp(4), 0, ui.dp(4), 0)
                 tabBar.addView(b, ui.lp(0, ui.dp(40), 1f).apply { if (i > 0) leftMargin = ui.dp(4) })
             }
         }

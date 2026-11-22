@@ -61,7 +61,7 @@ object SessionHub {
     }
 
     /** 리소스팩 하나의 그림 글자 상태. [glyphs] 읽은 그림 글자 수 (받는 중·실패면 null), [error] 실패 이유 */
-    data class PackState(val url: String, val glyphs: Int?, val fonts: Int = 0, val error: String? = null, val skipped: Boolean = false)
+    data class PackState(val url: String, val glyphs: Int?, val fonts: Int = 0, val error: String? = null, val skipped: Boolean = false, val report: String? = null)
 
     /** 1분마다 다시 계산하는 시간당 데이터 사용량 (알림과 상태 탭이 같은 값을 보도록) */
     private val rates = HashMap<String, Long>()
@@ -245,7 +245,7 @@ object SessionHub {
                             notifyGlyphs(serverId)
                             return@load
                         }
-                        e.packStates[url] = PackState(url, set.glyphCount, set.fonts.size)
+                        e.packStates[url] = PackState(url, set.glyphCount, set.fonts.size, report = set.report)
                         // 받아 둔 팩들을 서버가 보낸 순서대로 겹친다
                         val sets = e.packUrls.mapNotNull { u -> if (u == url) set else Glyphs.cached(u) }
                         e.glyphs = kr.jamsuham.core.pack.PackFonts.FontSet.merge(sets)

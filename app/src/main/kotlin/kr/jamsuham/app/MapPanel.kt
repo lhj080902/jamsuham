@@ -51,14 +51,18 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
         val mapCard = ui.card().apply { setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)) }
         mapCard.addView(mapView, ui.lp(Ui.MATCH, 0, 1f))
         val infoRow = ui.horizontal().apply { setPadding(ui.dp(4), ui.dp(6), 0, 0); gravity = Gravity.CENTER_VERTICAL }
-        coords = ui.marquee(ui.text("", 13f, p.muted))
+        // 움직일 때마다 글씨가 바뀌므로 흐르는 글씨(마키)로 두면 매번 처음으로 돌아간다 → 두 줄로 나눠 그대로 보여 준다
+        coords = ui.text("", 13f, p.muted).apply {
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         infoRow.addView(coords, ui.lp(0, Ui.WRAP, 1f))
         infoRow.addView(ui.button("−", "plain") { mapView.zoom(-1) }, ui.lp(ui.dp(44), ui.dp(38)))
         infoRow.addView(ui.button("+", "plain") { mapView.zoom(+1) }, ui.lp(ui.dp(44), ui.dp(38)).apply { leftMargin = ui.dp(6) })
         mapCard.addView(infoRow, ui.lp())
         val wpRow = ui.horizontal().apply { setPadding(0, ui.dp(6), 0, 0) }
-        wpRow.addView(ui.button("+ 웨이포인트", "primary") { openWaypointDialog(null, null) }, ui.lp(0, ui.dp(40), 1f))
-        wpRow.addView(ui.button("웨이포인트 목록", "plain") { openWaypointList() }, ui.lp(0, ui.dp(40), 1f).apply { leftMargin = ui.dp(6) })
+        wpRow.addView(ui.fit(ui.button("+ 웨이포인트", "primary") { openWaypointDialog(null, null) }), ui.lp(0, ui.dp(40), 1f))
+        wpRow.addView(ui.fit(ui.button("웨이포인트 목록", "plain") { openWaypointList() }), ui.lp(0, ui.dp(40), 1f).apply { leftMargin = ui.dp(6) })
         mapCard.addView(wpRow, ui.lp())
         addView(mapCard, ui.lp(Ui.MATCH, 0, 1f))
 
@@ -526,8 +530,8 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
             canvas.drawText("N ↑", ui.dp(9).toFloat(), ui.dp(22).toFloat(), text)
 
             val worldShort = worldName.removePrefix("minecraft:")
-            coords.setTextIfChanged("X ${floor(px).toInt()}  Y ${floor(py).toInt()}  Z ${floor(pz).toInt()}" +
-                (if (worldShort.isNotBlank()) "  ·  $worldShort" else "") + "  ·  주변 ${world.players.size}명")
+            coords.setTextIfChanged("X ${floor(px).toInt()}  Y ${floor(py).toInt()}  Z ${floor(pz).toInt()}\n" +
+                (if (worldShort.isNotBlank()) "$worldShort  ·  " else "") + "주변 ${world.players.size}명")
             postInvalidateDelayed(100)
         }
     }

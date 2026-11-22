@@ -40,7 +40,7 @@ object PackFonts {
     )
 
     /** 글꼴 id("minecraft:default", "server:rank" …) → (코드 포인트 → 그림 글자) + 그림 파일 */
-    class FontSet(val fonts: Map<String, Map<Int, Glyph>>, val images: Map<String, ByteArray>) {
+    class FontSet(val fonts: Map<String, Map<Int, Glyph>>, val images: Map<String, ByteArray>, val report: String? = null) {
         val glyphCount: Int get() = fonts.values.sumOf { it.size }
 
         fun glyph(font: String?, cp: Int): Glyph? = fonts[font ?: DEFAULT_FONT]?.get(cp)
@@ -68,7 +68,7 @@ object PackFonts {
     }
 
     const val DEFAULT_FONT = "minecraft:default"
-    private const val CACHE_VERSION = 2
+    private const val CACHE_VERSION = 3
 
     /** 부분 다운로드로 받는 양의 상한 (글꼴 json + png 합계) */
     private const val MAX_RANGED_BYTES = 40L * 1024 * 1024
@@ -107,11 +107,16 @@ object PackFonts {
 
     /** zip 에서 글꼴 json 들을 읽고, bitmap 공급자가 쓰는 그림만 꺼낸다 */
     private fun extract(raw: ZipSource, log: CoreLog): FontSet {
-        val zip = Overlays.apply(raw, log)
+        val notes = ArrayList<String>()
+        raw.note?.let { notes += it }
+        val zip = Overlays.apply(raw, log, notes)
         val names = zip.names()
         val fontRe = Regex("^assets/([^/]+)/font/(.+)\\.json$")
         // 글꼴 id → 공급자 목록 (참조 공급자는 나중에 펼침)
         val providers = HashMap<String, List<JsonObject>>()
+        val errors = ArrayList<String>()
+        val missing = LinkedHashSet<String>()
+        val types = java.util.TreeMap<String, Int>()
         for (name in names) {
             val m = fontRe.find(name) ?: continue
             val id = "${m.groupValues[1]}:${m.groupValues[2]}"
@@ -120,6 +125,7 @@ object PackFonts {
                 providers[id] = json.getAsJsonArray("providers")?.mapNotNull { it.takeIf { e -> e.isJsonObject }?.asJsonObject } ?: emptyList()
             } catch (t: Throwable) {
                 log.w("글꼴 설정을 읽지 못했습니다: $name (${t.message})")
+                errors += "글꼴 설정 읽기 실패 $name: ${t.message}"
             }
         }
         val fonts = HashMap<String, MutableMap<Int, Glyph>>()
@@ -129,12 +135,14 @@ object PackFonts {
         fun addProviders(target: MutableMap<Int, Glyph>, list: List<JsonObject>, depth: Int) {
             if (depth > 8) return
             for (p in list) {
-                when (p.get("type")?.asString) {
+                val type = p.get("type")?.asString ?: "?"
+                if (depth == 0) types[type] = (types[type] ?: 0) + 1
+                when (type) {
                     "reference" -> providers[normalize(p.get("id")?.asString ?: continue)]?.let { addProviders(target, it, depth + 1) }
                     "bitmap" -> {
                         val file = p.get("file")?.asString ?: continue
                         val path = texturePath(file)
-                        if (path !in nameSet) continue
+                        if (path !in nameSet) { missing += path; continue }
                         val rows = p.getAsJsonArray("chars")?.map { it.asString } ?: continue
                         if (rows.isEmpty()) continue
                         val cols = rows.maxOf { it.codePointCount(0, it.length) }
@@ -161,6 +169,7 @@ object PackFonts {
                                 images[path] = zip.read(path, MAX_IMAGE_BYTES)
                             } catch (t: Throwable) {
                                 log.w("글꼴 그림을 읽지 못했습니다: $path (${t.message})")
+                                errors += "그림 읽기 실패 $path: ${t.message}"
                             }
                         }
                     }
@@ -176,7 +185,23 @@ object PackFonts {
             target.entries.removeIf { it.value.image !in images }
             if (target.isNotEmpty()) fonts[id] = target
         }
-        return FontSet(fonts, images)
+        // 그림 글자가 없을 때 이유를 찾을 수 있도록 팩 안 모습을 요약한다 (상태 탭에 보임)
+        val report = buildString {
+            append("파일 ${names.size}개")
+            val tops = names.map { it.substringBefore('/') }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(5)
+            append(" (" + tops.joinToString { "${it.key} ${it.value}" } + ")")
+            notes.forEach { append("\n").append(it) }
+            append("\n글꼴 설정 ${providers.size}개")
+            if (providers.isNotEmpty()) append(": " + providers.keys.sorted().take(8).joinToString() + if (providers.size > 8) " …" else "")
+            if (types.isNotEmpty()) append("\n공급자 종류: " + types.entries.joinToString { "${it.key} ${it.value}" })
+            if (missing.isNotEmpty()) append("\n없는 그림 ${missing.size}개: " + missing.take(3).joinToString() + if (missing.size > 3) " …" else "")
+            errors.take(3).forEach { append("\n").append(it) }
+            if (providers.isEmpty()) {
+                val jsons = names.filter { it.endsWith(".json") && "font" in it }.take(3)
+                if (jsons.isNotEmpty()) append("\n글꼴처럼 보이는 파일: " + jsons.joinToString())
+            }
+        }
+        return FontSet(fonts, images, report)
     }
 
     /** 마인크래프트처럼 너그럽게 읽는다 (BOM, 주석, 따옴표 없는 이름 등) */
@@ -195,7 +220,7 @@ object PackFonts {
     private object Overlays {
         private const val FORMAT = 46
 
-        fun apply(zip: ZipSource, log: CoreLog): ZipSource {
+        fun apply(zip: ZipSource, log: CoreLog, notes: MutableList<String>): ZipSource {
             val names = zip.names()
             if ("pack.mcmeta" !in names) return zip
             val dirs = try {
@@ -204,7 +229,7 @@ object PackFonts {
                 entries.mapNotNull { el ->
                     val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
                     val dir = o.get("directory")?.asString?.trim('/')?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                    if (supportsNewer(o)) dir else null
+                    if (supportsNewer(o)) dir else { notes += "오버레이 건너뜀(옛 버전용): $dir"; null }
                 }
             } catch (t: Throwable) {
                 log.w("pack.mcmeta 를 읽지 못했습니다: ${t.message}")
@@ -219,6 +244,7 @@ object PackFonts {
                 for (n in names) if (n.startsWith(prefix + "assets/")) map[n.substring(prefix.length)] = n
             }
             log.i("리소스팩 오버레이 ${dirs.size}개 적용: ${dirs.joinToString()}")
+            notes += "오버레이 적용: ${dirs.joinToString()}"
             return object : ZipSource {
                 override fun names(): List<String> = map.keys.toList()
                 override fun read(name: String, max: Long): ByteArray = zip.read(map[name] ?: name, max)
@@ -257,7 +283,7 @@ object PackFonts {
 
     // ------------------------------------------------------------ 캐시
 
-    private class CacheIndex(val fonts: Map<String, Map<String, Glyph>> = emptyMap())
+    private class CacheIndex(val fonts: Map<String, Map<String, Glyph>> = emptyMap(), val report: String? = null)
 
     private fun readCache(dir: File): FontSet? {
         val index = File(dir, "fonts.json")
@@ -270,7 +296,7 @@ object PackFonts {
                     if (g.image !in images) images[g.image] = File(dir, "img/" + safeName(g.image)).readBytes()
                 }
             }
-            FontSet(fonts, images)
+            FontSet(fonts, images, data.report)
         } catch (_: Throwable) {
             null
         }
@@ -280,7 +306,7 @@ object PackFonts {
         try {
             File(dir, "img").mkdirs()
             for ((path, bytes) in set.images) File(dir, "img/" + safeName(path)).writeBytes(bytes)
-            val index = CacheIndex(set.fonts.mapValues { (_, m) -> m.mapKeys { it.key.toString() } })
+            val index = CacheIndex(set.fonts.mapValues { (_, m) -> m.mapKeys { it.key.toString() } }, set.report)
             File(dir, "fonts.json").writeText(gson.toJson(index))
         } catch (_: Throwable) {
         }
@@ -305,6 +331,8 @@ object PackFonts {
         fun names(): List<String>
         fun read(name: String, max: Long): ByteArray
         fun close()
+        /** 목록을 읽다 생긴 이상한 점 (진단용) */
+        val note: String? get() = null
     }
 
     /** 전체를 받아 파일로 둔 zip */
@@ -344,6 +372,7 @@ object PackFonts {
 
         private val entries = LinkedHashMap<String, Entry>()
         private var fetched = 0L
+        override var note: String? = null
 
         override fun names(): List<String> = entries.keys.toList()
 
@@ -384,6 +413,7 @@ object PackFonts {
             var eocd = -1
             for (i in tail.size - 22 downTo 0) if (u32(tail, i) == 0x06054b50L) { eocd = i; break }
             if (eocd < 0) throw IOException("zip 목록을 찾지 못했습니다")
+            val declared = u16(tail, eocd + 10)
             val cdSize = u32(tail, eocd + 12)
             val cdOffset = u32(tail, eocd + 16)
             if (cdOffset == 0xFFFFFFFFL || cdSize == 0xFFFFFFFFL) throw IOException("ZIP64 는 부분 다운로드를 지원하지 않습니다")
@@ -394,6 +424,7 @@ object PackFonts {
                 range(cdOffset, cdOffset + cdSize - 1)
             }
             var p = 0
+            var parsed = 0
             while (p + 46 <= cd.size && u32(cd, p) == 0x02014b50L) {
                 val method = u16(cd, p + 10)
                 val comp = u32(cd, p + 20)
@@ -405,7 +436,9 @@ object PackFonts {
                 val name = String(cd, p + 46, nameLen, Charsets.UTF_8)
                 if (!name.endsWith("/")) entries[name] = Entry(method, comp, size, offset)
                 p += 46 + nameLen + extraLen + commentLen
+                parsed++
             }
+            if (parsed < declared) note = "zip 목록 ${declared}개 중 ${parsed}개만 읽음 (보호된 팩일 수 있음)"
         }
 
         companion object {

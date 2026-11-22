@@ -24,3 +24,9 @@ with zipfile.ZipFile('overlay.zip','w',zipfile.ZIP_DEFLATED) as z:
     z.writestr('assets/minecraft/textures/font/icons.png',icons)
     z.writestr('ov_new/assets/minecraft/textures/font/new.png',icons)
 print(os.path.getsize('overlay.zip'))
+# broken.zip: 그림 글자가 0개가 되는 팩 (그림 파일이 없는 글꼴, ttf 글꼴) → 진단 요약 확인용
+with zipfile.ZipFile('broken.zip','w',zipfile.ZIP_DEFLATED) as z:
+    z.writestr('pack.mcmeta',json.dumps({"pack":{"pack_format":46,"description":"broken"}}))
+    z.writestr('assets/minecraft/font/default.json',json.dumps({"providers":[{"type":"bitmap","file":"minecraft:font/nothere.png","ascent":7,"chars":[""]},{"type":"ttf","file":"minecraft:x.ttf"}]}))
+    z.writestr('assets/minecraft/textures/block/stone.png',icons)
+print(os.path.getsize('broken.zip'))
