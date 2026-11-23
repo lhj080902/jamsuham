@@ -78,7 +78,7 @@
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
-## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.2.0)
+## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.3.0)
 - (완료 2026-11-23) **업로드 서명 키**: 사용자가 upload.jks 를 만들고 Secrets 4개 등록 → 시험 빌드에서 `jamsuham-play-aab`(서명됨) 확인
 - **FastPack 다음 작업 (사용자 요청, 다음 세션 첫 작업)**:
   ① 게임 안 설정 창 — Mod Menu 연동(루나 모드 목록에 modmenu 있음, maven.terraformersmc.com 의 com.terraformersmc:modmenu 1.21.4용을 compileOnly,
