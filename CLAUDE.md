@@ -48,6 +48,7 @@
   루나 클라이언트(ichor)에서 도스온라인 재접속 확인됨. 루나는 SLF4J 로그가 안 보여서 System.out 으로 찍음
 - ② 처음 받을 때: 서버 리소스팩을 HTTP Range 로 6개 연결·4MB 조각으로 나눠 받고
   바닐라와 같은 해시 검사·같은 경로로 넘김(팩 바이트는 그대로). 실패하면 바닐라 다운로드로. `HttpUtil.downloadFile` 에 Mixin(공식 매핑).
+- 2026-11-23 루나에서 "리소스팩 새로고침 실패" 후 튕김: 루나 클라이언트 자체 버그로 확인(사용자, 다른 사람들도 겪음). FastPack 과 무관. 로그상 도스 팩 블록 아틀라스가 16384×16384 라 한계에 닿아 있음
 - 빌드는 GitHub Actions `.github/workflows/mod.yml` 만 (이 클라우드 환경은 Fabric·Mojang 서버가 막힘). 산출물 `fastpack-mod`
 
 ## 빌드·배포
