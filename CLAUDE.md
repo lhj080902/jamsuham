@@ -60,9 +60,14 @@
   주의: 대화창(show_dialog)은 node 쪽 라이브러리가 첫 바이트를 가끔 쓰레기 값으로 보내 가끔 실패한다(앱 문제 아님)
   시나리오: `full`(이미 접속 킥 → 소켓 끊김 → 밴), `stay`(유지), `dupe`(중복 로그인 킥 → 앱이 멈춰야 함), `authkick`(정품 인증 실패 킥 → 2번 재시도 후 멈춤), `vitals`(1.21.4: 체력 31.5/최대 40/흡수 4 → 좀비에게 사망), `click`(누를 수 있는 채팅: [수락] 명령어 버튼 + 설명, 링크), `pack`(그림 글자 채팅, `PACK_URL=` 로 시험용 팩 서버 지정), `walk`(1.21.4 평평한 땅 청크만 보냄 → 접속 걷기 확인, 받은 위치를 로그로. `npm install --no-save prismarine-chunk` 불필요, 손으로 만든 청크)
 - core 는 JVM 에서 `AfkSession(...)` 을 직접 만들어 테스트 서버에 붙여 보는 식으로 검증해 왔다
-- 클라우드(Claude Code 웹) 환경은 dl.google.com 이 막혀 안드로이드 플러그인을 못 받는다 → 루트 빌드 대신
-  임시 폴더에 core 만 include 한 Gradle 설정을 만들어 컴파일·테스트하고, app 코드는 Maven Central 의
-  `org.robolectric:android-all:16-robolectric-13921718`(API 36) 을 compileOnly 로 두고 Kotlin 컴파일만 확인한다 (APK 빌드는 GitHub Actions)
+- 클라우드(Claude Code 웹) 환경은 dl.google.com 이 막혀 안드로이드 플러그인을 못 받는다 → 루트 빌드 대신 **`tools/corebuild/`**
+  (core 만 include 한 별도 Gradle 설정)을 쓴다. app 코드는 Maven Central 의 `org.robolectric:android-all:16-robolectric-13921718`(API 36)
+  을 compileOnly 로 두고 Kotlin 컴파일만 확인 (APK 빌드는 GitHub Actions)
+  - 앱 컴파일 확인: `./gradlew -p tools/corebuild :appcheck:compileKotlin -Pflavor=github` (그리고 `-Pflavor=play`). 출력이 없으면 성공
+  - 시험 프로그램: `./gradlew -p tools/corebuild :harness:installDist` → `tools/corebuild/harness/build/install/harness/bin/harness <모드> [포트]`
+    모드: dupe, authkick, vitals, click, walk, stick, miny, world, deathparse, packtest, packnet, overlay, report, prune, spaces, png, msa …
+    (테스트 서버를 먼저 띄움: `node tools/test-server/server.js 1.21.4 <포트> <시나리오>`, 팩은 `node tools/test-server/pack/serve.js <포트> <zip>`,
+    시험 팩은 `cd tools/test-server/pack && python3 make.py`. `EN=1` 이면 영어 모드, 임시 폴더는 `HARNESS_TMP`)
 - 지원 버전 확인됨: 1.8.8, 1.12.2, 1.20.x, 1.21.4, 1.21.8, 26.1 (테스트 서버 기준)
 
 ## 재접속 판단 규칙 (AfkSession)
@@ -70,6 +75,15 @@
 - 정품 인증 실패 킥 → 토큰 새로 받아 재시도, 3번 연속이면 멈춤 / 모장 429 → 60·120·300·600초 대기
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
+
+## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.2.0)
+- **업로드 서명 키**: 사용자가 PC 에서 만드는 중. Windows 에 keytool 이 없어서(JDK 미설치) 막힘 → Temurin JDK 17 설치(winget) 안내함.
+  다 되면 Secrets 4개 등록 → Actions 재실행 → 아티팩트 `jamsuham-play-aab`(UNSIGNED 없는 이름) 확인
+- **Mojang 승인 대기**: 메일 오면 저장소 Variables 에 MS_CLIENT_ID 등록 → 새 빌드에서 로그인 주소가 login.microsoftonline.com/consumers 인지 확인
+- **접속자 전체 목록 버튼**: 사용자가 도스온라인에서 `/list`·`/glist` 결과를 보내 주면 그 형식으로 파싱해 보여 주는 버튼 만들기 (서버가 Tab 목록엔 일부만 보냄)
+- Play 출시: 그래픽 1024×500(배너로 만들어 줄 수 있음)·스크린샷·테스터 12명 14일·앱 콘텐츠 신고(docs/store-listing*.md)
+- 나중: 클라우드 24시간 잠수(프리미엄, 아는 형 서버) — 같은 IP 다계정 제한·모장 429·토큰 보관 책임 설명함, iOS, 후원·Play 결제
+- 학교 와이파이 차단 우회는 도와주지 않기로 함 (요청서 초안·데이터 절약 모드로 대신)
 
 ## 해결 못 한 것 / 다음 할 일
 - (해결) 도스온라인: 리소스팩 창 메뉴 열림·자동 클릭, 보호된 팩의 칭호 그림 표시까지 확인됨 (v1.5.11~1.5.13)
