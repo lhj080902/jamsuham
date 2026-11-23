@@ -34,6 +34,9 @@
     `AccountStore`(MS 토큰은 files/accounts/ 에 Keystore AES-GCM 으로 암호화 저장 `TokenCrypto`, 예전 평문도 읽음. 백업·기기 이전에서 제외 `res/xml/data_extraction_rules.xml`), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
 
 ## PC 모드 (tools/fastpack-mod)
+- FastPack 0.4.1 (튕김 수정): `configureForServerControl` 은 **접속 스레드(ConnectScreen$1.run)** 에서 불림(CI 로 확인) →
+  거기서 하던 남겨 둔 팩 정리(reloadResourcePacks)를 `minecraft.execute` 로 게임 스레드에 넘김(싱글 월드 쪽도). 서버 구분은 "호스트:포트"(IP 빼서
+  라운드로빈 DNS 에서도 같은 서버로 봄). onRecovery 때 남겨 둔/미리 불러온 팩을 packSource 에서 빼서 복구 실패 반복으로 튕기지 않게
 - FastPack 0.4.0: 설정은 `FastPackConfig`(config/fastpack.properties: keepAcrossRestart·skipReapply·parallelDownload·chatMessages, 기본 모두 true).
   Mod Menu 연동(`gui/ModMenuIntegration` → `gui/FastPackScreen`, modmenu 13.0.3 은 modCompileOnly·transitive=false, fabric.mod.json suggests).
   "남겨 둔 팩 지금 정리" = `PackKeeper` 인터페이스(DownloadedPackSourceMixin 이 구현, `<init>` 에서 `PackKeeper.Holder.instance` 로 잡음).
@@ -82,7 +85,7 @@
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
-## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.4.0)
+## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.4.1)
 - (완료 2026-11-23) **업로드 서명 키**: 사용자가 upload.jks 를 만들고 Secrets 4개 등록 → 시험 빌드에서 `jamsuham-play-aab`(서명됨) 확인
 - (완료 2026-11-23) FastPack 0.4.0: 게임 안 설정 창(Mod Menu)·남겨 둔 팩 정리 버튼·나만 보이는 채팅 알림. CI 빌드 성공 (브랜치 claude/sharp-lamport-xup92m)
   → **사용자 시험 대기**: 루나에서 Mod Menu 설정 버튼이 보이는지, 채팅 알림이 뜨는지, 0.3.0(게임 다시 켜도 유지) 동작
