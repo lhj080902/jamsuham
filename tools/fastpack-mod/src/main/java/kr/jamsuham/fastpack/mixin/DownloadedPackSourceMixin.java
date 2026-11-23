@@ -1,5 +1,6 @@
 package kr.jamsuham.fastpack.mixin;
 
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -49,15 +50,15 @@ public abstract class DownloadedPackSourceMixin implements PackKeeper {
     @Shadow public abstract void onReloadSuccess();
 
     /** 지금 실제로 적용돼 있는 서버 팩 파일들 (순서대로). null = 모름(바닐라에 맡김) */
-    @Unique private List<String> fastpack$loaded = List.of();
+    @Unique private volatile List<String> fastpack$loaded = List.of();
     /** 나갈 때 내리지 않고 남겨 둔 팩이 있는지 */
-    @Unique private boolean fastpack$kept = false;
+    @Unique private volatile boolean fastpack$kept = false;
     /** 방금 서버에서 나갔다 (다음 "팩 내리기" 적용을 건너뜀) */
-    @Unique private boolean fastpack$leaving = false;
+    @Unique private volatile boolean fastpack$leaving = false;
     /** 팩을 남겨 둔 서버 주소 (문자열) */
-    @Unique private String fastpack$keptFor = null;
+    @Unique private volatile String fastpack$keptFor = null;
     /** 지금 접속한 서버 주소 (문자열) */
-    @Unique private String fastpack$current = null;
+    @Unique private volatile String fastpack$current = null;
     /** 바닐라 적용이 성공하면 "마지막 서버 팩"으로 저장할 내용 */
     @Unique private List<PackReloadConfig.IdAndPath> fastpack$pendingSave = null;
 
@@ -166,6 +167,12 @@ public abstract class DownloadedPackSourceMixin implements PackKeeper {
     /** 적용이 실패해서 바닐라가 복구하면 무엇이 적용돼 있는지 모르므로 다음엔 바닐라대로 */
     @Inject(method = {"onRecovery", "onRecoveryFailure"}, at = @At("HEAD"), require = 1)
     private void fastpack$forget(CallbackInfo ci) {
+        // 남겨 둔 팩·게임을 켤 때 미리 불러온 팩은 바닐라가 모르는 팩이라 복구할 때도 그대로 남는다
+        // → 그 팩이 실패 원인이면 복구도 또 실패해 (특히 게임 시작 중) 튕길 수 있으므로 여기서 뺀다
+        if (fastpack$kept && this.pendingReload == null) {
+            FastPackLog.log("리소스 적용이 실패해서 남겨 둔 서버 팩을 뺍니다");
+            this.packSource = configureSource(List.of());
+        }
         fastpack$loaded = null;
         fastpack$kept = false;
         fastpack$pendingSave = null;
@@ -184,14 +191,31 @@ public abstract class DownloadedPackSourceMixin implements PackKeeper {
         String addr = null;
         try {
             SocketAddress a = connection.getRemoteAddress();
-            addr = a == null ? null : a.toString();
+            addr = fastpack$serverKey(a);
         } catch (Throwable ignored) {
         }
         fastpack$current = addr;
-        if (fastpack$kept && !Objects.equals(addr, fastpack$keptFor)) {
-            FastPackLog.chat("다른 서버라서 남겨 둔 리소스팩을 정리했습니다");
-            fastpack$dropKept();
+        // 이 메서드는 접속 스레드("Server Connector")에서 불린다 → 리소스 다시 읽기는 반드시 게임(렌더) 스레드에서
+        final String joined = addr;
+        this.minecraft.execute(() -> {
+            if (fastpack$kept && !Objects.equals(joined, fastpack$keptFor)) {
+                FastPackLog.chat("다른 서버라서 남겨 둔 리소스팩을 정리했습니다");
+                fastpack$dropKept();
+            }
+        });
+    }
+
+    /**
+     * 서버를 구분하는 이름: "호스트:포트". IP 는 넣지 않는다 (같은 서버라도 접속할 때마다 IP 가 바뀌는 경우가 있어서
+     * 예전처럼 "호스트/IP:포트" 로 비교하면 같은 서버를 다른 서버로 보고 팩을 정리해 버림)
+     */
+    @Unique
+    private static String fastpack$serverKey(SocketAddress a) {
+        if (a == null) return null;
+        if (a instanceof InetSocketAddress in) {
+            return in.getHostString().toLowerCase(java.util.Locale.ROOT) + ":" + in.getPort();
         }
+        return a.toString();
     }
 
     /** 싱글 월드에 들어갈 때: 남겨 둔 서버 팩을 정리한다 */
@@ -199,10 +223,12 @@ public abstract class DownloadedPackSourceMixin implements PackKeeper {
     private void fastpack$onLocalWorld(CallbackInfo ci) {
         fastpack$leaving = false;
         fastpack$current = null;
-        if (fastpack$kept) {
-            FastPackLog.log("싱글 월드라서 남겨 둔 리소스팩을 정리합니다");
-            fastpack$dropKept();
-        }
+        this.minecraft.execute(() -> {
+            if (fastpack$kept) {
+                FastPackLog.log("싱글 월드라서 남겨 둔 리소스팩을 정리합니다");
+                fastpack$dropKept();
+            }
+        });
     }
 
     @Unique

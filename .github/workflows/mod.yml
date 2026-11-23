@@ -81,6 +81,22 @@ jobs:
           javap -p -cp "$FOUND" 'net.minecraft.client.resources.server.PackReloadConfig$Callbacks' 'net.minecraft.client.resources.server.PackReloadConfig$IdAndPath' || true
           javap -p -cp "$FOUND" net.minecraft.client.Minecraft | grep -i "reload\|downloadedpack" || true
 
+      - name: 리소스팩 관리 메서드를 부르는 곳 (스레드 확인용)
+        run: |
+          FOUND=""
+          for J in $(find ~/.gradle/caches/fabric-loom .gradle/loom-cache -name '*.jar' 2>/dev/null); do
+            if unzip -l "$J" 2>/dev/null | grep -q 'net/minecraft/client/resources/server/DownloadedPackSource.class'; then FOUND="$J"; break; fi
+          done
+          test -n "$FOUND" || exit 0
+          mkdir -p /tmp/mc && cd /tmp/mc && unzip -q -o "$FOUND" 'net/minecraft/client/*'
+          for M in configureForServerControl configureForLocalWorld cleanupAfterDisconnect; do
+            echo "===== $M 를 부르는 클래스"
+            for C in $(grep -rl --include='*.class' "$M" net | grep -v 'DownloadedPackSource.class'); do
+              N=$(echo "$C" | sed 's/\.class$//; s#/#.#g'); echo "--- $N"
+              javap -c -p -cp . "$N" | awk -v m="$M" '/^  [a-z].*\(.*\);$/{h=$0} $0 ~ m {print h; print}' | head -20
+            done
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: fastpack-mod
