@@ -34,7 +34,9 @@
     `AccountStore`(MS 토큰은 files/accounts/ 에 Keystore AES-GCM 으로 암호화 저장 `TokenCrypto`, 예전 평문도 읽음. 백업·기기 이전에서 제외 `res/xml/data_extraction_rules.xml`), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
 
 ## PC 모드 (tools/fastpack-mod)
-- FastPack 0.2.0: ① 재접속 때 같은 서버 팩이면 다시 적용 안 함 — `DownloadedPackSourceMixin` 이 `startReload` 에서
+- FastPack 0.3.0: ⓪ 게임을 다시 켜도 — `FastPackState` 가 마지막 서버 팩(UUID·경로·서버 주소)을 config/fastpack-lastpack.properties 에 저장,
+  `DownloadedPackSource.<init>` TAIL 에서 그 팩을 packSource 에 넣어 첫 로딩에 포함 → 같은 서버 접속 시 건너뜀 (config/fastpack.properties keepAcrossRestart=false 로 끔)
+- ① 재접속 때 같은 서버 팩이면 다시 적용 안 함 — `DownloadedPackSourceMixin` 이 `startReload` 에서
   나갈 때 팩 내리기·같은 팩 다시 올리기를 건너뛰고 `onReloadSuccess` 로 성공 처리, 다른 서버(주소 비교)·싱글 월드면 정리.
   루나 클라이언트(ichor)에서 도스온라인 재접속 확인됨. 루나는 SLF4J 로그가 안 보여서 System.out 으로 찍음
 - ② 처음 받을 때: 서버 리소스팩을 HTTP Range 로 6개 연결·4MB 조각으로 나눠 받고
