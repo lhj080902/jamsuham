@@ -77,8 +77,7 @@
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
 ## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.2.0)
-- **업로드 서명 키**: 사용자가 PC 에서 만드는 중. Windows 에 keytool 이 없어서(JDK 미설치) 막힘 → Temurin JDK 17 설치(winget) 안내함.
-  다 되면 Secrets 4개 등록 → Actions 재실행 → 아티팩트 `jamsuham-play-aab`(UNSIGNED 없는 이름) 확인
+- (완료 2026-11-23) **업로드 서명 키**: 사용자가 upload.jks 를 만들고 Secrets 4개 등록 → 시험 빌드에서 `jamsuham-play-aab`(서명됨) 확인
 - **Mojang 승인 대기**: 메일 오면 저장소 Variables 에 MS_CLIENT_ID 등록 → 새 빌드에서 로그인 주소가 login.microsoftonline.com/consumers 인지 확인
 - **접속자 전체 목록 버튼**: 사용자가 도스온라인에서 `/list`·`/glist` 결과를 보내 주면 그 형식으로 파싱해 보여 주는 버튼 만들기 (서버가 Tab 목록엔 일부만 보냄)
 - Play 출시: 그래픽 1024×500(배너로 만들어 줄 수 있음)·스크린샷·테스터 12명 14일·앱 콘텐츠 신고(docs/store-listing*.md)
