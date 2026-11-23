@@ -87,7 +87,8 @@
   ② 로그를 나만 보이는 채팅으로 — gui.getChat().addMessage(Component.literal("[FastPack] …")), 팩 처리는 접속 설정 단계라 바로 띄우면 안 보임 →
   큐에 모아 두었다가 Minecraft.tick(MinecraftMixin) 에서 player != null 일 때 내보내기. System.out 로그는 그대로 유지
   ③ 0.3.0(게임 다시 켜도 유지) 시험 결과 확인
-- **Mojang 승인 대기**: 메일 오면 저장소 Variables 에 MS_CLIENT_ID 등록 → 새 빌드에서 로그인 주소가 login.microsoftonline.com/consumers 인지 확인
+- **(승인됨 2026-11-23) Mojang Minecraft API**: 승인 메일 받음 → 사용자가 저장소 Variables 에 MS_CLIENT_ID 등록 후 새 빌드에서
+  계정 추가 시 로그인 주소가 login.microsoftonline.com/consumers 인지, 로그인·서버 접속이 되는지 확인 (실패 시 403 Invalid app registration 여부)
 - **접속자 전체 목록 버튼**: 사용자가 도스온라인에서 `/list`·`/glist` 결과를 보내 주면 그 형식으로 파싱해 보여 주는 버튼 만들기 (서버가 Tab 목록엔 일부만 보냄)
 - Play 출시: 그래픽 1024×500(배너로 만들어 줄 수 있음)·스크린샷·테스터 12명 14일·앱 콘텐츠 신고(docs/store-listing*.md)
 - 나중: 클라우드 24시간 잠수(프리미엄, 아는 형 서버) — 같은 IP 다계정 제한·모장 429·토큰 보관 책임 설명함, iOS, 후원·Play 결제
@@ -98,7 +99,7 @@
 - **출시 전 가장 큰 남은 일**: 정품 로그인이 마인크래프트 공식 런처의 client ID(`MsaConstants.JAVA_TITLE_ID`, AccountStore.msaConfig)를 쓴다 →
   Play 출시 전 자체 Azure 앱 + Mojang 의 Minecraft API 승인을 받아 교체해야 함. 코드는 준비됨: 저장소 변수 MS_CLIENT_ID 를 등록하면
   매니페스트 meta-data 로 들어가 자체 ID(consumers 엔드포인트)로 로그인. 절차 docs/MS_LOGIN.md, 업로드 키 docs/RELEASE_KEY.md.
-  2026-11-22: Azure 앱(client ID 9f60141c-29ac-4d71-8fa1-f89e32a085e7) 등록·Mojang 신청 제출, 승인 대기 중
+  2026-11-22: Azure 앱(client ID 9f60141c-29ac-4d71-8fa1-f89e32a085e7) 등록·Mojang 신청 제출 → 2026-11-23 승인(allow list 등록)
 - **플레이스토어 출시 준비**: 개발자 계정(만 18세 이상 명의), 테스터 12명·14일, 비공개 서명 키, 앱 안 업데이트(REQUEST_INSTALL_PACKAGES) 빼기,
   포그라운드 서비스 신고(문구는 store-listing.md), Play 결제로 `Plan.isPremium` 연결 (GitHub 판만 버전 글씨 7번 테스트 토글, Play 판은 항상 무료),
   자체 MS client ID(Mojang 승인) — Play 판 빌드 분리·정보 화면·개인정보처리방침은 완료
