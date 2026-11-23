@@ -52,8 +52,8 @@ NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR 
 
 
 **그래픽**
-- 아이콘 512×512 PNG
-- 그래픽 이미지 1024×500
+- 아이콘 512×512 PNG → `docs/store/icon-512.png`
+- 그래픽 이미지 1024×500 → `docs/store/feature-1024x500.png` (24비트 PNG, 투명 없음, 배너로 만듦)
 - 휴대전화 스크린샷 2~8장: 서버 목록, 채팅, 상태 탭, 지도, 알림 화면 등. 마인크래프트 로고는 넣지 않습니다.
 
 ---

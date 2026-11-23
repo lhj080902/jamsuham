@@ -34,6 +34,10 @@
     `AccountStore`(MS 토큰은 files/accounts/ 에 Keystore AES-GCM 으로 암호화 저장 `TokenCrypto`, 예전 평문도 읽음. 백업·기기 이전에서 제외 `res/xml/data_extraction_rules.xml`), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
 
 ## PC 모드 (tools/fastpack-mod)
+- FastPack 0.4.0: 설정은 `FastPackConfig`(config/fastpack.properties: keepAcrossRestart·skipReapply·parallelDownload·chatMessages, 기본 모두 true).
+  Mod Menu 연동(`gui/ModMenuIntegration` → `gui/FastPackScreen`, modmenu 13.0.3 은 modCompileOnly·transitive=false, fabric.mod.json suggests).
+  "남겨 둔 팩 지금 정리" = `PackKeeper` 인터페이스(DownloadedPackSourceMixin 이 구현, `<init>` 에서 `PackKeeper.Holder.instance` 로 잡음).
+  채팅 알림 = `FastPackLog.chat()` 큐 → `MinecraftMixin` 의 tick HEAD 에서 player 있을 때 내보냄(3분 지난 건 버림). 로그는 `FastPackLog.log()` (System.out + SLF4J)
 - FastPack 0.3.0: ⓪ 게임을 다시 켜도 — `FastPackState` 가 마지막 서버 팩(UUID·경로·서버 주소)을 config/fastpack-lastpack.properties 에 저장,
   `DownloadedPackSource.<init>` TAIL 에서 그 팩을 packSource 에 넣어 첫 로딩에 포함 → 같은 서버 접속 시 건너뜀 (config/fastpack.properties keepAcrossRestart=false 로 끔)
 - ① 재접속 때 같은 서버 팩이면 다시 적용 안 함 — `DownloadedPackSourceMixin` 이 `startReload` 에서
@@ -78,18 +82,14 @@
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
-## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.3.0)
+## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.4.0)
 - (완료 2026-11-23) **업로드 서명 키**: 사용자가 upload.jks 를 만들고 Secrets 4개 등록 → 시험 빌드에서 `jamsuham-play-aab`(서명됨) 확인
-- **FastPack 다음 작업 (사용자 요청, 다음 세션 첫 작업)**:
-  ① 게임 안 설정 창 — Mod Menu 연동(루나 모드 목록에 modmenu 있음, maven.terraformersmc.com 의 com.terraformersmc:modmenu 1.21.4용을 compileOnly,
-  fabric.mod.json entrypoints "modmenu", suggests). Screen 에 버튼: 게임 다시 켜도 유지 / 재접속 때 다시 적용 안 함 / 나눠 받기 / 채팅 알림 켜기·끄기,
-  "남겨 둔 팩 지금 정리"(DownloadedPackSource 인스턴스를 <init> 에서 정적 참조로 잡아 dropKept 호출). 값은 config/fastpack.properties (FastPackState 에 키 추가, 믹스인에서 확인)
-  ② 로그를 나만 보이는 채팅으로 — gui.getChat().addMessage(Component.literal("[FastPack] …")), 팩 처리는 접속 설정 단계라 바로 띄우면 안 보임 →
-  큐에 모아 두었다가 Minecraft.tick(MinecraftMixin) 에서 player != null 일 때 내보내기. System.out 로그는 그대로 유지
-  ③ 0.3.0(게임 다시 켜도 유지) 시험 결과 확인
+- (완료 2026-11-23) FastPack 0.4.0: 게임 안 설정 창(Mod Menu)·남겨 둔 팩 정리 버튼·나만 보이는 채팅 알림. CI 빌드 성공 (브랜치 claude/sharp-lamport-xup92m)
+  → **사용자 시험 대기**: 루나에서 Mod Menu 설정 버튼이 보이는지, 채팅 알림이 뜨는지, 0.3.0(게임 다시 켜도 유지) 동작
+- Play 그래픽 이미지 1024×500 은 `docs/store/feature-1024x500.png` (배너로 만듦). 남은 것: 스크린샷
 - **Mojang 승인 대기**: 메일 오면 저장소 Variables 에 MS_CLIENT_ID 등록 → 새 빌드에서 로그인 주소가 login.microsoftonline.com/consumers 인지 확인
 - **접속자 전체 목록 버튼**: 사용자가 도스온라인에서 `/list`·`/glist` 결과를 보내 주면 그 형식으로 파싱해 보여 주는 버튼 만들기 (서버가 Tab 목록엔 일부만 보냄)
-- Play 출시: 그래픽 1024×500(배너로 만들어 줄 수 있음)·스크린샷·테스터 12명 14일·앱 콘텐츠 신고(docs/store-listing*.md)
+- Play 출시: 스크린샷·테스터 12명 14일·앱 콘텐츠 신고(docs/store-listing*.md)
 - 나중: 클라우드 24시간 잠수(프리미엄, 아는 형 서버) — 같은 IP 다계정 제한·모장 429·토큰 보관 책임 설명함, iOS, 후원·Play 결제
 - 학교 와이파이 차단 우회는 도와주지 않기로 함 (요청서 초안·데이터 절약 모드로 대신)
 
