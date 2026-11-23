@@ -17,14 +17,17 @@ import java.io.File
 import java.io.IOException
 import java.net.URLEncoder
 
-/** 계정 하나. microsoft = 정품, 아니면 비정품 닉네임 */
+/**
+ * 계정 하나 (마이크로소프트 정품 계정만).
+ * microsoft 는 예전 버전에서 저장한 비정품 닉네임(false)을 걸러내려고 남겨 둔 값이다. 비정품 접속은 v1.7.1 에서 뺐다.
+ */
 data class Account(
     val id: String = "",
     val name: String = "",
     val microsoft: Boolean = false,
     val uuid: String? = null,
 ) {
-    val label: String get() = if (microsoft) tr("$name (정품)", "$name (premium)") else tr("$name (비정품)", "$name (offline)")
+    val label: String get() = name
 }
 
 /**
@@ -45,13 +48,20 @@ class AccountStore(context: Context) {
         migrateOld()
         val json = sp.getString("accounts", null) ?: return emptyList()
         if (json == cachedJson) return cachedList
-        val list = try {
+        val all = try {
             gson.fromJson<List<Account>>(json, object : TypeToken<List<Account>>() {}.type) ?: emptyList()
         } catch (_: Throwable) {
             emptyList()
         }
+        // 예전 버전에서 만든 비정품 닉네임은 더 이상 쓸 수 없으므로 목록에서 지운다
+        val list = all.filter { it.microsoft }
+        if (list.size != all.size) {
+            write(list)
+            cachedJson = gson.toJson(list)
+        } else {
+            cachedJson = json
+        }
         cachedList = list
-        cachedJson = json
         return list
     }
 
@@ -59,16 +69,6 @@ class AccountStore(context: Context) {
 
     private fun write(list: List<Account>) {
         sp.edit().putString("accounts", gson.toJson(list)).apply()
-    }
-
-    fun addOffline(name: String): Account {
-        val n = name.trim()
-        if (!NAME_REGEX.matches(n)) throw IllegalArgumentException(tr("닉네임은 영문/숫자/_ 3~16자로 입력해 주세요", "Nickname must be 3-16 letters, digits or _"))
-        val existing = list().firstOrNull { !it.microsoft && it.name.equals(n, true) }
-        if (existing != null) return existing
-        val acc = Account(id = "offline:$n", name = n, microsoft = false)
-        write(list() + acc)
-        return acc
     }
 
     fun remove(id: String) {
@@ -146,7 +146,6 @@ class AccountStore(context: Context) {
     @Throws(Exception::class)
     fun credentials(accountId: String, forceRefresh: Boolean): JoinCredentials {
         val acc = get(accountId) ?: throw AuthException(tr("계정을 찾을 수 없습니다. 서버 설정에서 계정을 다시 골라 주세요", "Account not found. Please choose the account again in the server settings"))
-        if (!acc.microsoft) return JoinCredentials.offline(acc.name)
         synchronized(LOCK) {
             val f = file(acc.id)
             if (!f.exists()) throw AuthException(tr("${acc.name} 계정에 다시 로그인해 주세요", "Please sign in to ${acc.name} again"))
@@ -214,13 +213,10 @@ class AccountStore(context: Context) {
             old.delete()
             result.add(acc)
         }
-        val offline = oldPrefs.getString("offline_name", "") ?: ""
-        if (NAME_REGEX.matches(offline)) result.add(Account(id = "offline:$offline", name = offline))
         if (result.isNotEmpty()) write(result)
     }
 
     companion object {
-        val NAME_REGEX = Regex("^[A-Za-z0-9_]{3,16}$")
         private val LOCK = Any()
         private const val KEY_ALIAS = "jamsuham_tokens"
 

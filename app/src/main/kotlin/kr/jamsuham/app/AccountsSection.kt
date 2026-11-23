@@ -3,9 +3,7 @@ package kr.jamsuham.app
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
-import android.text.InputType
 import android.widget.LinearLayout
-import android.widget.Toast
 
 /**
  * 계정 관리 카드 두 개(계정 추가 / 저장된 계정). 설정 화면과, 서버 설정에서 계정을 고르는 화면이 같이 쓴다.
@@ -22,15 +20,14 @@ class AccountsSection(
     /** 계정 추가 카드 */
     val addCard: LinearLayout = ui.card().apply {
         addView(ui.section(tr("계정 추가", "Add account")))
-        addView(ui.button(tr("마이크로소프트 계정으로 로그인 (정품)", "Sign in with Microsoft (premium)"), "primary") {
+        addView(ui.button(tr("마이크로소프트 계정으로 로그인", "Sign in with Microsoft"), "primary") {
             @Suppress("DEPRECATION")
             activity.startActivityForResult(Intent(activity, LoginActivity::class.java), REQ_LOGIN)
         }, ui.lp(Ui.MATCH, ui.dp(50)))
         addView(ui.hint(tr(
-            "앱 안에 마이크로소프트 로그인 화면이 뜹니다. 비밀번호는 마이크로소프트에만 입력되고 앱에는 저장되지 않습니다.",
-            "The Microsoft sign-in page opens inside the app. Your password goes only to Microsoft and is never stored in the app.",
+            "마인크래프트 자바 에디션을 구매한 계정으로 로그인해 주세요. 앱 안에 마이크로소프트 로그인 화면이 뜨며, 비밀번호는 마이크로소프트에만 입력되고 앱에는 저장되지 않습니다.",
+            "Sign in with an account that owns Minecraft: Java Edition. The Microsoft sign-in page opens inside the app. Your password goes only to Microsoft and is never stored in the app.",
         )))
-        addView(ui.button(tr("비정품 닉네임 추가", "Add offline nickname"), "plain") { addOffline() }, ui.gap(12).apply { height = ui.dp(46) })
     }
 
     /** 저장된 계정 카드 */
@@ -54,10 +51,7 @@ class AccountsSection(
             val row = ui.horizontal().apply { setPadding(0, ui.dp(6), 0, ui.dp(6)) }
             val texts = ui.vertical()
             texts.addView(ui.text(acc.name, 16f, bold = true))
-            texts.addView(ui.text(
-                if (acc.microsoft) tr("정품 · 마이크로소프트", "Premium · Microsoft") else tr("비정품 닉네임", "Offline nickname"),
-                12f, ui.p.muted,
-            ))
+            texts.addView(ui.text(tr("마이크로소프트 계정", "Microsoft account"), 12f, ui.p.muted))
             row.addView(texts, ui.lp(0, Ui.WRAP, 1f))
             onSelect?.let { select ->
                 row.addView(ui.button(tr("선택", "Select"), "plain") { select(acc.id) }, ui.lp(Ui.WRAP, ui.dp(40)))
@@ -74,32 +68,11 @@ class AccountsSection(
         return if (resultCode == Activity.RESULT_OK) data?.getStringExtra(LoginActivity.EXTRA_ACCOUNT_ID) else null
     }
 
-    private fun addOffline() {
-        val input = ui.input(tr("영문/숫자/_ 3~16자", "Letters, digits, _ (3–16)")).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        }
-        val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), 0); addView(input, ui.lp()) }
-        AlertDialog.Builder(activity)
-            .setTitle(tr("비정품 닉네임", "Offline nickname"))
-            .setView(box)
-            .setPositiveButton(tr("추가", "Add")) { _, _ ->
-                try {
-                    accounts.addOffline(input.text.toString())
-                    refresh()
-                } catch (e: IllegalArgumentException) {
-                    Toast.makeText(activity, e.message ?: tr("잘못된 닉네임", "Invalid nickname"), Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton(tr("취소", "Cancel"), null)
-            .show()
-    }
-
     private fun confirmRemove(acc: Account) {
         AlertDialog.Builder(activity)
             .setTitle(tr("계정 삭제", "Delete account"))
             .setMessage(
-                tr("${acc.name} 계정을 이 앱에서 지울까요?", "Remove ${acc.name} from this app?") +
-                    if (acc.microsoft) tr("\n(마이크로소프트 계정 자체는 지워지지 않습니다)", "\n(Your Microsoft account itself is not deleted)") else "",
+                tr("${acc.name} 계정을 이 앱에서 지울까요?\n(마이크로소프트 계정 자체는 지워지지 않습니다)", "Remove ${acc.name} from this app?\n(Your Microsoft account itself is not deleted)"),
             )
             .setPositiveButton(tr("삭제", "Delete")) { _, _ ->
                 accounts.remove(acc.id)

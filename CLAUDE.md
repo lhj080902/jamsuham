@@ -72,6 +72,10 @@
     시험 팩은 `cd tools/test-server/pack && python3 make.py`. `EN=1` 이면 영어 모드, 임시 폴더는 `HARNESS_TMP`)
 - 지원 버전 확인됨: 1.8.8, 1.12.2, 1.20.x, 1.21.4, 1.21.8, 26.1 (테스트 서버 기준)
 
+## 계정
+- **정품(마이크로소프트) 계정만** 쓴다. 비정품 닉네임 접속은 v1.7.1(2026-11-23)에서 뺐다 (사용자 요청, Mojang 승인 자체 client ID 로 전환과 함께).
+  예전에 저장한 비정품 계정은 `AccountStore.list()` 가 걸러서 지운다(`Account.microsoft=false`). core 의 `JoinCredentials.offline` 은 PC 시험 하네스용으로만 남김
+
 ## 재접속 판단 규칙 (AfkSession)
 - 중복 로그인(다른 곳에서 같은 계정 접속, `duplicate_login`) → 멈춤 / 프록시 "already connected"(내 새 접속이 거절됨) → 기다렸다 재접속
 - 정품 인증 실패 킥 → 토큰 새로 받아 재시도, 3번 연속이면 멈춤 / 모장 429 → 60·120·300·600초 대기

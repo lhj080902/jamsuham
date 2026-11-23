@@ -136,8 +136,7 @@ class Store(context: Context) {
             name = address,
             address = address,
             fixedVersion = sp.getString("fixed_version", null),
-            accountId = if (sp.getBoolean("use_microsoft", true)) sp.getString("ms_uuid", null)?.let { "ms:$it" }
-            else (sp.getString("offline_name", "") ?: "").takeIf { it.isNotBlank() }?.let { "offline:$it" },
+            accountId = if (sp.getBoolean("use_microsoft", true)) sp.getString("ms_uuid", null)?.let { "ms:$it" } else null,
             joinCommands = (sp.getString("join_commands", "") ?: "").lines().filter { it.isNotBlank() },
             autoReconnect = sp.getBoolean("auto_reconnect", true),
             reconnectOnKick = sp.getBoolean("reconnect_on_kick", true),

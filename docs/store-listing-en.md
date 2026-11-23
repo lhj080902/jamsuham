@@ -30,7 +30,7 @@ Jamsucraft keeps you connected to Minecraft: Java Edition servers from your Andr
 · Resumes AFK automatically after a reboot or app update
 · Three designs (Classic, Pixel, Clean), light/dark, text size, Korean and English
 · Saves 30 days of chat logs on your device and exports them as text files
-· Supports servers from 1.8 to the latest versions, premium (Microsoft) and offline accounts
+· Supports servers from 1.8 to the latest versions with your Microsoft (premium) account
 · Two-pane layout on tablets
 
 ■ Notes

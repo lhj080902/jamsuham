@@ -56,7 +56,8 @@ class ServerEditActivity : BaseActivity() {
             packWifiOnly = AppSettings.defaultPackWifiOnly,
             resumeOnBoot = AppSettings.defaultResumeOnBoot,
         ))
-        pendingAccountId = s.accountId ?: accounts.list().firstOrNull()?.id
+        // 예전 비정품 닉네임처럼 지금 없는 계정이면 첫 번째 계정으로
+        pendingAccountId = s.accountId?.takeIf { accounts.get(it) != null } ?: accounts.list().firstOrNull()?.id
 
         val root = ui.vertical()
         val header = ui.horizontal()
