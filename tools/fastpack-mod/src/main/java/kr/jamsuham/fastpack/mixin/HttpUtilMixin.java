@@ -6,6 +6,8 @@ import java.net.Proxy;
 import java.net.URL;
 import java.nio.file.Path;
 import java.util.Map;
+import kr.jamsuham.fastpack.FastPackConfig;
+import kr.jamsuham.fastpack.FastPackLog;
 import kr.jamsuham.fastpack.ParallelDownload;
 import net.minecraft.util.HttpUtil;
 import org.spongepowered.asm.mixin.Mixin;
@@ -29,7 +31,12 @@ public abstract class HttpUtilMixin {
                                           HashCode requestedHash, int maxSize, Proxy proxy,
                                           HttpUtil.DownloadProgressListener listener,
                                           CallbackInfoReturnable<Path> cir) {
-        System.out.println("[FastPack] 리소스팩 다운로드 가로채기 동작: " + url);
+        FastPackConfig.ensureLoaded();
+        if (!FastPackConfig.parallelDownload) {
+            FastPackLog.log("나눠 받기가 꺼져 있어 바닐라로 받습니다: " + url);
+            return;
+        }
+        FastPackLog.log("리소스팩 다운로드 가로채기 동작: " + url);
         Path result = ParallelDownload.tryDownload(saveDir, url, headers, hashFunction, requestedHash, maxSize, proxy,
                 new ParallelDownload.Progress() {
                     @Override public void requestStart() { listener.requestStart(); }

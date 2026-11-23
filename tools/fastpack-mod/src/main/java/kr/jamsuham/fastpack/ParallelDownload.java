@@ -189,7 +189,8 @@ public final class ParallelDownload {
             } catch (IOException ignored) {
             }
             progress.requestFinished(true);
-            LOG.info("[FastPack] 다 받았습니다: {} ({}초)", target.getFileName(), String.format(Locale.ROOT, "%.1f", (System.nanoTime() - startedAt) / 1e9));
+            FastPackLog.chat(String.format(Locale.ROOT, "리소스팩을 %d개 연결로 나눠 받았습니다 (%.1f MB, %.1f초)",
+                    threads, total / (1024.0 * 1024.0), (System.nanoTime() - startedAt) / 1e9));
             return target;
         } finally {
             // 실패해도 진행 표시에 실패를 알리지 않는다: 바닐라가 requestStart 부터 다시 시작한다

@@ -9,11 +9,18 @@ base {
     archivesName = 'fastpack'
 }
 
+repositories {
+    // Mod Menu (게임 안 설정 창 연결용, 실행에는 필요 없음)
+    maven { name = 'TerraformersMC'; url = 'https://maven.terraformersmc.com/releases/' }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     // 바닐라와 같은 이름(모장 공식 매핑)
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    // Mod Menu API 만 컴파일에 사용 (jar 에 넣지 않음, 없어도 모드는 동작)
+    modCompileOnly("com.terraformersmc:modmenu:${project.modmenu_version}") { transitive = false }
 }
 
 processResources {

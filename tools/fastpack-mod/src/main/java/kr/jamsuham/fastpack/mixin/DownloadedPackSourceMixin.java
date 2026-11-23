@@ -5,7 +5,10 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import kr.jamsuham.fastpack.FastPackConfig;
+import kr.jamsuham.fastpack.FastPackLog;
 import kr.jamsuham.fastpack.FastPackState;
+import kr.jamsuham.fastpack.PackKeeper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.server.DownloadedPackSource;
 import net.minecraft.client.resources.server.PackReloadConfig;
@@ -35,7 +38,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * 건너뛸 때도 바닐라와 똑같이 적용 성공 콜백을 불러서, 게임 내부 상태와 서버에 보내는 "적용 성공" 응답은 정상으로 처리된다.
  */
 @Mixin(DownloadedPackSource.class)
-public abstract class DownloadedPackSourceMixin {
+public abstract class DownloadedPackSourceMixin implements PackKeeper {
 
     @Shadow @Final Minecraft minecraft;
     @Shadow private RepositorySource packSource;
@@ -68,6 +71,7 @@ public abstract class DownloadedPackSourceMixin {
     /** 게임을 켤 때: 마지막으로 적용했던 서버 팩을 처음 리소스 로딩에 같이 넣는다 */
     @Inject(method = "<init>", at = @At("TAIL"), require = 1)
     private void fastpack$restoreOnStart(CallbackInfo ci) {
+        PackKeeper.Holder.instance = this;
         try {
             FastPackState.Saved saved = FastPackState.load();
             if (saved == null) return;
@@ -82,9 +86,9 @@ public abstract class DownloadedPackSourceMixin {
             fastpack$loaded = fastpack$key(list);
             fastpack$kept = true;
             fastpack$keptFor = saved.server();
-            System.out.println("[FastPack] 게임을 켜면서 지난번 서버 리소스팩을 미리 불러옵니다 (" + saved.server() + ")");
+            FastPackLog.log("게임을 켜면서 지난번 서버 리소스팩을 미리 불러옵니다 (" + saved.server() + ")");
         } catch (Throwable t) {
-            System.out.println("[FastPack] 지난번 서버 팩을 미리 불러오지 못했습니다: " + t);
+            FastPackLog.log("지난번 서버 팩을 미리 불러오지 못했습니다: " + t);
         }
     }
 
@@ -102,18 +106,27 @@ public abstract class DownloadedPackSourceMixin {
         boolean leaving = fastpack$leaving;
         fastpack$leaving = false;
 
+        // 0) 설정에서 꺼져 있으면 바닐라대로 (무엇이 적용되는지만 기억해 두어 다시 켰을 때 맞게 동작)
+        if (!FastPackConfig.skipReapply) {
+            fastpack$kept = false;
+            fastpack$keptFor = null;
+            fastpack$loaded = want;
+            fastpack$pendingSave = null;
+            return;
+        }
+
         // 1) 서버에서 나가며 팩을 내리는 적용: 건너뛰고 남겨 둔다
         if (leaving && want.isEmpty() && fastpack$loaded != null && !fastpack$loaded.isEmpty()) {
             fastpack$kept = true;
             fastpack$keptFor = fastpack$current;
-            System.out.println("[FastPack] 서버에서 나가도 리소스팩을 남겨 둡니다 (같은 서버에 다시 들어가면 바로 적용)");
+            FastPackLog.log("서버에서 나가도 리소스팩을 남겨 둡니다 (같은 서버에 다시 들어가면 바로 적용)");
             fastpack$finishWithoutReload(callbacks, ci);
             return;
         }
         // 2) 이미 적용돼 있는 것과 똑같은 팩: 건너뛴다
         if (!want.isEmpty() && Objects.equals(want, fastpack$loaded)) {
             fastpack$kept = false;
-            System.out.println("[FastPack] 같은 리소스팩이 이미 적용돼 있어 다시 적용하지 않습니다");
+            FastPackLog.chat("같은 리소스팩이 이미 적용돼 있어 다시 적용하지 않았습니다");
             fastpack$finishWithoutReload(callbacks, ci);
             return;
         }
@@ -146,7 +159,7 @@ public abstract class DownloadedPackSourceMixin {
                 FastPackState.save(new FastPackState.Saved(fastpack$current, entries));
             }
         } catch (Throwable t) {
-            System.out.println("[FastPack] 마지막 서버 팩을 저장하지 못했습니다: " + t);
+            FastPackLog.log("마지막 서버 팩을 저장하지 못했습니다: " + t);
         }
     }
 
@@ -176,7 +189,7 @@ public abstract class DownloadedPackSourceMixin {
         }
         fastpack$current = addr;
         if (fastpack$kept && !Objects.equals(addr, fastpack$keptFor)) {
-            System.out.println("[FastPack] 다른 서버라서 남겨 둔 리소스팩을 정리합니다");
+            FastPackLog.chat("다른 서버라서 남겨 둔 리소스팩을 정리했습니다");
             fastpack$dropKept();
         }
     }
@@ -187,7 +200,7 @@ public abstract class DownloadedPackSourceMixin {
         fastpack$leaving = false;
         fastpack$current = null;
         if (fastpack$kept) {
-            System.out.println("[FastPack] 싱글 월드라서 남겨 둔 리소스팩을 정리합니다");
+            FastPackLog.log("싱글 월드라서 남겨 둔 리소스팩을 정리합니다");
             fastpack$dropKept();
         }
     }
@@ -200,5 +213,19 @@ public abstract class DownloadedPackSourceMixin {
         FastPackState.clear();
         this.packSource = configureSource(List.of());
         this.minecraft.reloadResourcePacks();
+    }
+
+    @Override
+    public String fastpack$keptServer() {
+        if (!fastpack$kept) return null;
+        return fastpack$keptFor == null ? "?" : fastpack$keptFor;
+    }
+
+    @Override
+    public boolean fastpack$dropKeptNow() {
+        if (!fastpack$kept) return false;
+        FastPackLog.log("설정 창에서 남겨 둔 리소스팩을 정리합니다");
+        fastpack$dropKept();
+        return true;
     }
 }

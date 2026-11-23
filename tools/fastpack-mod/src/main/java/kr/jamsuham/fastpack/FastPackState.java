@@ -14,7 +14,7 @@ import net.fabricmc.loader.api.FabricLoader;
 
 /**
  * "마지막으로 적용한 서버 팩"을 config 폴더에 저장해 두고, 게임을 다시 켤 때 미리 불러오는 데 쓴다.
- * 끄려면 config/fastpack.properties 의 keepAcrossRestart=false
+ * 끄려면 설정 창이나 config/fastpack.properties 의 keepAcrossRestart=false
  */
 public final class FastPackState {
     private FastPackState() {}
@@ -30,23 +30,10 @@ public final class FastPackState {
         return dir().resolve("fastpack-lastpack.properties");
     }
 
-    /** 설정: 게임을 다시 켜도 지난번 서버 팩을 미리 불러올지 (기본 켜짐). 파일이 없으면 기본값으로 만들어 둔다 */
+    /** 설정: 게임을 다시 켜도 지난번 서버 팩을 미리 불러올지. 재접속 기능(skipReapply)이 꺼져 있으면 의미가 없어 꺼진 것으로 본다 */
     public static boolean keepAcrossRestart() {
-        Path f = dir().resolve("fastpack.properties");
-        Properties p = new Properties();
-        try {
-            if (Files.isRegularFile(f)) {
-                try (Reader r = Files.newBufferedReader(f, StandardCharsets.UTF_8)) { p.load(r); }
-            } else {
-                p.setProperty("keepAcrossRestart", "true");
-                Files.createDirectories(f.getParent());
-                try (Writer w = Files.newBufferedWriter(f, StandardCharsets.UTF_8)) {
-                    p.store(w, "FastPack: keepAcrossRestart=true 면 게임을 다시 켤 때 지난번 서버 리소스팩을 미리 불러와 접속을 빠르게 합니다 (게임 켜는 시간은 그만큼 늘어남)");
-                }
-            }
-        } catch (IOException ignored) {
-        }
-        return !"false".equalsIgnoreCase(p.getProperty("keepAcrossRestart", "true").trim());
+        FastPackConfig.ensureLoaded();
+        return FastPackConfig.keepAcrossRestart && FastPackConfig.skipReapply;
     }
 
     public static Saved load() {

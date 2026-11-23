@@ -4,6 +4,15 @@
 
 
 
+## 0.4.0: 게임 안 설정 창 + 채팅 알림
+- [Mod Menu](https://modrinth.com/mod/modmenu) 가 있으면 **모드 목록 → FastPack → 설정** 에서 바로 켜고 끕니다 (루나 클라이언트의 모드 목록 포함).
+  - 재접속 때 같은 팩 다시 적용 안 함 / 게임을 다시 켜도 유지 / 나눠 받기 / 채팅 알림
+  - **남겨 둔 팩 지금 정리**: 서버에서 나간 뒤 남아 있는 서버 팩(글꼴·그림)을 바로 내립니다
+- Mod Menu 가 없어도 모드는 그대로 동작하며, 설정은 `config/fastpack.properties` 를 고치면 됩니다
+  (`keepAcrossRestart`, `skipReapply`, `parallelDownload`, `chatMessages`, 모두 기본 `true`).
+- "같은 리소스팩이 이미 적용돼 있어 다시 적용하지 않았습니다", "리소스팩을 6개 연결로 나눠 받았습니다 (…MB, …초)" 같은 알림을
+  **나만 보이는 채팅**으로 보여 줍니다 (서버에 들어간 뒤에 뜸). 로그(`System.out`)에도 그대로 남습니다.
+
 ## 0.3.0: 게임을 껐다 켜도 바로 접속
 - 서버 팩이 적용되면 "마지막 서버 팩"(파일·서버 주소)을 `config/fastpack-lastpack.properties` 에 저장합니다.
 - 다음에 게임을 켤 때 처음 로딩에 그 팩을 같이 불러옵니다 → 그 서버에 들어가면 다시 적용하지 않고 바로 접속.
@@ -38,7 +47,7 @@
 
 ## 설치
 1. [Fabric Loader](https://fabricmc.net/use/) 를 마인크래프트 1.21.4 용으로 설치합니다. (Fabric API 는 필요 없습니다.)
-2. `fastpack-0.1.0.jar` 를 `.minecraft/mods` 폴더에 넣습니다.
+2. `fastpack-0.4.0.jar` 를 `.minecraft/mods` 폴더에 넣습니다.
 3. Fabric 프로필로 실행합니다. 로그에 `[FastPack]` 줄이 보이면 동작한 것입니다.
 
 ## 안 될 때 (바닐라로 넘어감)
@@ -51,7 +60,7 @@
 
 ## 빌드
 저장소의 GitHub Actions(`.github/workflows/mod.yml`)가 빌드해서 `fastpack-mod` 아티팩트로 올립니다.
-로컬에서는 JDK 21 로 이 폴더에서 `./gradlew build` → `build/libs/fastpack-0.1.0.jar`.
+로컬에서는 JDK 21 로 이 폴더에서 `./gradlew build` → `build/libs/fastpack-0.4.0.jar`.
 
 기술 메모: Mixin 으로 `net.minecraft.util.HttpUtil.downloadFile(Path, URL, Map, HashFunction, HashCode, int, Proxy, DownloadProgressListener)`
 맨 앞에 끼어들어, 나눠 받기에 성공했을 때만 결과를 돌려줍니다. 대상을 못 찾으면 CI 가 실패하도록 해 두었습니다.

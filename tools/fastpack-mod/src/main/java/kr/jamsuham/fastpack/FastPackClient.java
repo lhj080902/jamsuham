@@ -10,9 +10,9 @@ import net.fabricmc.loader.api.FabricLoader;
 public class FastPackClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
+        FastPackConfig.ensureLoaded();
         boolean lunar = FabricLoader.getInstance().isModLoaded("ichor");
-        String msg = "[FastPack] 켜짐 (루나 클라이언트: " + (lunar ? "예" : "아니오") + ")";
-        System.out.println(msg);
-        ParallelDownload.LOG.info(msg);
+        FastPackLog.log("켜짐 (루나 클라이언트: " + (lunar ? "예" : "아니오") + ", Mod Menu: "
+                + (FabricLoader.getInstance().isModLoaded("modmenu") ? "있음" : "없음") + ")");
     }
 }
