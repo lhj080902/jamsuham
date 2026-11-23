@@ -80,6 +80,13 @@
 
 ## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.2.0)
 - (완료 2026-11-23) **업로드 서명 키**: 사용자가 upload.jks 를 만들고 Secrets 4개 등록 → 시험 빌드에서 `jamsuham-play-aab`(서명됨) 확인
+- **FastPack 다음 작업 (사용자 요청, 다음 세션 첫 작업)**:
+  ① 게임 안 설정 창 — Mod Menu 연동(루나 모드 목록에 modmenu 있음, maven.terraformersmc.com 의 com.terraformersmc:modmenu 1.21.4용을 compileOnly,
+  fabric.mod.json entrypoints "modmenu", suggests). Screen 에 버튼: 게임 다시 켜도 유지 / 재접속 때 다시 적용 안 함 / 나눠 받기 / 채팅 알림 켜기·끄기,
+  "남겨 둔 팩 지금 정리"(DownloadedPackSource 인스턴스를 <init> 에서 정적 참조로 잡아 dropKept 호출). 값은 config/fastpack.properties (FastPackState 에 키 추가, 믹스인에서 확인)
+  ② 로그를 나만 보이는 채팅으로 — gui.getChat().addMessage(Component.literal("[FastPack] …")), 팩 처리는 접속 설정 단계라 바로 띄우면 안 보임 →
+  큐에 모아 두었다가 Minecraft.tick(MinecraftMixin) 에서 player != null 일 때 내보내기. System.out 로그는 그대로 유지
+  ③ 0.3.0(게임 다시 켜도 유지) 시험 결과 확인
 - **Mojang 승인 대기**: 메일 오면 저장소 Variables 에 MS_CLIENT_ID 등록 → 새 빌드에서 로그인 주소가 login.microsoftonline.com/consumers 인지 확인
 - **접속자 전체 목록 버튼**: 사용자가 도스온라인에서 `/list`·`/glist` 결과를 보내 주면 그 형식으로 파싱해 보여 주는 버튼 만들기 (서버가 Tab 목록엔 일부만 보냄)
 - Play 출시: 그래픽 1024×500(배너로 만들어 줄 수 있음)·스크린샷·테스터 12명 14일·앱 콘텐츠 신고(docs/store-listing*.md)
