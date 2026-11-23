@@ -99,6 +99,18 @@ class SettingsActivity : BaseActivity() {
         defaults.addView(ui.button(tr("지금 있는 서버에도 모두 적용", "Apply to all existing servers"), "plain") { applyToAll() }, ui.gap(10).apply { height = ui.dp(44) })
         body.addView(defaults, ui.gap(10))
 
+        // ---------------------------------------------------------------- 데이터
+        val data = ui.card()
+        data.addView(ui.section(tr("데이터 절약", "Data saver")))
+        data.addView(choices(AppSettings.DataSaver.entries, AppSettings.dataSaver, { tr(it.ko, it.en) }) { AppSettings.setDataSaver(it); rebuild() })
+        data.addView(ui.hint(tr(
+            "켜 두면 접속자 얼굴 그림과 리소스팩 그림 글자를 새로 받지 않습니다 (이미 받아 둔 것은 그대로 보임). " +
+                "지형은 원래부터 가장 적게(시야 2청크) 받고 있고, 주변 사람·몹 움직임처럼 서버가 보내는 데이터는 줄일 수 없습니다.",
+            "When on, player faces and resource pack glyphs aren't downloaded (already saved ones still show). " +
+                "Terrain is already kept to the minimum (2-chunk view distance); data the server sends, such as nearby players and mobs, can't be reduced.",
+        )))
+        body.addView(data, ui.gap(10))
+
         // ---------------------------------------------------------------- 알림
         val notify = ui.card()
         notify.addView(ui.section(tr("알림", "Notifications")))

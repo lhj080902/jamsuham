@@ -159,6 +159,14 @@ object SessionHub {
             notifyGlyphs(serverId)
             return
         }
+        // 데이터 절약 모드: 받아 둔 팩이 없으면 새로 받지 않는다 (와이파이에서 다시 접속하면 받음)
+        if (AppSettings.saveDataNow() && Glyphs.cached(url) == null &&
+            !kr.jamsuham.core.pack.PackFonts.isCached(java.io.File(appContext.filesDir, "packfonts"), url, e.packHashes[url])
+        ) {
+            e.packStates[url] = PackState(url, null, error = tr("데이터 절약 모드라 받지 않았습니다 (와이파이에서 접속하면 받습니다)", "Not downloaded in data saver mode (downloads on Wi-Fi)"))
+            notifyGlyphs(serverId)
+            return
+        }
         e.packStates[url] = PackState(url, null)
         notifyGlyphs(serverId)
         val server = Store(appContext).server(serverId)

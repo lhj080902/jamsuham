@@ -32,6 +32,13 @@ object AppSettings {
         ENGLISH("English", "English"),
     }
 
+    /** 데이터 절약 모드: 끔 / 모바일 데이터일 때만 / 항상 */
+    enum class DataSaver(val ko: String, val en: String) {
+        OFF("끔", "Off"),
+        MOBILE("모바일 데이터일 때만", "On mobile data"),
+        ALWAYS("항상", "Always"),
+    }
+
     /** 글자 크기 배율 */
     enum class TextScale(val ko: String, val en: String, val factor: Float) {
         SMALL("작게", "Small", 0.9f),
@@ -62,6 +69,9 @@ object AppSettings {
     @Volatile var keepScreenOn = false; private set
     /** 채팅 줄 앞에 시간 표시 */
     @Volatile var chatTimestamps = true; private set
+    /** 데이터 절약 모드 */
+    @Volatile var dataSaver = DataSaver.OFF; private set
+    private var appContext: Context? = null
 
     fun init(context: Context) {
         if (::sp.isInitialized) return
@@ -77,6 +87,8 @@ object AppSettings {
         notifyDataUsage = sp.getBoolean("notify_data_usage", true)
         keepScreenOn = sp.getBoolean("keep_screen_on", false)
         chatTimestamps = sp.getBoolean("chat_timestamps", true)
+        dataSaver = enumOr(sp.getString("data_saver", null), DataSaver.OFF)
+        appContext = context.applicationContext
         kr.jamsuham.core.Lang.english = english
         applyNightMode(context)
     }
@@ -103,6 +115,23 @@ object AppSettings {
     fun setDefaultResumeOnBoot(v: Boolean) { defaultResumeOnBoot = v; sp.edit().putBoolean("default_resume_on_boot", v).apply(); changed() }
     fun setNotifyDataUsage(v: Boolean) { notifyDataUsage = v; sp.edit().putBoolean("notify_data_usage", v).apply(); changed() }
     fun setKeepScreenOn(v: Boolean) { keepScreenOn = v; sp.edit().putBoolean("keep_screen_on", v).apply(); changed() }
+    fun setDataSaver(v: DataSaver) { dataSaver = v; sp.edit().putString("data_saver", v.name).apply(); changed() }
+
+    /**
+     * 지금 데이터를 아껴야 하는지: "항상" 이거나, "모바일 데이터일 때만" 이고 지금 요금이 나가는 망(모바일 데이터·핫스팟)일 때.
+     * 아낄 때는 접속자 얼굴 그림과 리소스팩 그림 글자를 새로 받지 않는다 (이미 받아 둔 것은 그대로 씀).
+     */
+    fun saveDataNow(): Boolean = when (dataSaver) {
+        DataSaver.OFF -> false
+        DataSaver.ALWAYS -> true
+        DataSaver.MOBILE -> try {
+            val cm = appContext?.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            cm?.isActiveNetworkMetered == true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     fun setChatTimestamps(v: Boolean) { chatTimestamps = v; sp.edit().putBoolean("chat_timestamps", v).apply(); changed() }
 
     /** 지금 영어로 보여야 하는지 */

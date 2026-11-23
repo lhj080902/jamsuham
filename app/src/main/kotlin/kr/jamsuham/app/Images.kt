@@ -41,8 +41,10 @@ object Faces {
         if (failed.contains(key)) return
         val dir = File(context.cacheDir, "faces").apply { mkdirs() }
         pool.execute {
+            val file = File(dir, sha1(key) + ".png")
+            // 데이터 절약 모드: 새 얼굴 그림은 받지 않고 글자 아이콘으로 둔다 (받아 둔 것은 그대로 씀, 실패로 기록하지 않아 와이파이에서 다시 받음)
+            if (!file.exists() && AppSettings.saveDataNow()) return@execute
             val bmp = try {
-                val file = File(dir, sha1(key) + ".png")
                 if (file.exists()) BitmapFactory.decodeFile(file.path) else {
                     val skin = download(key)?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
                     skin?.let { face(it) }?.also { f -> file.outputStream().use { f.compress(Bitmap.CompressFormat.PNG, 100, it) } }

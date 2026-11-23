@@ -284,6 +284,9 @@ object PackFonts {
     private fun cacheKey(url: String, hash: String?): String =
         hash?.takeIf { it.matches(Regex("[0-9a-fA-F]{40}")) }?.lowercase() ?: sha1(url)
 
+    /** 이 팩의 그림 글자를 이미 받아 두었는지 (받지 않고 기기에서 바로 읽을 수 있는지) */
+    fun isCached(cacheDir: File, url: String, hash: String?): Boolean = File(File(cacheDir, cacheName(url, hash)), "fonts.json").isFile
+
     /** 이 팩을 저장하는 폴더 이름 ([cacheDir] 아래) */
     fun cacheName(url: String, hash: String?): String = "${cacheKey(url, hash)}-v$CACHE_VERSION"
 
