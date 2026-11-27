@@ -1,18 +1,23 @@
 // 스토어 스크린샷용 장면 (1.21.4 전용). server.js 의 'showcase' 시나리오가 부른다.
 // 지어낸 서버·닉네임만 쓴다 — 실제 서버 이름, 실제 사람 닉네임·스킨은 넣지 않는다.
 // 메뉴는 SHOWCASE_MENU_FILE 로 지정한 파일이 생기면 연다 (스크린샷 스크립트가 원하는 때에 `touch`).
+// 앱 안 체험 서버의 장면도 여기서 녹화한다 (tools/demo/record.js): SCENE_LANG=en 이면 영어, DEMO=1 이면 체험에만 넣는 줄 추가.
+// 두 환경 변수가 없으면 스크린샷 장면 그대로다.
 const fs = require('fs')
 
 module.exports = function ({ mcData, nbt, text, sendChat, sendPosition, varint, safe, log }) {
+  const EN = process.env.SCENE_LANG === 'en'
+  const DEMO = !!process.env.DEMO
+  const L = (ko, en) => EN ? en : ko
   const PEOPLE = [
     { uuid: '5d3c2a1b-0000-4000-8000-00000000a1f5', name: 'Jamsu_Diver', ping: 38, display: null },
     { uuid: '0c1d2e3f-1111-4111-8111-000000000001', name: 'Haneul_Fish', ping: 52, display: '§6[VIP] §fHaneul_Fish' },
-    { uuid: '0c1d2e3f-1111-4111-8111-000000000002', name: 'Coral_Min', ping: 74, display: '§b[어부] §fCoral_Min' },
+    { uuid: '0c1d2e3f-1111-4111-8111-000000000002', name: 'Coral_Min', ping: 74, display: L('§b[어부] §fCoral_Min', '§b[Fisher] §fCoral_Min') },
     { uuid: '0c1d2e3f-1111-4111-8111-000000000003', name: 'Sea_Otter', ping: 31, display: null },
     { uuid: '0c1d2e3f-1111-4111-8111-000000000004', name: 'Moon_Jelly', ping: 120, display: '§d[MVP] §fMoon_Jelly' },
     { uuid: '0c1d2e3f-1111-4111-8111-000000000005', name: 'Blue_Whale', ping: 88, display: null },
-    { uuid: '0c1d2e3f-1111-4111-8111-000000000006', name: 'Pearl_Kang', ping: 45, display: '§a[건축가] §fPearl_Kang' },
-    { uuid: '0c1d2e3f-1111-4111-8111-000000000007', name: 'Tide_Runner', ping: 63, display: null }
+    { uuid: '0c1d2e3f-1111-4111-8111-000000000006', name: 'Pearl_Kang', ping: 45, display: L('§a[건축가] §fPearl_Kang', '§a[Builder] §fPearl_Kang') },
+    { uuid: '0c1d2e3f-1111-4111-8111-000000000007', name: 'Tide_Runner', ping: 63, display: DEMO ? L('§a[바다마을 건축가] §fTide_Runner', '§a[Seaside Architect] §fTide_Runner') : null }
   ]
 
   function showcase (client) {
@@ -24,29 +29,41 @@ module.exports = function ({ mcData, nbt, text, sendChat, sendPosition, varint, 
     at(400, () => sendInventory(client))
     at(500, () => sendPlayers(client))
     at(600, () => client.write('update_health', { health: 17, food: 18, foodSaturation: 3 }))
-    at(700, () => sys('§e[공지] §f바다마을 야생 서버에 오신 것을 환영합니다!'))
-    at(900, () => sys('§7[안내] 잠수 보상은 30분마다 지급됩니다. /잠수 로 켜고 끌 수 있어요.'))
+    at(700, () => sys(L('§e[공지] §f바다마을 야생 서버에 오신 것을 환영합니다!', '§e[Notice] §fWelcome to Seaside Survival!')))
+    at(900, () => sys(L('§7[안내] 잠수 보상은 30분마다 지급됩니다. /잠수 로 켜고 끌 수 있어요.', '§7[Guide] AFK rewards are given every 30 minutes. Use /afk to turn it on or off.')))
     const onCommand = (d) => {
-      if (d.command === '잠수') at(300, () => sys('§a[잠수] §f잠수 모드가 켜졌습니다. 보상을 기다리는 중…'))
+      if (d.command === L('잠수', 'afk')) at(300, () => sys(L('§a[잠수] §f잠수 모드가 켜졌습니다. 보상을 기다리는 중…', '§a[AFK] §fAFK mode is on. Waiting for rewards…')))
     }
     client.on('chat_command', onCommand)
     client.on('chat_command_signed', onCommand)
-    at(3500, () => say(1, '다들 안녕하세요 ㅎㅎ'))
-    at(4000, () => say(2, '오늘 저녁 낚시 대회 몇 시예요?'))
-    at(4500, () => say(3, '9시요! 1등 상품 다이아 블록이래요'))
+    at(3500, () => say(1, L('다들 안녕하세요 ㅎㅎ', 'Hi everyone :)')))
+    at(4000, () => say(2, L('오늘 저녁 낚시 대회 몇 시예요?', 'What time is the fishing contest tonight?')))
+    at(4500, () => say(3, L('9시요! 1등 상품 다이아 블록이래요', '9 PM! First prize is a diamond block')))
     at(5000, () => client.write('system_chat', {
       isActionBar: false,
       content: nbt.comp({ text: nbt.string(''), extra: nbt.list(nbt.comp([
-        { text: nbt.string('[텔레포트] '), color: nbt.string('aqua') },
-        { text: nbt.string('Coral_Min 님이 같이 가자고 요청했습니다 ') },
-        { text: nbt.string('[수락]'), color: nbt.string('green'), clickEvent: nbt.comp({ action: nbt.string('run_command'), value: nbt.string('/tpaccept') }), hoverEvent: nbt.comp({ action: nbt.string('show_text'), contents: nbt.comp({ text: nbt.string('눌러서 수락') }) }) },
+        { text: nbt.string(L('[텔레포트] ', '[Teleport] ')), color: nbt.string('aqua') },
+        { text: nbt.string(L('Coral_Min 님이 같이 가자고 요청했습니다 ', 'Coral_Min asked you to come along ')) },
+        { text: nbt.string(L('[수락]', '[Accept]')), color: nbt.string('green'), clickEvent: nbt.comp({ action: nbt.string('run_command'), value: nbt.string('/tpaccept') }), hoverEvent: nbt.comp({ action: nbt.string('show_text'), contents: nbt.comp({ text: nbt.string(L('눌러서 수락', 'Tap to accept')) }) }) },
         { text: nbt.string(' ') },
-        { text: nbt.string('[거절]'), color: nbt.string('red'), clickEvent: nbt.comp({ action: nbt.string('run_command'), value: nbt.string('/tpdeny') }) }
+        { text: nbt.string(L('[거절]', '[Deny]')), color: nbt.string('red'), clickEvent: nbt.comp({ action: nbt.string('run_command'), value: nbt.string('/tpdeny') }) }
       ])) })
     }))
-    at(5600, () => sys('§6[보상] §f잠수 30분 보상: §b다이아몬드 x1 §f지급 완료!'))
-    at(6100, () => say(4, '벌써 3시간째 잠수 중 ㅋㅋ'))
-    at(6500, () => say(1, '저도 폰으로 잠수 걸어 뒀어요'))
+    at(5600, () => sys(L('§6[보상] §f잠수 30분 보상: §b다이아몬드 x1 §f지급 완료!', '§6[Reward] §f30-minute AFK reward: §bDiamond x1 §fdelivered!')))
+    at(6100, () => say(4, L('벌써 3시간째 잠수 중 ㅋㅋ', 'AFK for 3 hours already lol')))
+    at(6500, () => say(1, L('저도 폰으로 잠수 걸어 뒀어요', 'I left my phone AFK too')))
+    // 체험 서버에만: 메뉴를 여는 방법 안내 (누르면 /메뉴 를 보낸다)
+    if (DEMO) {
+      at(7000, () => client.write('system_chat', {
+        isActionBar: false,
+        content: nbt.comp({ text: nbt.string(''), extra: nbt.list(nbt.comp([
+          { text: nbt.string(L('[안내] ', '[Guide] ')), color: nbt.string('gray') },
+          { text: nbt.string(L('메뉴를 열려면 ', 'To open the menu, tap ')) },
+          { text: nbt.string(L('[메뉴 열기]', '[Open menu]')), color: nbt.string('green'), clickEvent: nbt.comp({ action: nbt.string('run_command'), value: nbt.string(L('/메뉴', '/menu')) }), hoverEvent: nbt.comp({ action: nbt.string('show_text'), contents: nbt.comp({ text: nbt.string(L('눌러서 메뉴 열기', 'Tap to open the menu')) }) }) },
+          { text: nbt.string(L(' 를 누르세요', '.')) }
+        ])) })
+      }))
+    }
 
     // 메뉴: 파일이 생기면 한 번 연다
     const trigger = process.env.SHOWCASE_MENU_FILE
@@ -61,7 +78,7 @@ module.exports = function ({ mcData, nbt, text, sendChat, sendPosition, varint, 
     }
     client.on('window_click', (d) => {
       log(`MENU CLICK slot=${d.slot} window=${d.windowId}`)
-      if (d.windowId === 9 && d.slot === 13) safe(() => { client.write('close_window', { windowId: 9 }); sys('§6[보상] §b다이아몬드 x1 §f을 받았습니다') })
+      if (d.windowId === 9 && d.slot === 13) safe(() => { client.write('close_window', { windowId: 9 }); sys(L('§6[보상] §b다이아몬드 x1 §f을 받았습니다', '§6[Reward] §fYou received §bDiamond x1')) })
     })
   }
 
@@ -78,7 +95,7 @@ module.exports = function ({ mcData, nbt, text, sendChat, sendPosition, varint, 
       action: { add_player: true, update_listed: true, update_latency: true, update_display_name: true },
       data: PEOPLE.map(p => ({ uuid: p.uuid, player: { name: p.name, properties: [] }, listed: 1, latency: p.ping, displayName: p.display ? text(p.display) : undefined }))
     })
-    client.write('playerlist_header', { header: text('§b§l바다마을 야생'), footer: text('§7접속자 37명 · 잠수 보상 30분') })
+    client.write('playerlist_header', { header: text(L('§b§l바다마을 야생', '§b§lSeaside Survival')), footer: text(L('§7접속자 37명 · 잠수 보상 30분', '§737 online · AFK reward every 30 min')) })
   }
 
   const itemId = (n) => mcData.itemsByName[n].id
@@ -99,14 +116,14 @@ module.exports = function ({ mcData, nbt, text, sendChat, sendPosition, varint, 
 
   /** 서버 메뉴(상자 3줄). 13번 칸을 누르면 닫히고 보상 문구가 나온다 */
   function openMenu (client) {
-    client.write('open_window', { windowId: 9, inventoryType: 2, windowTitle: text('바다마을 메뉴') })
+    client.write('open_window', { windowId: 9, inventoryType: 2, windowTitle: text(L('바다마을 메뉴', 'Seaside Menu')) })
     const items = Array(27 + 36).fill({ itemCount: 0 })
-    items[10] = named('compass', '§a마을 광장으로 이동', ['§7스폰 지점으로 돌아갑니다'])
-    items[11] = named('fishing_rod', '§b낚시터', ['§7낚시 대회가 열리는 곳', '§e오늘 밤 9시 대회!'])
-    items[13] = named('diamond', '§b잠수 보상 받기', ['§7잠수 30분마다 받을 수 있습니다', '§a지금 받을 수 있는 보상: 다이아몬드 x1'])
-    items[15] = named('emerald', '§a상점', ['§7아이템을 사고팝니다'])
-    items[16] = named('clock', '§e출석 체크', ['§7연속 출석 6일째', '§c오늘은 아직 안 했어요'])
-    items[22] = named('barrier', '§c닫기', ['§7메뉴를 닫습니다'])
+    items[10] = named('compass', L('§a마을 광장으로 이동', '§aGo to village square'), [L('§7스폰 지점으로 돌아갑니다', '§7Back to the spawn point')])
+    items[11] = named('fishing_rod', L('§b낚시터', '§bFishing spot'), [L('§7낚시 대회가 열리는 곳', '§7Where the fishing contest is held'), L('§e오늘 밤 9시 대회!', '§eContest tonight at 9 PM!')])
+    items[13] = named('diamond', L('§b잠수 보상 받기', '§bClaim AFK reward'), [L('§7잠수 30분마다 받을 수 있습니다', '§7Available every 30 minutes of AFK'), L('§a지금 받을 수 있는 보상: 다이아몬드 x1', '§aReward available now: Diamond x1')])
+    items[15] = named('emerald', L('§a상점', '§aShop'), [L('§7아이템을 사고팝니다', '§7Buy and sell items')])
+    items[16] = named('clock', L('§e출석 체크', '§eDaily check-in'), [L('§7연속 출석 6일째', '§76-day streak'), L('§c오늘은 아직 안 했어요', '§cNot done yet today')])
+    items[22] = named('barrier', L('§c닫기', '§cClose'), [L('§7메뉴를 닫습니다', '§7Closes the menu')])
     client.write('window_items', { windowId: 9, stateId: 1, items, carriedItem: { itemCount: 0 } })
   }
 
