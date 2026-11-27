@@ -6,6 +6,8 @@
 테마(단색) 아이콘·알림 아이콘은 예전 픽셀 잠수함 벡터(`tools/icon/gen.py`). 메인 배너는 디자인별 `assets/banner_*.webp`
 사용자는 한국어로 대화하며 **존댓말(~합니다/~입니다)** 로 답한다. 코드 주석·UI 문구도 한국어.
 
+사람이 읽는 전체 정리(저장소·등록해 둔 값·만든 것·남은 일·CLI 에서 이어가기)는 **`docs/HANDOFF.md`**. 2026-11-27 부터 사용자는 CLI 에서 이어서 작업한다.
+
 ## 구조
 - `core/` — 순수 Kotlin/JVM. 마인크래프트 프로토콜 클라이언트 (안드로이드 의존 없음, PC에서 바로 테스트 가능)
   - 앱은 항상 **1.21.4(프로토콜 769)** 로 말하고, ViaVersion 5.12.2 + ViaBackwards 5.12.2 + ViaRewind 4.2.0 이
@@ -51,6 +53,8 @@
 - 시험: 시험 MC 서버 2개(`stay`, `dupe`) + 클라우드 서버(`JAVA_OPTS=-Djamsu.devLogin=true`, 설정 `premiumMode=open allowPrivateTargets=true maxAccountsPerTarget=2`)를 띄우고
   `harness cloud http://127.0.0.1:<포트> <stay포트> <dupe포트> [walk포트]` (walk 까지 주면 38개 항목), 서버 없이 `harness wire`(JSON 왕복 15개)·`harness chatlimit`(악의적 채팅 한도 10개).
   웹은 `node tools/test-server/cloud/web-test.js <스크린샷 폴더> [walk포트]` (Playwright, 주소 127.0.0.1:18787 고정, 닉네임 시험 로그인 — `-Djamsu.devLogin=true` 일 때만 보임. walk 까지 23개 항목).
+  폰·태블릿 터치는 `node tools/test-server/cloud/web-touch-test.js <스크린샷 폴더> <walk포트>` (Galaxy S9+·Galaxy Tab S4 흉내, 조이스틱+점프 동시 터치. 2026-11-27 폰·태블릿 통과 확인.
+  계정 수 제한에 안 걸리게 끝에 계정을 지우도록 고친 뒤로는 다시 돌려 보지 않았음). 실제 폰 브라우저에서는 아직 안 봄 — 주소창 때문에 아래쪽 입력창이 가려지면 `#main` 높이를 `100dvh` 로
 - 보안 검토(2026-11-27, 별도 에이전트)에서 고친 것: 채팅 해석 한도(`ChatText` Budget: 노드 2만·글자 6만·깊이 48, 400KB 넘는 JSON 은 해석 안 함), 메뉴 칸 256·접속자 2000·청크 상한(`World.maxChunks`, 클라우드는 200),
   줄 24KB·이벤트 600KB 상한, 접속자 IP 는 설정한 헤더 하나만(`clientIpHeader`, IPv6 는 /64 로 묶음), 기기 코드 로그인은 시작한 브라우저에 쿠키로 묶고 결과 확인을 POST 로,
   안 쓰는 로그인 요청 45초 뒤 정리, 실시간 연결 깨우기·강제 닫기·전체 450개 상한, 로그인 정보 넘겨받을 때 갱신 토큰부터 전체 재발급 + 접속 때 UUID 대조, 새 기기 알림·기기별 로그아웃,
