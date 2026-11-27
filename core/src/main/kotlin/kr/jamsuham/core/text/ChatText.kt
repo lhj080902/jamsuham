@@ -61,24 +61,63 @@ data class ChatText(val spans: List<ChatSpan>) {
             }
         }
 
+        /**
+         * 한 번 해석할 때 쓸 수 있는 양. 서버가 보낸 글은 믿을 수 없다: 번역 글(translate)을 겹겹이 쌓으면
+         * 몇백 바이트로도 해석이 몇 분씩 걸리게 만들 수 있고(인자를 자리마다 다시 풀기 때문), 조각 수십만 개짜리 글도 보낼 수 있다.
+         * 한도를 넘으면 거기서 잘라 낸다 (보통 채팅은 조각 수십 개, 깊이 몇 단이라 닿을 일이 없다).
+         */
+        private class Budget {
+            var nodes = 0
+            var chars = 0
+            var depth = 0
+            val exhausted: Boolean get() = nodes > MAX_NODES || chars > MAX_CHARS
+        }
+
+        private const val MAX_NODES = 20_000
+        private const val MAX_CHARS = 60_000
+        private const val MAX_DEPTH = 48
+        /** 이보다 큰 글은 해석하지 않고 앞부분만 글자로 보여 준다 */
+        private const val MAX_JSON = 400_000
+
+        private const val MAX_HOVER = 1_000
+
+        private val budget = ThreadLocal<Budget>()
+
+        /** 한도를 켜고 [block] 을 돈다. 이미 켜져 있으면(해석 중에 다시 불린 경우) 같은 한도를 나눠 쓴다 */
+        private inline fun <T> budgeted(block: () -> T): T {
+            if (budget.get() != null) return block()
+            budget.set(Budget())
+            try {
+                return block()
+            } finally {
+                budget.remove()
+            }
+        }
+
         /** JSON 텍스트 컴포넌트 (로그인 단계 킥 메시지 등) */
         fun fromJson(json: String): ChatText {
             if (json.isBlank()) return ChatText(emptyList())
-            return try {
-                val el = JsonParser.parseString(json)
-                val out = ArrayList<ChatSpan>()
-                walk(el, Style(), out)
-                ChatText(merge(out))
-            } catch (t: Throwable) {
-                fromLegacy(json)
+            if (json.length > MAX_JSON) return of(json.take(500) + "…")
+            return budgeted {
+                try {
+                    val el = JsonParser.parseString(json)
+                    val out = ArrayList<ChatSpan>()
+                    walk(el, Style(), out)
+                    ChatText(merge(out))
+                } catch (t: Throwable) {
+                    // JSON 이 아니라 §색 코드가 섞인 그냥 글자인 경우가 있어 글자로 보여 준다.
+                    // 다만 해석하지 못한 큰 JSON(너무 깊게 겹친 것 등)을 통째로 화면에 쏟지는 않는다
+                    val t0 = json.trimStart()
+                    if (json.length > 2000 && (t0.startsWith("{") || t0.startsWith("["))) of(json.take(300) + "…") else fromLegacy(json)
+                }
             }
         }
 
         /** §색상 코드가 섞인 문자열 */
-        fun fromLegacy(text: String): ChatText {
+        fun fromLegacy(text: String): ChatText = budgeted {
             val out = ArrayList<ChatSpan>()
-            appendLegacy(text, Style(), out)
-            return ChatText(merge(out))
+            appendLegacy(text.take(MAX_JSON), Style(), out)
+            ChatText(merge(out))
         }
 
         /** hidden = 서버 리소스팩 전용 글꼴(아이콘 등). 앱에는 그 글꼴이 없어 깨진 글자로 보이므로 숨긴다 */
@@ -100,6 +139,11 @@ data class ChatText(val spans: List<ChatSpan>) {
         /** 스타일을 붙여 한 조각 추가. 클릭 동작이 없는 글은 http 주소 부분만 링크로 나눈다 */
         private fun addSpan(text: String, style: Style, out: MutableList<ChatSpan>) {
             if (text.isEmpty()) return
+            budget.get()?.let { b ->
+                if (b.exhausted) return
+                b.chars += text.length
+                b.nodes++
+            }
             if (style.click != null || !text.contains("http")) {
                 out.add(ChatSpan(text, style.color, style.bold, style.italic, style.click, style.hover, font = style.font))
                 return
@@ -133,7 +177,7 @@ data class ChatText(val spans: List<ChatSpan>) {
             if (ev.get("action")?.takeIf { it.isJsonPrimitive }?.asString != "show_text") return null
             val content = ev.get("contents") ?: ev.get("value") ?: ev.get("text") ?: return null
             return try {
-                fromJson(content.toString()).plain.trim().ifBlank { null }
+                fromJson(content.toString()).plain.trim().take(MAX_HOVER).ifBlank { null }
             } catch (_: Throwable) {
                 null
             }
@@ -142,6 +186,20 @@ data class ChatText(val spans: List<ChatSpan>) {
         private val STANDARD_FONTS = setOf("minecraft:default", "default", "minecraft:uniform", "uniform")
 
         private fun walk(el: JsonElement, parent: Style, out: MutableList<ChatSpan>) {
+            val b = budget.get()
+            if (b != null) {
+                b.nodes++
+                if (b.exhausted || b.depth >= MAX_DEPTH) return
+                b.depth++
+            }
+            try {
+                walkNode(el, parent, out)
+            } finally {
+                if (b != null) b.depth--
+            }
+        }
+
+        private fun walkNode(el: JsonElement, parent: Style, out: MutableList<ChatSpan>) {
             when {
                 el.isJsonPrimitive -> appendLegacy(el.asString, parent, out)
                 el.isJsonArray -> {
@@ -296,7 +354,9 @@ data class ChatText(val spans: List<ChatSpan>) {
          */
         private fun emit(text: String, style: Style, out: MutableList<ChatSpan>) {
             if (text.isEmpty()) return
+            if (budget.get()?.exhausted == true) return
             if (style.hidden) {
+                budget.get()?.let { it.chars += text.length }
                 out.add(ChatSpan("", style.color, style.bold, style.italic, style.click, style.hover, glyphs = text, font = style.font))
                 return
             }
@@ -343,20 +403,32 @@ data class ChatText(val spans: List<ChatSpan>) {
         }
 
         private fun merge(spans: List<ChatSpan>): List<ChatSpan> {
-            val out = ArrayList<ChatSpan>(spans.size)
+            val out = ArrayList<ChatSpan>(minOf(spans.size, 64))
+            // 이어 붙이는 중인 조각 (같은 모양이 이어지는 동안 글자는 sb 에 모은다)
+            var run: ChatSpan? = null
+            val sb = StringBuilder()
+            fun flush() {
+                val r = run ?: return
+                out.add(if (sb.length == r.text.length) r else r.copy(text = sb.toString()))
+                run = null
+                sb.setLength(0)
+            }
             for (s in spans) {
                 if (s.text.isEmpty() && s.glyphs.isNullOrEmpty()) continue
-                val last = out.lastOrNull()
+                val last = run
                 // 그림 글자 조각은 합치지 않는다 (글꼴·위치를 그대로 둠)
                 if (last != null && s.glyphs == null && last.glyphs == null &&
                     last.color == s.color && last.bold == s.bold && last.italic == s.italic &&
                     last.click == s.click && last.hover == s.hover && last.font == s.font
                 ) {
-                    out[out.size - 1] = last.copy(text = last.text + s.text)
+                    sb.append(s.text)
                 } else {
-                    out.add(s)
+                    flush()
+                    run = s
+                    sb.append(s.text)
                 }
             }
+            flush()
             return out
         }
     }

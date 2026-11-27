@@ -18,7 +18,7 @@ class BootReceiver : BroadcastReceiver() {
             else -> return
         }
         val store = Store(context)
-        val ids = store.activeServers().filter { id -> store.server(id)?.resumeOnBoot == true }.toSet()
+        val ids = store.activeServers().filter { id -> store.server(id)?.let { it.resumeOnBoot && !it.cloud } == true }.toSet()
         if (ids.isEmpty()) return
         try {
             AfkService.resume(context, ids, reason)

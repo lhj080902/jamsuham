@@ -28,7 +28,7 @@ class CloudClient(baseUrl: String, @Volatile var token: String? = null, private 
     private fun open(method: String, path: String, timeoutMs: Int): HttpURLConnection {
         val conn = URI.create("$base/api/$path").toURL().openConnection() as HttpURLConnection
         conn.requestMethod = method
-        conn.connectTimeout = 10_000
+        conn.connectTimeout = minOf(10_000, timeoutMs)
         conn.readTimeout = timeoutMs
         conn.instanceFollowRedirects = false
         conn.setRequestProperty("User-Agent", userAgent)
@@ -183,7 +183,7 @@ class CloudClient(baseUrl: String, @Volatile var token: String? = null, private 
         return parseHolders(request("POST", "presence", body))
     }
 
-    fun presence(): List<Holder> = parseHolders(request("GET", "presence"))
+    fun presence(timeoutMs: Int = 20_000): List<Holder> = parseHolders(request("GET", "presence", timeoutMs = timeoutMs))
 
     /** 어느 매체가 어느 서버에 접속 중인지. [holder] cloud / app / other(PC 게임 등) */
     data class Holder(val key: String, val address: String, val holder: String, val label: String, val state: String?, val sinceMs: Long?, val sid: String?)

@@ -34,6 +34,9 @@ class HttpApi(
 ) {
     private lateinit var server: HttpServer
     private val limiter = RateLimiter()
+    /** 열려 있는 실시간 연결들 (연결 → 그 연결을 강제로 닫는 방법) */
+    private val streams = ConcurrentHashMap<Subscriber, HttpExchange>()
+    private val sweeper = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "http-sweeper").apply { isDaemon = true } }
 
     fun start() {
         // 응답이 조금씩 나가는 실시간 연결이 바로바로 전달되게
@@ -47,9 +50,27 @@ class HttpApi(
         }
         server.createContext("/") { ex -> handle(ex) }
         server.start()
+        // 끊기로 했는데 3초가 지나도 안 끝난 실시간 연결은 소켓을 닫아 버린다.
+        // (받는 쪽이 읽지 않으면 내보내는 스레드가 쓰기에서 멈춰 있어서, 닫아 주지 않으면 스레드가 계속 묶여 있다)
+        sweeper.scheduleWithFixedDelay({
+            try {
+                val now = System.currentTimeMillis()
+                for ((sub, ex) in streams) {
+                    if (sub.closed && now - sub.closedAt > 3000) {
+                        streams.remove(sub)
+                        try {
+                            ex.close()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }, 2, 2, TimeUnit.SECONDS)
     }
 
     fun stop() {
+        sweeper.shutdownNow()
         try {
             server.stop(0)
         } catch (_: Throwable) {
@@ -109,14 +130,40 @@ class HttpApi(
         }
     }
 
-    /** 요청한 쪽 IP (앞에 프록시가 있고 믿기로 했으면 프록시가 알려 준 주소) */
+    /**
+     * 요청한 쪽을 묶는 이름 (요청 횟수 제한용). 앞에 프록시가 있으면 설정한 헤더 하나에서만 읽는다.
+     * IP 모양이 아닌 값은 버리고(접속자가 아무 글자나 넣어 보낼 수 있다), IPv6 는 앞 64비트로 묶는다
+     * (IPv6 사용자는 주소를 수없이 바꿀 수 있어서 주소 하나하나로 세면 제한이 소용없다).
+     */
     private fun clientIp(ex: HttpExchange): String {
         val remote = ex.remoteAddress.address
         if (config.trustProxy && remote != null && (remote.isLoopbackAddress || remote.isSiteLocalAddress)) {
-            ex.requestHeaders.getFirst("CF-Connecting-IP")?.trim()?.takeIf { it.isNotEmpty() }?.let { return it.take(64) }
-            ex.requestHeaders.getFirst("X-Forwarded-For")?.split(',')?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it.take(64) }
+            val raw = when (config.clientIpHeader.lowercase()) {
+                "cf-connecting-ip" -> ex.requestHeaders.getFirst("CF-Connecting-IP")
+                // 프록시는 자기가 본 주소를 맨 뒤에 붙인다. 앞쪽은 접속자가 적어 보낸 것일 수 있다
+                "x-forwarded-for" -> ex.requestHeaders["X-Forwarded-For"]?.lastOrNull()?.split(',')?.lastOrNull()
+                else -> null
+            }?.trim()
+            if (raw != null) bucket(raw)?.let { return it }
         }
-        return remote?.hostAddress ?: "?"
+        return remote?.let { bucket(it.hostAddress) } ?: "?"
+    }
+
+    private val IPV4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
+    private val IPV6 = Regex("^[0-9A-Fa-f:.]{2,45}$")
+
+    private fun bucket(ip: String): String? {
+        val v = ip.substringBefore('%')
+        if (IPV4.matches(v)) return v
+        if (!v.contains(':') || !IPV6.matches(v)) return null
+        return try {
+            // 글자 그대로의 IP 는 DNS 를 묻지 않고 바로 해석된다
+            val b = java.net.InetAddress.getByName(v).address
+            if (b.size == 4) b.joinToString(".") { (it.toInt() and 0xFF).toString() }
+            else b.take(8).joinToString("") { "%02x".format(it) } + "::/64"
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun isHttps(ex: HttpExchange): Boolean =
@@ -144,6 +191,8 @@ class HttpApi(
         val raw = bearer ?: cookie(ex, COOKIE) ?: throw ApiError(401, "login_required", "로그인이 필요합니다")
         val token = store.findToken(raw) ?: throw ApiError(401, "login_required", "로그인이 만료됐습니다. 다시 로그인해 주세요")
         val acc = store.account(token.uuid) ?: throw ApiError(401, "login_required", "계정을 찾을 수 없습니다. 다시 로그인해 주세요")
+        // 시험용(닉네임) 계정은 시험 모드로 켰을 때만 쓸 수 있다
+        if (acc.dev && !config.devLogin) throw ApiError(401, "login_required", "쓸 수 없는 계정입니다")
         return Who(token, acc, viaCookie = bearer == null)
     }
 
@@ -198,23 +247,31 @@ class HttpApi(
             // ---- 로그인 (웹: 기기 코드)
             a == "login" && b == "device" && c == null && method == "POST" -> {
                 limit("login:$ip", 8, 600, "로그인 시도가 너무 많습니다. 10분 뒤 다시 시도해 주세요")
+                // 이 로그인을 시작한 브라우저만 결과를 받아 갈 수 있게, 그 브라우저에만 쿠키로 값을 하나 준다
+                val nonce = randomToken()
                 val d = try {
-                    auth.startDevice()
+                    auth.startDevice(nonce, ip)
                 } catch (e: LoginException) {
                     throw ApiError(if (e.code == "busy") 429 else 503, e.code, e.message ?: "")
                 }
+                val secure = if (isHttps(ex)) "; Secure" else ""
+                ex.responseHeaders.add("Set-Cookie", "$LOGIN_COOKIE=$nonce; Max-Age=1200; Path=/api/login; HttpOnly; SameSite=Strict$secure")
                 send(ex, 200, jsonOf(
                     "id" to d.id, "userCode" to d.code.userCode, "url" to d.code.verificationUri,
                     "directUrl" to d.code.directVerificationUri,
                     "expiresInSec" to ((d.code.expireTimeMs - System.currentTimeMillis()) / 1000).coerceAtLeast(0),
                 ))
             }
-            a == "login" && b == "device" && c != null && method == "GET" -> {
-                val d = auth.device(c) ?: throw ApiError(404, "not_found", "로그인 요청을 찾을 수 없습니다. 처음부터 다시 해 주세요")
+            // 결과 확인. 주소가 아니라 본문으로 id 를 받고(주소는 프록시 기록에 남는다), 로그인 쿠키를 주므로 POST + 우리 화면의 요청만 받는다
+            a == "login" && b == "device" && c == "poll" && method == "POST" -> {
+                limit("poll:$ip", 120, 60)
+                val id = body(ex).str("id") ?: throw ApiError(400, "bad_request", "로그인 요청 번호가 없습니다")
+                val d = auth.device(id, cookie(ex, LOGIN_COOKIE))
+                    ?: throw ApiError(404, "not_found", "로그인 요청을 찾을 수 없습니다. 처음부터 다시 해 주세요")
                 when (d.state) {
                     "pending" -> send(ex, 200, jsonOf("state" to "pending"))
                     "error" -> {
-                        auth.forgetDevice(c)
+                        auth.forgetDevice(id)
                         send(ex, 200, jsonOf("state" to "error", "error" to d.error?.code, "message" to d.error?.message))
                     }
                     else -> {
@@ -223,9 +280,9 @@ class HttpApi(
                             if (d.claimed) throw ApiError(404, "not_found", "이미 처리된 로그인입니다")
                             d.claimed = true
                         }
-                        auth.forgetDevice(c)
-                        val kind = if (ex.requestHeaders.getFirst("X-Jamsu-Client") == "app") "app" else "web"
-                        finishLogin(ex, manager, profile, kind, ex.requestHeaders.getFirst("X-Jamsu-Device"))
+                        auth.forgetDevice(id)
+                        ex.responseHeaders.add("Set-Cookie", "$LOGIN_COOKIE=; Max-Age=0; Path=/api/login; HttpOnly; SameSite=Strict")
+                        finishLogin(ex, manager, profile, "web", null)
                     }
                 }
             }
@@ -265,8 +322,9 @@ class HttpApi(
             // 연결 해제: 잠수를 끊고 서버에 저장된 이 계정의 모든 정보(로그인 토큰·서버 목록·기기)를 지운다
             a == "account" && b == null && method == "DELETE" -> {
                 val w = who(ex)
+                // 저장된 로그인 정보를 먼저 지운 뒤 세션을 정리한다 (지우는 사이에 온 시작 요청이 토큰을 다시 쓰지 못하게)
+                auth.deleteAccount(w.account.uuid)
                 sessions.dropAccount(w.account.uuid)
-                store.deleteAccount(w.account.uuid)
                 setCookie(ex, null)
                 Log.i("계정 삭제: ${w.account.name}")
                 ok(ex)
@@ -275,10 +333,19 @@ class HttpApi(
                 val w = who(ex)
                 val devices = JsonArray()
                 for (t in store.tokensOf(w.account.uuid).sortedByDescending { it.lastSeenAt }) {
-                    devices.add(jsonOf("label" to t.label, "kind" to t.kind, "lastSeenAt" to t.lastSeenAt, "current" to (t.hash == w.token.hash)))
+                    devices.add(jsonOf("id" to t.hash.take(12), "label" to t.label, "kind" to t.kind, "lastSeenAt" to t.lastSeenAt, "current" to (t.hash == w.token.hash)))
                 }
                 ok(ex, "account" to sessions.accountJson(w.account), "devices" to devices,
                     "limits" to jsonOf("sessions" to config.maxSessionsPerAccount, "servers" to config.maxServersPerAccount))
+            }
+
+            // 다른 기기 하나를 로그아웃시킨다 (본인이 한 로그인이 아닌 기기가 보일 때)
+            a == "devices" && b != null && c == "revoke" && method == "POST" -> {
+                val w = who(ex)
+                val hash = store.revokeDevice(w.account.uuid, b) ?: throw ApiError(404, "not_found", "기기를 찾을 수 없습니다")
+                sessions.closeSubs(w.account.uuid, hash)
+                if (sessions.presence.forget(w.account.uuid, hash)) sessions.presenceChanged(w.account.uuid)
+                ok(ex)
             }
 
             a == "events" && method == "GET" -> events(ex, who(ex))
@@ -308,7 +375,12 @@ class HttpApi(
     /** 로그인 마무리: 프리미엄 확인 → 저장 → 토큰 발급 */
     private fun finishLogin(ex: HttpExchange, manager: net.raphimc.minecraftauth.java.JavaAuthManager, profile: MsAuth.Profile, kind: String, device: String?) {
         if (!premium.status(profile.uuid, profile.name).active) {
-            // 프리미엄이 아닌 계정의 로그인 토큰은 서버에 저장하지 않는다
+            // 프리미엄이 아닌 계정의 로그인 토큰은 서버에 저장하지 않는다.
+            // 예전에 프리미엄이었을 때 저장해 둔 것이 남아 있으면 그것도 지운다 (본인이 로그인했으므로 본인 확인이 된 것)
+            if (store.account(profile.uuid) != null) {
+                auth.deleteAccount(profile.uuid)
+                sessions.dropAccount(profile.uuid)
+            }
             Log.i("프리미엄이 아닌 계정의 로그인: ${profile.name} (${profile.uuid})")
             throw ApiError(402, "not_premium", "${profile.name} 계정은 클라우드 잠수(프리미엄)를 쓸 수 있는 계정이 아닙니다",
                 jsonOf("name" to profile.name, "uuid" to profile.uuid))
@@ -319,7 +391,11 @@ class HttpApi(
     }
 
     private fun issue(ex: HttpExchange, acc: AccountRec, kind: String, device: String?) {
-        val token = store.issueToken(acc.uuid, kind, deviceLabel(ex, kind, device))
+        val label = deviceLabel(ex, kind, device)
+        // 이미 로그인해 있는 화면들에 알린다 (본인이 한 로그인이 아니면 알아채고 그 기기를 로그아웃시킬 수 있게)
+        sessions.notify(acc.uuid, "newDevice", jsonOf("label" to label, "kind" to kind))
+        val (token, evicted) = store.issueToken(acc.uuid, kind, label)
+        for (h in evicted) sessions.closeSubs(acc.uuid, h)
         if (kind == "web") {
             // 웹은 토큰을 쿠키로만 준다 (화면의 자바스크립트가 읽을 수 없어 훔치기 어렵다)
             setCookie(ex, token)
@@ -406,9 +482,12 @@ class HttpApi(
             set("Cache-Control", "no-cache, no-transform")
             set("X-Accel-Buffering", "no")
         }
+        // 실시간 연결 하나가 스레드 하나를 쓰므로 전체 수에 한도를 둔다 (API 요청이 쓸 스레드를 남겨 둔다)
+        if (streams.size >= MAX_STREAMS) throw ApiError(503, "busy", "지금 연결이 너무 많습니다. 잠시 뒤 다시 시도해 주세요")
         ex.sendResponseHeaders(200, 0)
         val out = ex.responseBody
         val sub = Subscriber(w.token.hash)
+        streams[sub] = ex
         try {
             out.write("retry: 3000\n\n".toByteArray())
             out.flush()
@@ -419,10 +498,12 @@ class HttpApi(
                     // 조용할 때도 연결이 살아 있는지 양쪽이 알 수 있게
                     out.write(": ping\n\n".toByteArray())
                     out.flush()
-                    // 그 사이 로그아웃·계정 삭제됐으면 끊는다
-                    if (store.account(w.account.uuid) == null) break
+                    // 그 사이 로그아웃·기기 정리·계정 삭제됐으면 끊는다
+                    if (!store.tokenAlive(w.token.hash) || store.account(w.account.uuid) == null) break
                     continue
                 }
+                if (e === Subscriber.WAKE) continue
+                sub.taken(e)
                 val sb = StringBuilder(e.data.length + 48)
                 if (e.id != null) sb.append("id: ").append(e.id).append('\n')
                 sb.append("event: ").append(e.type).append('\n')
@@ -434,12 +515,14 @@ class HttpApi(
             // 남은 마지막 이벤트(bye)까지 보내고 끝낸다
             while (true) {
                 val e = sub.queue.poll() ?: break
+                if (e === Subscriber.WAKE || e.type != "bye") continue
                 out.write("event: ${e.type}\ndata: ${e.data}\n\n".toByteArray(Charsets.UTF_8))
             }
             out.flush()
         } catch (_: InterruptedException) {
         } finally {
-            sub.closed = true
+            sub.close()
+            streams.remove(sub)
             sessions.detach(w.account.uuid, sub)
         }
     }
@@ -470,6 +553,10 @@ class HttpApi(
 
     companion object {
         const val COOKIE = "jamsu_session"
+        /** 기기 코드 로그인을 시작한 브라우저를 알아보는 쿠키 */
+        const val LOGIN_COOKIE = "jamsu_login"
+        /** 동시에 열어 둘 수 있는 실시간 연결 수 (스레드 풀 600 중 API 요청 몫을 남긴다) */
+        private const val MAX_STREAMS = 450
         private val TYPES = mapOf(
             "html" to "text/html; charset=utf-8",
             "js" to "text/javascript; charset=utf-8",
@@ -492,9 +579,11 @@ class RateLimiter {
 
     fun allow(key: String, max: Int, windowSec: Int): Boolean {
         val now = System.currentTimeMillis()
-        if (now - lastSweep > 600_000) {
+        if (now - lastSweep > 60_000 || map.size > 50_000) {
             lastSweep = now
-            map.entries.removeIf { now - it.value.start > 3_600_000 }
+            map.entries.removeIf { now - it.value.start > 900_000 }
+            // 그래도 너무 크면(수없이 많은 주소에서 두드리는 경우) 비운다 — 표 자체가 메모리를 다 쓰는 것보다 낫다
+            if (map.size > 50_000) map.clear()
         }
         val k = "$key/$windowSec"
         val w = map.getOrPut(k) { Window(now, 0) }

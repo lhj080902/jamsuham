@@ -17,6 +17,9 @@ class AccountsSection(
     private val accounts = AccountStore(activity)
     private val listBox: LinearLayout = ui.vertical()
 
+    /** 계정 목록이 바뀌었을 때 (같은 화면의 클라우드 카드가 다시 그리도록) */
+    var onChanged: (() -> Unit)? = null
+
     /** 계정 추가 카드 */
     val addCard: LinearLayout = ui.card().apply {
         addView(ui.section(tr("계정 추가", "Add account")))
@@ -41,6 +44,7 @@ class AccountsSection(
     }
 
     fun refresh() {
+        onChanged?.invoke()
         listBox.removeAllViews()
         val list = accounts.list()
         if (list.isEmpty()) {
@@ -72,9 +76,15 @@ class AccountsSection(
         AlertDialog.Builder(activity)
             .setTitle(tr("계정 삭제", "Delete account"))
             .setMessage(
-                tr("${acc.name} 계정을 이 앱에서 지울까요?\n(마이크로소프트 계정 자체는 지워지지 않습니다)", "Remove ${acc.name} from this app?\n(Your Microsoft account itself is not deleted)"),
+                tr("${acc.name} 계정을 이 앱에서 지울까요?\n(마이크로소프트 계정 자체는 지워지지 않습니다)", "Remove ${acc.name} from this app?\n(Your Microsoft account itself is not deleted)") +
+                    if (CloudHub.isLinked(acc.id)) tr(
+                        "\n\n이 계정은 클라우드 잠수에 연결되어 있습니다. 지우면 이 폰의 클라우드 연결만 해제되고, 클라우드에 저장된 정보와 잠수는 그대로 남습니다. 그것도 지우려면 먼저 아래 클라우드 잠수에서 '해제 → 모두 지우기'를 해 주세요.",
+                        "\n\nThis account is linked to cloud AFK. Removing it only unlinks this phone; the data and AFK sessions in the cloud stay. To delete those too, first use 'Unlink → Delete everything' under Cloud AFK below.",
+                    ) else "",
             )
             .setPositiveButton(tr("삭제", "Delete")) { _, _ ->
+                // 계정이 없어지면 연결을 관리할 곳이 없어지므로 이 폰의 클라우드 연결도 같이 해제한다
+                if (CloudHub.isLinked(acc.id)) CloudHub.unlinkAccount(acc.id, deleteOnServer = false) {}
                 accounts.remove(acc.id)
                 refresh()
             }

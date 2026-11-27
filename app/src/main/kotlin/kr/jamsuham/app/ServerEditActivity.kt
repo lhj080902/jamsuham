@@ -293,9 +293,8 @@ class ServerEditActivity : BaseActivity() {
             packWifiOnly = packWifiOnly.isChecked,
             cloud = cloudSwitch.isChecked,
         )
-        // 폰 잠수 ↔ 클라우드 잠수를 바꾸면 하던 잠수는 끊는다 (두 곳에서 같이 들어가 있지 않게)
+        // 폰 잠수 ↔ 클라우드 잠수를 바꾸면 하던 잠수는 끊긴다 (두 곳에서 같이 들어가 있지 않게. CloudHub.entrySaved 가 정리)
         val before = original
-        if (before != null && before.cloud != entry.cloud && SessionHub.isActive(entry.id)) AfkService.stop(this, entry.id)
         store.saveServer(entry)
         CloudHub.entrySaved(this, before, entry)
         if (SessionHub.isActive(entry.id)) toast(tr("저장했습니다. 바뀐 설정은 다음 접속부터 적용됩니다", "Saved. Changes apply from the next connection")) else toast(tr("저장했습니다", "Saved"))

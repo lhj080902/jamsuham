@@ -15,6 +15,8 @@ import android.widget.Toast
 class CloudSection(private val activity: Activity, private val ui: Ui) {
     private val accounts = AccountStore(activity)
     private val rows: LinearLayout = ui.vertical()
+    /** 연결·해제 요청을 보내고 답을 기다리는 계정들 (그동안 버튼을 막는다) */
+    private val busy = HashSet<String>()
     private lateinit var urlInput: EditText
     private lateinit var urlState: TextView
 
@@ -80,8 +82,11 @@ class CloudSection(private val activity: Activity, private val ui: Ui) {
             texts.addView(ui.text(acc.name, 16f, bold = true))
             texts.addView(ui.text(CloudHub.describe(acc.id), 12f, ui.p.muted))
             row.addView(texts, ui.lp(0, Ui.WRAP, 1f))
-            if (linked) row.addView(ui.button(tr("해제", "Unlink"), "ghost") { confirmUnlink(acc) }, ui.lp(Ui.WRAP, ui.dp(40)))
-            else row.addView(ui.button(tr("연결", "Link"), "plain") { confirmLink(acc) }, ui.lp(Ui.WRAP, ui.dp(40)))
+            when {
+                acc.id in busy -> row.addView(ui.text(tr("처리 중…", "Working…"), 13f, ui.p.muted))
+                linked -> row.addView(ui.button(tr("해제", "Unlink"), "ghost") { confirmUnlink(acc) }, ui.lp(Ui.WRAP, ui.dp(40)))
+                else -> row.addView(ui.button(tr("연결", "Link"), "plain") { confirmLink(acc) }, ui.lp(Ui.WRAP, ui.dp(40)))
+            }
             rows.addView(row, ui.lp())
         }
     }
@@ -101,8 +106,10 @@ class CloudSection(private val activity: Activity, private val ui: Ui) {
                     "$url\n\nOnly link to a server you trust. You can delete the data stored in the cloud at any time with 'Unlink'.",
             ))
             .setPositiveButton(tr("동의하고 연결", "Agree and link")) { _, _ ->
-                toast(tr("연결하는 중…", "Linking…"))
+                busy.add(acc.id)
+                refresh()
                 CloudHub.linkAccount(activity, acc.id) { error ->
+                    busy.remove(acc.id)
                     if (activity.isFinishing || activity.isDestroyed) return@linkAccount
                     if (error == null) toast(tr("${acc.name} 계정을 클라우드에 연결했습니다", "Linked ${acc.name} to the cloud"))
                     else AlertDialog.Builder(activity).setTitle(tr("연결하지 못했습니다", "Couldn't link")).setMessage(error).setPositiveButton(tr("확인", "OK"), null).show()
@@ -115,10 +122,16 @@ class CloudSection(private val activity: Activity, private val ui: Ui) {
 
     private fun confirmUnlink(acc: Account) {
         val done = { error: String? ->
+            busy.remove(acc.id)
             if (!activity.isFinishing && !activity.isDestroyed) {
                 toast(error ?: tr("해제했습니다", "Unlinked"))
                 refresh()
             }
+        }
+        val go = { deleteOnServer: Boolean ->
+            busy.add(acc.id)
+            refresh()
+            CloudHub.unlinkAccount(acc.id, deleteOnServer, done)
         }
         AlertDialog.Builder(activity)
             .setTitle(tr("${acc.name} 클라우드 연결 해제", "Unlink ${acc.name} from the cloud"))
@@ -126,8 +139,8 @@ class CloudSection(private val activity: Activity, private val ui: Ui) {
                 "'모두 지우기'는 클라우드의 잠수를 모두 끊고, 클라우드 서버에 저장된 이 계정의 로그인 정보와 서버 목록을 지웁니다.\n'이 폰만'은 이 폰에서만 로그아웃하고 클라우드의 잠수는 그대로 둡니다.",
                 "'Delete everything' stops all cloud AFK sessions and deletes this account's sign-in data and server list from the cloud server.\n'This phone only' signs out on this phone and leaves cloud AFK running.",
             ))
-            .setPositiveButton(tr("모두 지우기", "Delete everything")) { _, _ -> CloudHub.unlinkAccount(acc.id, deleteOnServer = true, done) }
-            .setNeutralButton(tr("이 폰만", "This phone only")) { _, _ -> CloudHub.unlinkAccount(acc.id, deleteOnServer = false, done) }
+            .setPositiveButton(tr("모두 지우기", "Delete everything")) { _, _ -> go(true) }
+            .setNeutralButton(tr("이 폰만", "This phone only")) { _, _ -> go(false) }
             .setNegativeButton(tr("취소", "Cancel"), null)
             .show()
     }

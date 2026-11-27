@@ -19,6 +19,8 @@ data class AccountRec(
     val auth: String?,
     /** 시험용 닉네임 로그인 계정 */
     val dev: Boolean = false,
+    /** 프리미엄이 아닌 것을 처음 본 시각 (프리미엄이면 null). 이 뒤로 일정 기간이 지나면 로그인 정보를 지운다 */
+    val lapsedAt: Long? = null,
 )
 
 /** 로그인한 기기(브라우저·앱) 하나. 토큰 자체는 저장하지 않고 해시만 둔다 */
@@ -98,16 +100,30 @@ class DataStore(private val dir: File) {
 
     // ------------------------------------------------------------ 기기(토큰)
 
-    /** 새 토큰을 만들어 돌려준다 (원문은 이때 한 번만 알 수 있다) */
-    fun issueToken(uuid: String, kind: String, label: String): String {
+    /**
+     * 새 토큰을 만들어 돌려준다 (원문은 이때 한 번만 알 수 있다).
+     * 기기를 너무 많이 쌓아 두지 않으므로(계정당 가장 최근 10개) 밀려난 기기들의 해시도 같이 돌려준다 → 그 기기의 실시간 연결을 끊는다.
+     */
+    fun issueToken(uuid: String, kind: String, label: String): Pair<String, List<String>> {
         val token = randomToken()
         val now = System.currentTimeMillis()
         tokens[sha256Hex(token)] = TokenRec(sha256Hex(token), uuid, kind, label.take(60), now, now)
-        // 기기를 너무 많이 쌓아 두지 않는다 (계정당 가장 최근 10개)
         val mine = tokens.values.filter { it.uuid == uuid }.sortedByDescending { it.lastSeenAt }
-        for (old in mine.drop(10)) tokens.remove(old.hash)
+        val evicted = mine.drop(10).map { it.hash }
+        for (h in evicted) tokens.remove(h)
         saveTokensNow()
-        return token
+        return token to evicted
+    }
+
+    /** 이 기기(토큰 해시)가 아직 로그인돼 있는지 */
+    fun tokenAlive(hash: String): Boolean = tokens.containsKey(hash)
+
+    /** 기기 하나를 로그아웃시킨다 ([id] = 해시 앞 12자). 로그아웃시킨 해시, 없으면 null */
+    fun revokeDevice(uuid: String, id: String): String? {
+        if (id.length < 12) return null
+        val t = tokens.values.firstOrNull { it.uuid == uuid && it.hash.startsWith(id) } ?: return null
+        revokeToken(t.hash)
+        return t.hash
     }
 
     fun findToken(token: String): TokenRec? {

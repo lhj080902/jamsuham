@@ -612,9 +612,10 @@ class McConnection(
             }
             PlayIn.RESOURCE_PACK_PUSH -> resourcePack(buf, PlayOut.RESOURCE_PACK)
             PlayIn.SET_HEALTH -> {
-                val health = buf.readFloat()
+                // 서버가 숫자가 아닌 값(NaN·무한대)을 보내도 화면·저장 형식이 깨지지 않게 고친다
+                val health = buf.readFloat().let { if (it.isFinite()) it else 0f }
                 val food = buf.readVarInt()
-                val saturation = buf.readFloat()
+                val saturation = buf.readFloat().let { if (it.isFinite()) it else 0f }
                 publishVitals(vitals.copy(health = health, food = food, saturation = saturation))
                 if (health <= 0f) scheduleRespawn() else respawnPending = false
             }
@@ -730,12 +731,16 @@ class McConnection(
                 val stateId = buf.readVarInt()
                 if (wid == menuId && wid != 0) {
                     menuStateId = stateId
+                    // 서버가 보낸 칸 수를 그대로 배열 크기로 쓰지 않는다 (몇 바이트로 수 GB 배열을 만들게 할 수 있음).
+                    // 가장 큰 메뉴(큰 상자 54칸) + 내 인벤토리 36칸 = 90칸
                     val n = buf.readVarInt()
+                    if (n < 0 || n > MAX_MENU_SLOTS) throw IllegalArgumentException(tr("메뉴 칸 수가 잘못됨 ($n)", "Invalid menu slot count ($n)"))
                     menuSlots = Array(n) { i -> readMenuItem(buf, i) }
                     scheduleMenuFlush()
                 } else if (wid == 0) {
                     invStateId = stateId
                     val n = buf.readVarInt()
+                    if (n < 0 || n > MAX_MENU_SLOTS) throw IllegalArgumentException(tr("인벤토리 칸 수가 잘못됨 ($n)", "Invalid inventory slot count ($n)"))
                     for (i in 0 until n) {
                         val item = readMenuItem(buf, i)
                         if (i < invSlots.size) invSlots[i] = item
@@ -818,6 +823,8 @@ class McConnection(
         repeat(n) {
             val id = buf.readUuid()
             var p = players[id]
+            // 접속자 목록이 끝없이 커지지 않게 (가짜 접속자를 계속 추가하는 서버). 넘는 사람은 읽기만 하고 버린다
+            val full = p == null && players.size >= MAX_TAB_PLAYERS
             if (actions and 0x01 != 0) {
                 val name = buf.readMcString(16)
                 var skin: String? = null
@@ -841,7 +848,11 @@ class McConnection(
                 p = p?.copy(gameMode = gm)
             }
             if (actions and 0x08 != 0) {
-                if (buf.readBoolean()) listedPlayers.add(id) else listedPlayers.remove(id)
+                if (buf.readBoolean()) {
+                    if (!full) listedPlayers.add(id)
+                } else {
+                    listedPlayers.remove(id)
+                }
             }
             if (actions and 0x10 != 0) {
                 val ping = buf.readVarInt()
@@ -856,7 +867,7 @@ class McConnection(
                 p = p?.copy(order = order)
             }
             if (actions and 0x80 != 0) buf.readBoolean()
-            if (p != null) players[id] = p
+            if (p != null && !full) players[id] = p
         }
         schedulePlayersFlush()
     }
@@ -1516,6 +1527,10 @@ internal object ConfigIn {
 
 /** 1.21.4 속성 번호: max_health (minecraft-data 1.21.4 attributes 기준) */
 internal const val ATTR_MAX_HEALTH = 18
+/** 메뉴 창의 최대 칸 수 (큰 상자 54 + 내 인벤토리 36, 여유 포함) */
+internal const val MAX_MENU_SLOTS = 256
+/** 접속자 목록에 담는 최대 인원 */
+internal const val MAX_TAB_PLAYERS = 2000
 
 /** 1.21.4 플레이어 엔티티 정보에서 흡수 체력(float) 칸 번호 */
 internal const val META_ABSORPTION = 15

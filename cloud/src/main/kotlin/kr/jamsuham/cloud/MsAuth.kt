@@ -44,7 +44,18 @@ class MsAuth(private val config: Config, private val store: DataStore, private v
 
     // ------------------------------------------------------------ 웹: 기기 코드 로그인
 
-    class DeviceLogin(val id: String, val code: MsaDeviceCode, val createdAt: Long) {
+    class DeviceLogin(
+        val id: String,
+        val code: MsaDeviceCode,
+        val createdAt: Long,
+        /** 로그인을 시작한 브라우저에만 준 값의 해시 (다른 곳에서 이 로그인을 가로채 받지 못하게) */
+        val nonceHash: String,
+        /** 시작한 쪽 (요청 횟수 제한용 묶음) */
+        val client: String,
+    ) {
+        /** 화면이 마지막으로 결과를 물어본 시각 (화면을 닫으면 더 묻지 않으므로 그때 치운다) */
+        @Volatile var polledAt = createdAt
+        @Volatile var thread: Thread? = null
         /** pending / done / error */
         @Volatile var state = "pending"
         @Volatile var error: LoginException? = null
@@ -55,13 +66,29 @@ class MsAuth(private val config: Config, private val store: DataStore, private v
 
     private val devices = ConcurrentHashMap<String, DeviceLogin>()
 
-    @Throws(LoginException::class)
-    fun startDevice(): DeviceLogin {
-        val cfg = msaConfig ?: throw LoginException("not_configured", "이 서버에는 마이크로소프트 로그인이 설정되어 있지 않습니다 (cloud.properties 의 msClientId)")
-        // 끝났거나 오래된 로그인은 치운다
+    /**
+     * 화면이 닫혔거나(45초 동안 결과를 묻지 않음) 너무 오래된 로그인 요청을 치운다. 몇 초마다 부른다.
+     * 치우지 않으면 요청만 잔뜩 만들어 로그인 자리를 다 채워 버릴 수 있다.
+     */
+    fun sweepDevices() {
         val now = System.currentTimeMillis()
-        devices.values.removeIf { now - it.createdAt > 20 * 60_000 }
-        if (devices.size > 200) throw LoginException("busy", "로그인 요청이 너무 많습니다. 잠시 뒤 다시 시도해 주세요")
+        for (d in devices.values) {
+            if (now - d.polledAt > 45_000 || now - d.createdAt > 16 * 60_000) {
+                devices.remove(d.id)
+                d.result = null
+                d.thread?.interrupt()
+            }
+        }
+    }
+
+    /** [nonce] 시작한 브라우저에만 주는 값, [who] 시작한 쪽을 묶는 이름(IP 묶음) */
+    @Throws(LoginException::class)
+    fun startDevice(nonce: String, who: String): DeviceLogin {
+        val cfg = msaConfig ?: throw LoginException("not_configured", "이 서버에는 마이크로소프트 로그인이 설정되어 있지 않습니다 (cloud.properties 의 msClientId)")
+        sweepDevices()
+        val now = System.currentTimeMillis()
+        if (devices.values.count { it.client == who } >= 3) throw LoginException("busy", "진행 중인 로그인이 이미 있습니다. 잠시 뒤 다시 시도해 주세요")
+        if (devices.size >= 200) throw LoginException("busy", "로그인 요청이 너무 많습니다. 잠시 뒤 다시 시도해 주세요")
         val client = http()
         val service = DeviceCodeMsaAuthService(client, cfg, { _ -> }, 15 * 60_000)
         val code = try {
@@ -69,9 +96,9 @@ class MsAuth(private val config: Config, private val store: DataStore, private v
         } catch (e: IOException) {
             throw LoginException("ms_unreachable", "마이크로소프트 로그인 서버에 연결하지 못했습니다: ${e.message}")
         }
-        val login = DeviceLogin(randomToken(), code, now)
+        val login = DeviceLogin(randomToken(), code, now, sha256Hex(nonce), who)
         devices[login.id] = login
-        Thread({
+        login.thread = Thread({
             try {
                 val msa = service.getToken(code)
                 login.result = finish(JavaAuthManager.create(client).msaApplicationConfig(cfg).login(msa))
@@ -86,11 +113,17 @@ class MsAuth(private val config: Config, private val store: DataStore, private v
                 login.error = LoginException("ms_error", "마이크로소프트 로그인에 실패했습니다: ${t.message}")
                 login.state = "error"
             }
-        }, "device-login").apply { isDaemon = true }.start()
+        }, "device-login").apply { isDaemon = true; start() }
         return login
     }
 
-    fun device(id: String): DeviceLogin? = devices[id]
+    /** 결과를 물어볼 때: 시작한 브라우저가 맞는지([nonce]) 확인하고 돌려준다 */
+    fun device(id: String, nonce: String?): DeviceLogin? {
+        val d = devices[id] ?: return null
+        if (nonce == null || sha256Hex(nonce) != d.nonceHash) return null
+        d.polledAt = System.currentTimeMillis()
+        return d
+    }
 
     fun forgetDevice(id: String) {
         devices.remove(id)
@@ -110,12 +143,15 @@ class MsAuth(private val config: Config, private val store: DataStore, private v
         if (!manager.msaApplicationConfig.clientId.equals(cfg.clientId, ignoreCase = true)) {
             throw LoginException("client_mismatch", "예전 방식으로 로그인한 계정입니다. 앱의 계정 관리에서 이 계정을 지우고 다시 로그인한 뒤 연결해 주세요")
         }
-        // 로그인 설정(주소·범위)은 넘겨받은 값이 아니라 이 서버의 설정으로 바꿔 끼운다
-        val own = try {
-            auth.add("msaApplicationConfig", MsaApplicationConfig.toJson(cfg))
-            JavaAuthManager.fromJson(http(), auth)
-        } catch (t: Throwable) {
-            throw LoginException("bad_auth", "로그인 정보를 읽지 못했습니다. 앱에서 계정에 다시 로그인한 뒤 연결해 주세요")
+        // 넘겨받은 것 중 마이크로소프트 토큰(갱신 토큰)만 쓰고, 나머지는 이 서버의 설정으로 처음부터 다시 받는다.
+        // 중간 단계의 토큰들을 그대로 믿으면 "A 계정의 중간 토큰 + B 계정의 갱신 토큰"처럼 섞어 넣을 수 있다.
+        val msa = manager.msaToken.cached ?: throw LoginException("bad_auth", "로그인 정보가 비어 있습니다. 앱에서 계정에 다시 로그인한 뒤 연결해 주세요")
+        val own = JavaAuthManager.create(http()).msaApplicationConfig(cfg).login(msa)
+        try {
+            // 갱신 토큰이 실제로 통하는지, 그 토큰의 주인이 누구인지부터 확인한다
+            own.msaToken.refresh()
+        } catch (e: IOException) {
+            throw LoginException("bad_auth", "로그인이 만료됐습니다. 앱의 계정 관리에서 다시 로그인한 뒤 연결해 주세요")
         }
         return finish(own)
     }
@@ -160,6 +196,12 @@ class MsAuth(private val config: Config, private val store: DataStore, private v
 
     private val locks = ConcurrentHashMap<String, Any>()
 
+    /** 계정과 그 계정의 모든 것을 지운다. 토큰 갱신과 같은 잠금을 써서, 갱신 중이던 스레드가 지운 계정을 다시 저장하지 못한다 */
+    fun deleteAccount(uuid: String) {
+        synchronized(locks.getOrPut(uuid) { Any() }) { store.deleteAccount(uuid) }
+        locks.remove(uuid)
+    }
+
     /** 세션이 접속 직전에 부른다 (세션 스레드). 필요하면 토큰을 갱신하고, 바뀐 토큰을 다시 암호화해 저장한다 */
     @Throws(Exception::class)
     fun credentials(uuid: String, forceRefresh: Boolean): JoinCredentials {
@@ -182,7 +224,11 @@ class MsAuth(private val config: Config, private val store: DataStore, private v
                 }
                 manager.minecraftProfile.refreshIfExpired()
                 val profile = manager.minecraftProfile.upToDate
-                // 갱신된 토큰을 저장 (다른 스레드가 그 사이 계정을 지웠으면 되살리지 않는다)
+                // 저장된 로그인 정보가 이 계정의 것이 아니면 쓰지 않는다 (다른 계정으로 접속하게 되는 것을 막음)
+                if (!profile.id.toString().equals(uuid, ignoreCase = true)) {
+                    throw AuthException("저장된 로그인 정보가 이 계정과 맞지 않습니다. 다시 로그인(연결)해 주세요")
+                }
+                // 갱신된 토큰을 저장 (이 잠금 안에서만 지우고 저장하므로, 그 사이 지워진 계정을 되살리지 않는다)
                 store.account(uuid)?.let { cur ->
                     store.saveAccount(cur.copy(name = profile.name, auth = vault.seal(JavaAuthManager.toJson(manager).toString())))
                 }

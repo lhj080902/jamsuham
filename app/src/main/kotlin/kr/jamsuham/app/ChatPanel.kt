@@ -467,7 +467,10 @@ class ChatPanel(
             .setTitle(tr("자동 클릭 규칙 추가", "Add auto-click rule"))
             .setMessage(tr("다음부터 이 메뉴가 열리면 자동으로 누릅니다.\n\n$rule\n\n(서버 설정에서 고치거나 지울 수 있습니다)", "From now on this will be clicked automatically when this menu opens.\n\n$rule\n\n(You can edit or delete it in server settings)"))
             .setPositiveButton(tr("추가", "Add")) { _, _ ->
-                store.saveServer(server.copy(autoClickRules = (server.autoClickRules.filter { it != rule } + rule)))
+                val updated = server.copy(autoClickRules = (server.autoClickRules.filter { it != rule } + rule))
+                store.saveServer(updated)
+                // 클라우드 잠수면 실제로 누르는 쪽은 클라우드이므로 규칙을 올려 준다
+                CloudHub.entrySaved(activity, server, updated)
                 Toast.makeText(activity, tr("추가했습니다. 다음 접속부터 적용됩니다", "Added. Applies from the next connection"), Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(tr("취소", "Cancel"), null)

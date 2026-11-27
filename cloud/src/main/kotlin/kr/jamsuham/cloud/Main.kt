@@ -29,6 +29,8 @@ fun main(args: Array<String>) {
     }
 
     Log.i("잠수크래프트 클라우드 서버 v$CLOUD_VERSION")
+    // 클라우드는 지도를 그리지 않으므로 발밑 주변 청크만 담아 둔다 (여러 사람의 잠수가 한 프로그램에서 도니 메모리를 아낀다)
+    kr.jamsuham.core.world.World.maxChunks = 200
     val store = DataStore(config.dataDir)
     val vault = Vault(config.dataDir)
     val auth = MsAuth(config, store, vault)

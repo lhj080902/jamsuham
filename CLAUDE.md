@@ -47,7 +47,13 @@
 - 앱: `CloudHub`(연결 기록 prefs `jamsuham_cloud`, 계정별 SSE — 앱이 앞에 있을 때만, 이벤트 → `SessionHub.remote*`), `CloudSection`(설정 카드), `ServerEntry.cloud`.
   `SessionHub.activeIds()/anyActive` 는 **폰 잠수만**(서비스·알림·이어서 잠수·무료 동시 제한), `isActive` 는 둘 다. 클라우드 잠수에서는 지도·이동·아이템 사용 불가(미구현)
 - 시험: 시험 MC 서버 2개(`stay`, `dupe`) + 클라우드 서버(`JAVA_OPTS=-Djamsu.devLogin=true`, 설정 `premiumMode=open allowPrivateTargets=true maxAccountsPerTarget=2`)를 띄우고
-  `harness cloud http://127.0.0.1:<포트> <stay포트> <dupe포트>` (32개 항목). 웹은 Playwright 로 닉네임 시험 로그인(`-Djamsu.devLogin=true` 일 때만 보임)해서 확인.
+  `harness cloud http://127.0.0.1:<포트> <stay포트> <dupe포트>` (32개 항목), 서버 없이 `harness wire`(JSON 왕복 15개)·`harness chatlimit`(악의적 채팅 한도 10개).
+  웹은 `node tools/test-server/cloud/web-test.js <스크린샷 폴더>` (Playwright, 주소 127.0.0.1:18787 고정, 닉네임 시험 로그인 — `-Djamsu.devLogin=true` 일 때만 보임. 17개 항목).
+- 보안 검토(2026-11-27, 별도 에이전트)에서 고친 것: 채팅 해석 한도(`ChatText` Budget: 노드 2만·글자 6만·깊이 48, 400KB 넘는 JSON 은 해석 안 함), 메뉴 칸 256·접속자 2000·청크 상한(`World.maxChunks`, 클라우드는 200),
+  줄 24KB·이벤트 600KB 상한, 접속자 IP 는 설정한 헤더 하나만(`clientIpHeader`, IPv6 는 /64 로 묶음), 기기 코드 로그인은 시작한 브라우저에 쿠키로 묶고 결과 확인을 POST 로,
+  안 쓰는 로그인 요청 45초 뒤 정리, 실시간 연결 깨우기·강제 닫기·전체 450개 상한, 로그인 정보 넘겨받을 때 갱신 토큰부터 전체 재발급 + 접속 때 UUID 대조, 새 기기 알림·기기별 로그아웃,
+  프리미엄 종료 7일 뒤 정보 삭제, NetGuard(자기 주소·같은 IPv6 대역·주소 글자 검사·실제 IP 기준 자리 수).
+  남은 약점(문서에 적음): 기기 코드 방식 자체의 피싱 가능성(인증 코드+PKCE 로 바꾸려면 Azure 앱에 웹 리디렉션 주소 등록 필요), 닉네임으로 준 프리미엄은 닉네임을 넘겨받은 사람에게 넘어감, 윈도우에서 data 폴더 권한
   빌드: `./gradlew -p tools/corebuild :cloud:installDist` → `cloud/build/install/jamsu-cloud/bin/jamsu-cloud <설정파일>`. 주의: 서버가 켜진 채 installDist 하면 jar 가 바뀌어 응답이 깨진다(끄고 빌드)
 - 실제 마이크로소프트 로그인(기기 코드·넘겨받기)은 이 환경에서 시험 못 함(MS 서버 막힘) → 사용자가 서버를 띄운 뒤 확인 필요
 - CI: `build.yml` 이 `:cloud:distZip` 을 릴리스에 `jamsu-cloud.zip` 으로 같이 올림. 앱 기본 주소는 저장소 변수 `CLOUD_URL`

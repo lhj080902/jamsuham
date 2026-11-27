@@ -444,6 +444,7 @@ object SessionHub {
         appContext = context.applicationContext
         val e = entry(serverId)
         if (e.remote) return
+        val hadLocal = e.session != null || e.status.state.isActive()
         e.token = Any()
         e.session?.shutdown()
         e.session = null
@@ -454,16 +455,34 @@ object SessionHub {
         e.packHashes.clear()
         e.packStates.clear()
         rates.remove(serverId)
+        if (hadLocal) {
+            // 이 폰에서 잠수하던 서버를 클라우드로 바꿨다: 예전 접속의 체력·메뉴·접속자를 치우고 "꺼짐"으로 알린다
+            // → 잠수 서비스가 알림·이어서 잠수 목록을 정리하고, 클라우드에 "폰에서 실행 중" 표시를 내린다
+            e.players = PlayerList.EMPTY
+            e.vitals = null
+            e.menu = null
+            e.inventory = Inventory.EMPTY
+            e.lastDeath = null
+            for (o in observers.toList()) {
+                o.onVitals(serverId, null)
+                o.onMenu(serverId, null)
+                o.onInventory(serverId, Inventory.EMPTY)
+                o.onPlayers(serverId, PlayerList.EMPTY)
+                o.onDeath(serverId, null)
+            }
+            MenuNotifier.cancel(appContext, serverId)
+            publishStatus(serverId, SessionStatus(SessionState.IDLE, tr("꺼짐", "Off")))
+        }
     }
 
     /** 클라우드 잠수 표시를 내린다 (이 폰에서 잠수하도록 바꿨거나 클라우드 연결을 해제했을 때) */
     fun remoteEnd(serverId: String, message: String = tr("꺼짐", "Off")) {
         val e = entries[serverId] ?: return
         if (!e.remote) return
+        remoteState(serverId, PlayerList.EMPTY, null, null, Inventory.EMPTY)
         e.remote = false
         e.remoteTraffic = null
         e.token = Any()
-        remoteState(serverId, PlayerList.EMPTY, null, null, Inventory.EMPTY)
         publishStatus(serverId, SessionStatus(SessionState.STOPPED, message))
     }
 
@@ -493,18 +512,21 @@ object SessionHub {
 
     fun remotePlayers(serverId: String, list: PlayerList) {
         val e = entries[serverId] ?: return
+        if (!e.remote) return
         e.players = list
         for (o in observers.toList()) o.onPlayers(serverId, list)
     }
 
     fun remoteVitals(serverId: String, vitals: Vitals?) {
         val e = entries[serverId] ?: return
+        if (!e.remote) return
         e.vitals = vitals
         for (o in observers.toList()) o.onVitals(serverId, vitals)
     }
 
     fun remoteMenu(serverId: String, menu: Menu?) {
         val e = entries[serverId] ?: return
+        if (!e.remote) return
         e.menu = menu
         for (o in observers.toList()) o.onMenu(serverId, menu)
         if (menu == null) {
@@ -515,19 +537,21 @@ object SessionHub {
 
     fun remoteInventory(serverId: String, inventory: Inventory) {
         val e = entries[serverId] ?: return
+        if (!e.remote) return
         e.inventory = inventory
         for (o in observers.toList()) o.onInventory(serverId, inventory)
     }
 
     fun remoteDeath(serverId: String, death: DeathInfo?) {
         val e = entries[serverId] ?: return
-        if (e.lastDeath == death) return
+        if (!e.remote || e.lastDeath == death) return
         e.lastDeath = death
         for (o in observers.toList()) o.onDeath(serverId, death)
     }
 
     fun remoteTraffic(serverId: String, traffic: kr.jamsuham.core.Traffic?) {
         val e = entries[serverId] ?: return
+        if (!e.remote) return
         e.remoteTraffic = traffic
         val r = traffic?.perHour
         if (r == null) rates.remove(serverId) else rates[serverId] = r
@@ -539,7 +563,8 @@ object SessionHub {
         if (!e.remote || !::appContext.isInitialized) return
         val server = Store(appContext).server(serverId)
         val urls = packs.map { it.first }.filter { it.startsWith("http") }
-        if (urls == e.packUrls && urls.all { e.packStates[it] != null }) return
+        // 이미 다 읽었으면 그대로 둔다 (실패했던 팩이 있으면 아래에서 다시 시도)
+        if (urls == e.packUrls && urls.all { u -> e.packStates[u]?.let { it.error == null } == true }) return
         // 새 접속에서 팩이 바뀌었으면 예전 팩 표시를 지운다
         e.packUrls.retainAll(urls.toSet())
         e.packStates.keys.retainAll(urls.toSet())

@@ -137,7 +137,7 @@ label.check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .item { text-align: left; padding: 10px; font-size: 13px; }
 .item .lore { color: var(--muted); font-size: 12px; margin-top: 4px; white-space: pre-wrap; }
 .item .slot { color: var(--muted); font-size: 11px; float: right; }
-.device { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--divider); font-size: 14px; }
+.device { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--divider); font-size: 14px; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 99px; z-index: 20; max-width: 90%; font-size: 14px; }
 
 /* 폰: 한 칸씩 */

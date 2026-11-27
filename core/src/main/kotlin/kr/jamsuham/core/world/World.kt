@@ -109,7 +109,10 @@ class World {
             16 -> 0
             else -> if (sections.size > 16) -64 else 0
         }
-        chunks[key(cx, cz)] = Chunk(sections.toTypedArray())
+        // 서버가 청크를 끝없이 보내 메모리를 채우지 못하게 한다 (이미 있는 자리의 갱신은 받는다)
+        val k = key(cx, cz)
+        if (chunks.size >= maxChunks && !chunks.containsKey(k)) return
+        chunks[k] = Chunk(sections.toTypedArray())
         version++
     }
 
@@ -225,6 +228,12 @@ class World {
         const val EPS = 1e-4
         /** 세계 높이 최대 4064칸 = 254 섹션 */
         private const val MAX_SECTIONS = 256
+
+        /**
+         * 한 접속이 담아 두는 청크 수의 상한. 앱은 미니맵에 쓰므로 넉넉히, 클라우드 서버는 지도를 그리지 않으므로
+         * 발밑 주변만 있으면 돼서 시작할 때 작게 줄인다 (여러 사람의 잠수가 한 프로그램에서 돌기 때문에 메모리를 지킴).
+         */
+        @Volatile var maxChunks = 2500
     }
 }
 

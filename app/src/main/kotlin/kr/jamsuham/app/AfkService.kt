@@ -44,7 +44,13 @@ class AfkService : Service() {
             store.setActive(SessionHub.activeIds())
             // 이 폰에서 잠수 중인 서버가 바뀌었으면 클라우드에 알린다 (연결한 계정이 있을 때만. 웹에 "앱에서 실행 중"으로 보임)
             CloudHub.reportLocal(this@AfkService)
-            if (!SessionHub.anyActive) shutdown() else updateNotification()
+            // 아직 포그라운드로 올라가기 전(시작 명령을 처리하기 전)에 온 이벤트로는 끄지 않는다
+            // (클라우드 잠수의 상태 이벤트가 그 사이에 올 수 있다. 그때 끄면 시스템이 앱을 강제 종료한다)
+            if (!SessionHub.anyActive) {
+                if (inForeground) shutdown()
+            } else {
+                updateNotification()
+            }
         }
 
         override fun onLine(serverId: String, line: LogLine) {}
@@ -129,6 +135,8 @@ class AfkService : Service() {
      */
     private fun begin(serverId: String): Boolean {
         val server = store.server(serverId) ?: return false
+        // 클라우드에서 잠수하는 서버는 이 폰에서 접속하지 않는다 (예전 "이어서 잠수" 기록에 남아 있던 경우 등)
+        if (server.cloud) return false
         val accountId = server.accountId
         if (accountId == null || accounts.get(accountId) == null) {
             SessionHub.note(serverId, tr("이 서버에 사용할 계정이 없습니다. 서버 설정에서 계정을 골라 주세요", "No account set for this server. Please choose one in the server settings"), LogLine.Kind.ERROR)

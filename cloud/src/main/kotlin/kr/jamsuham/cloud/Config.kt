@@ -28,8 +28,16 @@ class Config(val file: File) {
     val dataDir: File = File(str("dataDir", "data")).let { if (it.isAbsolute) it else File(file.absoluteFile.parentFile, it.path) }
     /** Mojang 이 승인한 자체 Azure 앱 client ID (앱과 같은 값). 비어 있으면 마이크로소프트 로그인을 쓸 수 없다 */
     val msClientId = str("msClientId", "")
-    /** 앞에 리버스 프록시(Caddy·Cloudflare 터널)를 두었는지. 켜면 X-Forwarded-For / X-Forwarded-Proto 를 믿는다 */
+    /** 앞에 리버스 프록시(Caddy·Cloudflare 터널)를 두었는지. 켜면 이 컴퓨터 안에서 온 요청의 X-Forwarded-Proto 와 아래 헤더를 믿는다 */
     val trustProxy = bool("trustProxy", true)
+    /**
+     * 프록시가 실제 접속자 IP 를 적어 주는 헤더. 요청 횟수 제한에 쓴다.
+     * 프록시가 직접 적는 헤더 하나만 믿어야 한다 (접속자가 마음대로 적어 보낼 수 있는 헤더를 믿으면 제한을 피하거나 남의 제한을 대신 채울 수 있다).
+     *   X-Forwarded-For  = Caddy·nginx (맨 뒤에 프록시가 붙인 값을 쓴다)
+     *   CF-Connecting-IP = Cloudflare 터널
+     *   none             = 헤더를 믿지 않음 (프록시 없이 직접 받을 때)
+     */
+    val clientIpHeader = str("clientIpHeader", "X-Forwarded-For")
     /** allowlist = premium.txt 에 적힌 계정만 / open = 로그인한 누구나 */
     val premiumMode = str("premiumMode", "allowlist").lowercase()
     val maxSessionsPerAccount = int("maxSessionsPerAccount", 2).coerceIn(1, 50)
@@ -72,6 +80,12 @@ class Config(val file: File) {
             |
             |# 앞에 리버스 프록시(Caddy, Cloudflare 터널 등)가 있으면 true
             |trustProxy=true
+            |
+            |# 프록시가 실제 접속자 IP 를 적어 주는 헤더 (요청 횟수 제한에 씀). 쓰는 프록시에 맞는 것 하나만:
+            |#   X-Forwarded-For  = Caddy, nginx
+            |#   CF-Connecting-IP = Cloudflare 터널
+            |#   none             = 프록시 없이 직접 받을 때
+            |clientIpHeader=X-Forwarded-For
             |
             |# 누가 쓸 수 있는지: allowlist = premium.txt 에 적은 계정만 / open = 로그인한 누구나
             |premiumMode=allowlist

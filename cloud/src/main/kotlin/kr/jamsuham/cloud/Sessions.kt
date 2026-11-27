@@ -39,9 +39,33 @@ class Event(val type: String, val data: String, val id: Long? = null)
 class Subscriber(val tokenHash: String) {
     val queue = LinkedBlockingQueue<Event>(4000)
     @Volatile var closed = false
+        private set
+    /** 끊기로 한 시각 (받는 쪽이 읽지 않아 스레드가 쓰기에서 멈춰 있으면, 얼마 뒤 연결 자체를 닫아 스레드를 풀어 준다) */
+    @Volatile var closedAt = 0L
+        private set
+    /** 쌓여 있는 글자 수 (개수뿐 아니라 크기로도 한도를 둔다) */
+    private val queued = java.util.concurrent.atomic.AtomicLong()
 
     fun offer(e: Event) {
-        if (!queue.offer(e)) closed = true
+        if (closed) return
+        if (queued.addAndGet(e.data.length.toLong()) > MAX_QUEUED_CHARS || !queue.offer(e)) close()
+    }
+
+    fun taken(e: Event) {
+        queued.addAndGet(-e.data.length.toLong())
+    }
+
+    /** 이 연결을 끊는다. 기다리고 있던 내보내기 스레드가 바로 깨어나 끝나도록 빈 이벤트를 하나 넣는다 */
+    fun close() {
+        if (closed) return
+        closedAt = System.currentTimeMillis()
+        closed = true
+        queue.offer(WAKE)
+    }
+
+    companion object {
+        val WAKE = Event("", "")
+        private const val MAX_QUEUED_CHARS = 8_000_000L
     }
 }
 
@@ -68,6 +92,8 @@ class SessionBox(@Volatile var entry: CloudEntry) {
     val sentAt = ArrayDeque<Long>()
     /** 잠수 중으로 세어 둔 주소 키 (세고 있지 않으면 null) */
     var activeKey: String? = null
+    /** 실제로 접속한 IP:포트 (자리 수를 세어 둔 것. 없으면 null) */
+    @Volatile var ipKey: String? = null
 }
 
 class AccountHub(val uuid: String) {
@@ -178,6 +204,8 @@ class SessionManager(
     // (한 계정의 잠금을 든 채 다른 계정들을 훑으면 서로 물릴 수 있다)
     private val activeTotal = AtomicInteger()
     private val activeByKey = ConcurrentHashMap<String, AtomicInteger>()
+    /** 실제 접속 IP:포트 → 그 서버에 들어가 있는 세션들 */
+    private val activeByIp = ConcurrentHashMap<String, MutableSet<SessionBox>>()
 
     fun activeCount(): Int = activeTotal.get()
 
@@ -193,17 +221,49 @@ class SessionManager(
             val key = box.activeKey ?: return
             box.activeKey = null
             activeTotal.decrementAndGet()
-            activeByKey[key]?.decrementAndGet()
+            // 0 이 되면 지운다 (사용자가 적은 주소마다 항목이 쌓이지 않게)
+            activeByKey.computeIfPresent(key) { _, n -> if (n.decrementAndGet() <= 0) null else n }
+            box.ipKey?.let { ip -> activeByIp.computeIfPresent(ip) { _, set -> set.remove(box); if (set.isEmpty()) null else set } }
+            box.ipKey = null
         }
+    }
+
+    /**
+     * 실제로 접속하는 IP·포트 기준의 자리 확인 (세션 스레드에서, 주소를 확인한 직후에 부른다).
+     * 같은 서버를 다른 이름(별칭 도메인)으로 적어 서버별 계정 수 제한을 피하는 것을 막는다. 자리가 없으면 예외 → 세션이 그 문구로 멈춘다.
+     */
+    private fun claimIp(box: SessionBox, ipKey: String, cap: Int) {
+        if (box.ipKey == ipKey) return
+        box.ipKey?.let { old -> activeByIp.computeIfPresent(old) { _, set -> set.remove(box); if (set.isEmpty()) null else set } }
+        box.ipKey = null
+        val set = activeByIp.computeIfAbsent(ipKey) { ConcurrentHashMap.newKeySet() }
+        if (cap > 0 && set.size >= cap && box !in set) {
+            throw IllegalArgumentException("지금 이 서버는 클라우드 자리(${cap}개)가 모두 찼습니다. 자리가 나면 다시 시도하거나 폰 앱으로 접속해 주세요")
+        }
+        set.add(box)
+        box.ipKey = ipKey
     }
 
     // ------------------------------------------------------------ 내보내기
 
     private fun publish(h: AccountHub, type: String, data: JsonObject, id: Long? = null) {
         if (h.subs.isEmpty()) return
-        val e = Event(type, data.toString(), id)
+        val json = data.toString()
+        // 서버가 보낸 내용이 비정상적으로 크면 내보내지 않는다 (한 서버가 모든 사용자의 연결을 느리게 만들지 못하게)
+        if (json.length > MAX_EVENT_CHARS) return
+        val e = Event(type, json, id)
         for (s in h.subs) s.offer(e)
     }
+
+    /** 이 계정의 다른 화면들에 알림 하나를 보낸다 (새 기기 로그인 등) */
+    fun notify(uuid: String, type: String, data: JsonObject) {
+        val h = hubs[uuid] ?: return
+        synchronized(h) { publish(h, type, data) }
+    }
+
+    /** 접속자 목록은 앞에서부터 [MAX_PLAYERS_SENT] 명까지만 내보낸다 */
+    private fun playersJson(list: PlayerList) =
+        Wire.players(if (list.players.size > MAX_PLAYERS_SENT) list.copy(players = list.players.sortedBy { it.order }.take(MAX_PLAYERS_SENT)) else list)
 
     private fun boxJson(b: SessionBox): JsonObject {
         val packs = JsonArray()
@@ -212,7 +272,7 @@ class SessionManager(
         return jsonOf(
             "entry" to Wire.entry(b.entry),
             "status" to Wire.status(b.status),
-            "players" to Wire.players(b.players),
+            "players" to playersJson(b.players),
             "vitals" to Wire.vitals(b.vitals),
             "menu" to Wire.menu(b.menu),
             "inventory" to Wire.inventory(b.inventory),
@@ -279,7 +339,7 @@ class SessionManager(
         val h = hub(acc.uuid)
         synchronized(h) {
             // 한 계정에 연결을 너무 많이 쌓지 않는다 (탭을 계속 여는 경우 가장 오래된 것부터 끊음)
-            while (h.subs.size >= MAX_SUBS) h.subs.removeAt(0).closed = true
+            while (h.subs.size >= MAX_SUBS) h.subs.removeAt(0).close()
             sub.offer(Event("hello", helloJson(h, acc).toString()))
             val replay = ArrayList<Pair<Long, String>>()
             for (b in h.boxes.values) {
@@ -302,7 +362,7 @@ class SessionManager(
         val h = hubs[uuid] ?: return
         for (s in h.subs) if (tokenHash == null || s.tokenHash == tokenHash) {
             s.offer(Event("bye", "{}"))
-            s.closed = true
+            s.close()
         }
     }
 
@@ -391,7 +451,7 @@ class SessionManager(
         box.vitals = null
         box.menu = null
         box.inventory = Inventory.EMPTY
-        publish(h, "players", jsonOf("sid" to id).also { it.add("players", Wire.players(PlayerList.EMPTY)) })
+        publish(h, "players", jsonOf("sid" to id).also { it.add("players", playersJson(PlayerList.EMPTY)) })
         publish(h, "vitals", jsonOf("sid" to id, "vitals" to Wire.vitals(null)))
         publish(h, "menu", jsonOf("sid" to id, "menu" to Wire.menu(null)))
 
@@ -424,7 +484,11 @@ class SessionManager(
         }
         val s = AfkSession(
             engineDir, box.entry.sessionConfig(), { forceRefresh -> auth.credentials(uuid, forceRefresh) }, listener, coreLog,
-            targetFilter = { NetGuard.filter(it, config.allowPrivateTargets) },
+            targetFilter = { target ->
+                val t = NetGuard.filter(target, config.allowPrivateTargets)
+                if (box.gen === gen) claimIp(box, "${t.connectHost}:${t.connectPort}", config.targetLimit(Wire.addressKey(box.entry.address)))
+                t
+            },
         )
         box.session = s
         setStatus(h, box, SessionStatus(SessionState.PREPARING, "준비 중…"))
@@ -460,9 +524,16 @@ class SessionManager(
     /** hub 잠금 안에서 부른다 */
     private fun addLine(h: AccountHub, box: SessionBox, line: LogLine) {
         val seq = h.nextSeq()
-        val o = Wire.line(line, seq)
+        var o = Wire.line(line, seq)
         o.addProperty("sid", box.entry.id)
-        val json = o.toString()
+        var json = o.toString()
+        if (json.length > MAX_LINE_CHARS) {
+            // 비정상적으로 긴 줄(수십만 글자)은 앞부분만 남긴다. 1,500줄씩 쌓아 두므로 그대로 두면 메모리를 다 쓴다
+            val cut = LogLine(line.timeMs, line.kind, ChatText.of(line.text.plain.take(2000) + " … (너무 긴 줄이라 잘랐습니다)"))
+            o = Wire.line(cut, seq)
+            o.addProperty("sid", box.entry.id)
+            json = o.toString()
+        }
         box.lines.addLast(seq to json)
         while (box.lines.size > MAX_LINES) box.lines.removeFirst()
         if (h.subs.isNotEmpty()) {
@@ -509,7 +580,7 @@ class SessionManager(
             }
             for (s in h.subs) {
                 s.offer(Event("bye", "{}"))
-                s.closed = true
+                s.close()
             }
             h.subs.clear()
             h.boxes.clear()
@@ -587,7 +658,7 @@ class SessionManager(
                         // 접속자 목록은 핑이 바뀔 때마다 오므로 2초에 한 번만 내보낸다
                         if (b.playersDirty && ticks % 2 == 0L) {
                             b.playersDirty = false
-                            publish(h, "players", jsonOf("sid" to id).also { it.add("players", Wire.players(b.players)) })
+                            publish(h, "players", jsonOf("sid" to id).also { it.add("players", playersJson(b.players)) })
                         }
                         if (ticks % 60 == 0L && b.status.state.isActive()) {
                             b.session?.traffic?.let { t ->
@@ -598,12 +669,27 @@ class SessionManager(
                 }
             }
             if (ticks % 30 == 0L) for (uuid in presence.sweep()) presenceChanged(uuid)
+            if (ticks % 5 == 0L) auth.sweepDevices()
             if (ticks % 300 == 0L) {
                 store.flush()
-                // 프리미엄 기간이 끝난 계정의 잠수를 멈춘다
-                for (h in hubs.values) {
-                    val acc = store.account(h.uuid) ?: continue
-                    if (!premium.status(acc.uuid, acc.name).active) stopAll(h.uuid, "프리미엄 기간이 끝나 클라우드 잠수를 멈췄습니다")
+                // 계정이 지워졌는데 남아 있는 것이 있으면 정리한다 (지우는 도중에 시작 요청이 겹친 경우)
+                for (h in hubs.values) if (store.account(h.uuid) == null) dropAccount(h.uuid)
+                val now = System.currentTimeMillis()
+                for (acc in store.allAccounts()) {
+                    if (premium.status(acc.uuid, acc.name).active) {
+                        if (acc.lapsedAt != null) store.saveAccount(acc.copy(lapsedAt = null))
+                        continue
+                    }
+                    // 프리미엄 기간이 끝난 계정: 잠수를 멈추고, 그 뒤 7일이 지나도 그대로면 저장된 로그인 정보·서버 목록을 지운다
+                    stopAll(acc.uuid, "프리미엄 기간이 끝나 클라우드 잠수를 멈췄습니다")
+                    when {
+                        acc.lapsedAt == null -> store.saveAccount(acc.copy(lapsedAt = now))
+                        now - acc.lapsedAt > LAPSED_KEEP_MS -> {
+                            Log.i("프리미엄이 끝난 지 7일이 지난 계정의 정보를 지웁니다: ${acc.name}")
+                            auth.deleteAccount(acc.uuid)
+                            dropAccount(acc.uuid)
+                        }
+                    }
                 }
             }
         } catch (t: Throwable) {
@@ -641,7 +727,7 @@ class SessionManager(
         ticker.shutdownNow()
         for (h in hubs.values) {
             synchronized(h) {
-                for (s in h.subs) s.closed = true
+                for (s in h.subs) s.close()
                 for (b in h.boxes.values) b.session?.shutdown()
             }
         }
@@ -651,6 +737,13 @@ class SessionManager(
     companion object {
         private const val MAX_LINES = 1500
         private const val MAX_SUBS = 8
+        /** 채팅 줄 하나(JSON)의 최대 크기. 넘으면 앞부분만 남긴다 */
+        private const val MAX_LINE_CHARS = 24_000
+        /** 이벤트 하나(JSON)의 최대 크기. 넘으면 내보내지 않는다 */
+        private const val MAX_EVENT_CHARS = 600_000
+        private const val MAX_PLAYERS_SENT = 500
+        /** 프리미엄이 끝난 뒤 로그인 정보를 남겨 두는 기간 (그 안에 다시 결제하면 그대로 이어 쓴다) */
+        private const val LAPSED_KEEP_MS = 7L * 86_400_000
         /** 다른 클라이언트(PC 게임)에 밀려난 뒤 이 시간 동안은 "다른 곳에서 접속 중일 수 있음"으로 표시하고 확인을 받는다 */
         const val OTHER_HOLD_MS = 30 * 60_000L
     }

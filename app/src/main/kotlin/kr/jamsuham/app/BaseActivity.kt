@@ -33,7 +33,7 @@ abstract class BaseActivity : Activity(), Starter {
 
     override fun startServer(serverId: String): Boolean = startServer(serverId, checkLimit = true)
 
-    private fun startServer(serverId: String, checkLimit: Boolean): Boolean {
+    private fun startServer(serverId: String, checkLimit: Boolean, cloudChecked: Boolean = false): Boolean {
         val store = Store(this)
         val server = store.server(serverId) ?: return false
         if (server.address.isBlank()) {
@@ -53,19 +53,33 @@ abstract class BaseActivity : Activity(), Starter {
         }
         // 클라우드 잠수: 폰의 잠수 서비스·알림 권한·동시 잠수 제한과 상관없이 클라우드에 요청한다
         if (server.cloud) return CloudHub.start(this, server)
-        // 같은 계정이 같은 서버에 클라우드로 들어가 있으면 폰에서 또 들어가지 않는다 (서로 튕겨 냄)
-        CloudHub.elsewhere(server)?.takeIf { it.holder == "cloud" }?.let { holder ->
-            AlertDialog.Builder(this)
-                .setTitle(tr("이미 실행 중입니다", "Already running"))
-                .setMessage(tr("이미 클라우드에서 실행 중입니다. 그쪽 연결을 해제하고 다시 시도해 주세요.", "Already running in the cloud. Disconnect it there and try again."))
-                .setPositiveButton(tr("클라우드 연결 끊기", "Disconnect the cloud")) { _, _ ->
-                    CloudHub.stopHolder(server, holder) { error ->
-                        toast(error ?: tr("클라우드 연결을 끊었습니다. 다시 시작을 눌러 주세요", "Cloud disconnected. Tap Start again"))
+        // 같은 계정이 같은 서버에 클라우드로 들어가 있으면 폰에서 또 들어가지 않는다 (서로 튕겨 냄).
+        // 클라우드와 실시간 연결이 없으면 한 번 물어본 뒤에 이어서 시작한다 (클라우드에 닿지 못하면 막지 않는다)
+        if (!cloudChecked && CloudHub.isLinked(server.accountId)) {
+            var sync = true // 답이 이 자리에서 바로 왔는지 (나중에 온 답이면 거기서 이어서 시작한다)
+            var blocked = false
+            val immediate = CloudHub.checkLocalStart(server) { holder ->
+                if (holder != null) {
+                    blocked = true
+                    if (!isFinishing && !isDestroyed) {
+                        AlertDialog.Builder(this)
+                            .setTitle(tr("이미 실행 중입니다", "Already running"))
+                            .setMessage(tr("이미 클라우드에서 실행 중입니다. 그쪽 연결을 해제하고 다시 시도해 주세요.", "Already running in the cloud. Disconnect it there and try again."))
+                            .setPositiveButton(tr("클라우드 연결 끊기", "Disconnect the cloud")) { _, _ ->
+                                CloudHub.stopHolder(server, holder) { error ->
+                                    toast(error ?: tr("클라우드 연결을 끊었습니다. 다시 시작을 눌러 주세요", "Cloud disconnected. Tap Start again"))
+                                }
+                            }
+                            .setNegativeButton(tr("취소", "Cancel"), null)
+                            .show()
                     }
+                } else if (!sync && !isFinishing && !isDestroyed) {
+                    startServer(serverId, checkLimit, cloudChecked = true)
                 }
-                .setNegativeButton(tr("취소", "Cancel"), null)
-                .show()
-            return false
+            }
+            sync = false
+            if (!immediate) toast(tr("클라우드에서 실행 중인지 확인하는 중…", "Checking whether it's running in the cloud…"))
+            if (!immediate || blocked) return false
         }
         // 무료 버전: 동시에 잠수할 수 있는 서버 수 제한
         val others = SessionHub.activeIds() - serverId
@@ -76,7 +90,7 @@ abstract class BaseActivity : Activity(), Starter {
                 .setMessage(tr("무료 버전은 한 번에 ${Plan.FREE_CONCURRENT}개 서버에만 잠수할 수 있습니다.\n지금 잠수 중: $names\n\n그 서버를 끊고 '${server.displayName}'(으)로 바꿀까요?\n(여러 서버 동시 잠수는 프리미엄에서 제공할 예정입니다)", "The free version can AFK on only ${Plan.FREE_CONCURRENT} server(s) at a time.\nCurrently AFK: $names\n\nDisconnect it and switch to '${server.displayName}'?\n(AFK on multiple servers at once is planned for premium)"))
                 .setPositiveButton(tr("바꾸기", "Switch")) { _, _ ->
                     for (id in others) AfkService.stop(this, id)
-                    startServer(serverId, checkLimit = false)
+                    startServer(serverId, checkLimit = false, cloudChecked = true)
                 }
                 .setNegativeButton(tr("취소", "Cancel"), null)
                 .show()

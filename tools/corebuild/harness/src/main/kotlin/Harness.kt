@@ -372,6 +372,7 @@ fun main(args: Array<String>) {
         }
         "cloud" -> ok = cloudTest(args[1], args[2], args.getOrNull(3))
         "wire" -> ok = wireTest()
+        "chatlimit" -> ok = chatLimitTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)
@@ -556,5 +557,70 @@ fun wireTest(): Boolean {
     for ((name, pass) in checks) println((if (pass) "  통과  " else "  실패  ") + name)
     val failed = checks.filter { !it.second }
     println("RESULT wire ${checks.size - failed.size}/${checks.size}")
+    return failed.isEmpty()
+}
+
+
+/** 서버가 보낸 악의적인 채팅(겹겹이 쌓은 번역 글, 조각 수십만 개)에도 해석이 금방 끝나는지, 보통 채팅은 그대로인지 */
+fun chatLimitTest(): Boolean {
+    val T = kr.jamsuham.core.text.ChatText
+    val checks = ArrayList<Pair<String, Boolean>>()
+    fun timed(block: () -> Unit): Long { val t = System.currentTimeMillis(); block(); return System.currentTimeMillis() - t }
+
+    // 1) 번역 글을 12단으로 쌓고 단마다 인자를 8번씩 쓴다 → 한도가 없으면 8^12 번 풀어야 한다
+    var bomb = "\"x\""
+    repeat(12) { bomb = """{"translate":"%1${'$'}s%1${'$'}s%1${'$'}s%1${'$'}s%1${'$'}s%1${'$'}s%1${'$'}s%1${'$'}s","with":[$bomb]}""" }
+    var out1: kr.jamsuham.core.text.ChatText? = null
+    val t1 = timed { out1 = T.fromJson(bomb) }
+    println("        겹친 번역 글 ${bomb.length}바이트 → ${t1}ms, ${out1!!.plain.length}글자")
+    checks += "겹친 번역 글이 1초 안에 끝남" to (t1 < 1000 && out1!!.plain.length <= 70_000)
+
+    // 2) 조각 20만 개짜리 한 줄
+    val flat = buildString { append("{\"text\":\"\",\"extra\":["); repeat(200_000) { if (it > 0) append(','); append("{\"text\":\"ab\"}") }; append("]}") }
+    var out2: kr.jamsuham.core.text.ChatText? = null
+    val t2 = timed { out2 = T.fromJson(flat) }
+    println("        조각 20만 개 ${flat.length / 1000}KB → ${t2}ms, 조각 ${out2!!.spans.size}개, ${out2!!.plain.length}글자")
+    checks += "조각 20만 개가 2초 안에 끝나고 잘림" to (t2 < 2000 && out2!!.plain.length <= 70_000 && out2!!.spans.size == 1)
+
+    // 3) 같은 모양 조각 8천 개 (한도 안): 하나로 이어 붙고, 느려지지 않는지
+    val many = buildString { append("["); append("\"\""); repeat(8_000) { append(",{\"text\":\"가나\"}") }; append("]") }
+    var out3: kr.jamsuham.core.text.ChatText? = null
+    val t3 = timed { out3 = T.fromJson(many) }
+    println("        조각 8천 개 → ${t3}ms, 조각 ${out3!!.spans.size}개, ${out3!!.plain.length}글자")
+    checks += "조각 8천 개 이어 붙이기" to (t3 < 1500 && out3!!.spans.size == 1 && out3!!.plain.length == 16_000)
+
+    // 4) 깊이 200단 extra
+    var deep = "{\"text\":\"끝\"}"
+    repeat(200) { deep = "{\"text\":\"a\",\"extra\":[$deep]}" }
+    val out4 = T.fromJson(deep)
+    println("        200단 겹친 글 → ${out4.plain.length}글자 '${out4.plain.take(12)}…'")
+    checks += "해석 못 하는 큰 JSON 은 짧게만 보여 줌" to (out4.plain.length <= 400)
+    var deep2 = "{\"text\":\"끝\"}"
+    repeat(100) { deep2 = "{\"text\":\"a\",\"extra\":[$deep2]}" }
+    val out4b = T.fromJson(deep2)
+    println("        100단 겹친 글 → ${out4b.plain.length}글자")
+    checks += "깊게 겹친 글은 한도(48단)에서 자름" to (out4b.plain.all { it == 'a' } && out4b.plain.length in 40..50)
+
+    // 5) 설명 글 속에 또 설명 글… (겹친 hover)
+    var hov = "\"h\""
+    repeat(12) { hov = """{"text":"t","hoverEvent":{"action":"show_text","contents":[$hov,$hov]}}""" }
+    val t5 = timed { T.fromJson(hov) }
+    checks += "겹친 설명 글이 1초 안에 끝남" to (t5 < 1000)
+
+    // 6) 보통 채팅은 그대로
+    val normal = T.fromJson("""{"text":"","extra":[{"text":"[","color":"gray"},{"text":"VIP","color":"gold","bold":true},{"text":"] ","color":"gray"},{"text":"Steve","color":"white"},{"text":": 안녕 ","color":"white"},{"text":"https://example.com","color":"white"}]}""")
+    println("        보통 채팅: " + normal.spans.joinToString(" | ") { it.text + (if (it.click != null) "(링크)" else "") })
+    checks += "보통 채팅 그대로" to (normal.plain == "[VIP] Steve: 안녕 https://example.com" && normal.spans.size == 5 &&
+        normal.spans[1].let { it.text == "VIP" && it.bold && it.color == 0xFFAA00 } && normal.spans[3].text == "Steve: 안녕 " && normal.spans[4].click?.value == "https://example.com")
+    val tr = T.fromJson("""{"translate":"chat.type.text","with":[{"text":"Alex","color":"aqua"},"반가워요"]}""")
+    checks += "번역 글 그대로" to (tr.plain == "<Alex> 반가워요" && tr.spans.any { it.text == "Alex" && it.color == 0x55FFFF })
+    val glyph = T.fromJson("""{"text":"","extra":[{"text":"\uE001","font":"server:rank"},{"text":" 닉네임"}]}""")
+    checks += "그림 글자 조각은 합치지 않음" to (glyph.spans.size == 2 && glyph.spans[0].glyphs == "\uE001" && glyph.spans[0].text.isEmpty() && glyph.spans[1].text == " 닉네임")
+    val legacy = T.fromLegacy("§a초록 §l굵게§r 보통")
+    checks += "§ 색 코드 그대로" to (legacy.plain == "초록 굵게 보통" && legacy.spans.size == 3 && legacy.spans[1].bold)
+
+    for ((name, pass) in checks) println((if (pass) "  통과  " else "  실패  ") + name)
+    val failed = checks.filter { !it.second }
+    println("RESULT chatlimit ${checks.size - failed.size}/${checks.size}")
     return failed.isEmpty()
 }

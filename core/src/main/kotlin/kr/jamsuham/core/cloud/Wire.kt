@@ -217,12 +217,14 @@ object Wire {
 
     fun vitals(v: Vitals?): JsonElement {
         if (v == null) return JsonNull.INSTANCE
+        // 숫자가 아닌 값(NaN·무한대)은 JSON 으로 쓸 수 없다 (받는 쪽 화면이 통째로 멈춘다)
+        fun f(x: Float) = if (x.isFinite()) x else 0f
         val o = JsonObject()
-        o.addProperty("h", v.health)
-        o.addProperty("m", v.maxHealth)
-        o.addProperty("a", v.absorption)
+        o.addProperty("h", f(v.health))
+        o.addProperty("m", f(v.maxHealth).let { if (it > 0f) it else 20f })
+        o.addProperty("a", f(v.absorption))
         o.addProperty("f", v.food)
-        o.addProperty("s", v.saturation)
+        o.addProperty("s", f(v.saturation))
         return o
     }
 

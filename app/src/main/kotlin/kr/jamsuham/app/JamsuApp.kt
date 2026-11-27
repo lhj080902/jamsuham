@@ -33,7 +33,10 @@ class JamsuApp : Application() {
             override fun onActivityStopped(a: Activity) {
                 started = (started - 1).coerceAtLeast(0)
                 // 앱이 뒤로 갔다: 잠깐 다른 앱을 보는 경우를 위해 30초 뒤에 그림 글자를 메모리에서 내린다
-                if (started == 0) main.postDelayed(release, 30_000)
+                if (started == 0) {
+                    CloudHub.persistSeq()
+                    main.postDelayed(release, 30_000)
+                }
             }
             override fun onActivityCreated(a: Activity, b: Bundle?) {}
             override fun onActivityResumed(a: Activity) {}

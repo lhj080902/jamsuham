@@ -25,6 +25,8 @@ dependencies {
 application {
     mainClass.set("kr.jamsuham.cloud.MainKt")
     applicationName = "jamsu-cloud"
+    // 메모리가 바닥나면 이상한 상태로 버티지 말고 꺼지게 한다 (자동 시작 설정이 다시 켠다). 파일은 UTF-8 로
+    applicationDefaultJvmArgs = listOf("-XX:+ExitOnOutOfMemoryError", "-Dfile.encoding=UTF-8")
 }
 
 // 앱과 같은 버전 번호를 서버에도 넣는다 (gradle.properties 의 jamsuham.version)

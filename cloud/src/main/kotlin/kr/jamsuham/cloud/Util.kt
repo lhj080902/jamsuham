@@ -72,18 +72,22 @@ class Vault(dir: File) {
 
     init {
         dir.mkdirs()
+        // 데이터 폴더 전체를 이 계정만 들여다볼 수 있게 (리눅스·맥. 서버 목록의 자동 명령어에 비밀번호가 들어 있을 수 있다)
+        try {
+            Files.setPosixFilePermissions(dir.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
+        } catch (_: Exception) {
+        }
         val f = File(dir, "master.key")
         val bytes = if (f.exists()) {
             Base64.getDecoder().decode(f.readText().trim())
         } else {
             ByteArray(32).also { random.nextBytes(it) }.also { b ->
-                f.writeText(Base64.getEncoder().encodeToString(b))
-                // 리눅스·맥: 이 계정만 읽을 수 있게 (윈도우는 지원하지 않아 조용히 넘어간다)
+                // 리눅스·맥: 만들 때부터 이 계정만 읽을 수 있게 (윈도우는 이 방식을 지원하지 않아 보통 파일로 만든다)
                 try {
-                    f.setReadable(false, false); f.setReadable(true, true)
-                    f.setWritable(false, false); f.setWritable(true, true)
+                    Files.createFile(f.toPath(), java.nio.file.attribute.PosixFilePermissions.asFileAttribute(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")))
                 } catch (_: Exception) {
                 }
+                f.writeText(Base64.getEncoder().encodeToString(b))
             }
         }
         require(bytes.size == 32) { "master.key 가 올바르지 않습니다" }

@@ -164,7 +164,7 @@ async function startMsLogin() {
       if (tick.busy || left % 3 !== 0) return;
       tick.busy = true;
       try {
-        const r = await api('GET', 'login/device/' + encodeURIComponent(d.id));
+        const r = await api('POST', 'login/device/poll', { id: d.id });
         if (r.state === 'done') { clearInterval(pollTimer); await enter(); }
         else if (r.state === 'error') showLogin(r.message || t('로그인에 실패했습니다', 'Sign-in failed'));
       } catch (e) {
@@ -227,7 +227,12 @@ function startStream() {
   stopStream();
   const es = new EventSource('/api/events');
   source = es;
-  const on = (type, fn) => es.addEventListener(type, (ev) => { if (source === es) fn(JSON.parse(ev.data)); });
+  const on = (type, fn) => es.addEventListener(type, (ev) => {
+    if (source !== es) return;
+    let data;
+    try { data = JSON.parse(ev.data); } catch (_) { return; } // 깨진 이벤트 하나 때문에 화면 전체가 멈추지 않게
+    fn(data);
+  });
   es.onopen = () => { $('conn').hidden = true; };
   es.onerror = () => {
     if (source !== es) return;
@@ -254,6 +259,7 @@ function startStream() {
   on('entry', (d) => { upsertSession(d.session); renderList(); if (d.session.entry.id === state.selected) renderSessionHead(); });
   on('entryRemoved', (d) => { state.sessions.delete(d.id); if (state.selected === d.id) select(null); renderList(); });
   on('presence', (d) => { state.presence = d.presence; renderList(); if (state.selected) renderSessionHead(); });
+  on('newDevice', (d) => { toast(t(`이 계정에 새 기기가 로그인했습니다: ${d.label} (본인이 아니면 계정 → 기기에서 로그아웃시키세요)`, `A new device signed in to this account: ${d.label} (if this wasn't you, sign it out under Account)`)); });
   on('bye', () => { showLogin(t('로그아웃되었습니다', 'You have been signed out')); });
 }
 
@@ -731,7 +737,14 @@ async function accountDialog() {
     d.append(el('label', null, t('로그인한 기기', 'Signed-in devices')));
     for (const dev of me.devices) {
       const row = el('div', 'device');
-      row.append(el('span', null, dev.label + (dev.current ? t(' (이 기기)', ' (this device)') : '')), el('span', 'muted', new Date(dev.lastSeenAt).toLocaleDateString()));
+      row.append(el('span', 'grow', dev.label + (dev.current ? t(' (이 기기)', ' (this device)') : '')), el('span', 'muted', new Date(dev.lastSeenAt).toLocaleDateString()));
+      if (!dev.current) {
+        // 본인이 한 로그인이 아닌 기기가 있으면 여기서 로그아웃시킨다
+        const out = el('button', 'ghost small', t('로그아웃', 'Sign out'));
+        out.type = 'button';
+        out.onclick = async () => { if (await act(() => api('POST', `devices/${dev.id}/revoke`, {}))) row.remove(); };
+        row.append(out);
+      }
       d.append(row);
     }
     d.append(el('p', 'hint', t('연결 해제를 누르면 모든 잠수를 끊고, 서버에 저장된 이 계정의 로그인 정보·서버 목록을 모두 지웁니다.', 'Unlink stops all AFK sessions and deletes this account’s sign-in data and server list from the server.')));
