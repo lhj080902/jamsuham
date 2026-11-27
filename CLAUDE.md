@@ -46,6 +46,16 @@
   폰 직접 잠수 중(`AfkService` 가 1분마다 `CloudHub.reportLocal`, TTL 150초) → 클라우드 시작 409 `in_use` / PC 게임이 들어와 밀려남(`SessionListener.onDuplicateLogin`) → 30분 동안 "other" 표시, 다시 시작하면 확인(`force`).
   PC 게임 자체는 막을 수 없음(FastPack 이 접속 전에 클라우드에 묻게 하면 가능 — 미구현)
 - **같은 IP 문제**: 프록시로 계정마다 IP 를 바꾸는 우회는 만들지 않기로 함(서버 규칙 회피). 대신 `maxAccountsPerTarget`(기본 3)·`targetLimits` 로 서버별 계정 수를 제한하고, 운영진 허용을 받은 서버만 늘린다
+- **접속용 서버 = 멀티 노드 (v2.1.0)**: 같은 프로그램을 `jamsu-cloud worker [worker.properties]` 로 띄우면 본 서버(`workerPort`)에 **먼저 연결해** 잠수를 대신 돌린다. 운영 안내 `docs/CLOUD.md` 16번, 설계 `docs/superpowers/specs/2026-11-27-cloud-multinode-design.md`
+  - `Runner.kt`: 실행 경계 `Runner`/`RunHandle`/`LaunchHooks`, `LocalRunner`(본 서버 내장 = id `local`, 접속용 서버도 이것으로 돌림), `Scheduler`(배정: 같은 MC 서버에 가장 적게 들어간 곳 → 남은 자리 비율 → 내장), `ReplaceBudget`(잠수마다 다시 배정 10분에 3번)
+  - `link/LinkCrypto.kt`(비밀키 `data/worker.key` 로 서로 확인(HMAC) + 연결마다 HKDF 키, AES-256-GCM, 프레임 번호는 보내지 않음), `link/LinkNet.kt`(네티, 프레임 4MB(인증 전에는 16KB), 5초 ping·15초 무응답 끊김, 실패 10번/분 → 10분 차단),
+    `link/MasterLink.kt`(`RemoteRunner`: 자기에게 배정된 실행의 소식·토큰 요청만 받음), `link/Worker.kt`(접속용 서버: 로그인 정보·자리는 접속 때마다 본 서버에 되묻고 디스크에 안 둠, **본 서버 연결을 잃으면 잠수를 모두 끊음**)
+  - `Sessions.kt`: 접속용 서버가 끊기면 `runnerLost` → 30초 뒤(`-Djamsu.replaceDelayMs`) 다른 곳에 2초 간격으로 다시 배정(`placeQueued`), 자리 없으면 10초마다(`queueRetryMs`) 다시 보고 10분(`queueMaxMs`) 뒤 보류(`parked`, "잠수 중" 표시 유지 → 접속용 서버가 붙거나 다시 켜면 이어서).
+    대기 중(`queued`)은 잠수 수에 세지 않음. 직접 시작은 자리가 없으면 기다리지 않고 거절
+  - **원칙: 서버별 계정 수 제한은 노드를 늘려도 전체 합계** (본 서버가 센다. 노드·IP 별로 따로 세게 바꾸지 말 것 — IP 를 나눠 제한을 피하는 용도가 됨). 사용자·잠수를 특정 노드에 고정하는 설정도 없음
+  - core·app·웹은 그대로 (`Wire.API` 변화 없음). 설정을 안 바꾸면 한 대짜리 설치는 전과 같게 동작 (`localWorker=true`, `workerPort=0`)
+  - 시험: `harness sched`(13)·`harness linkcrypto`(12)·`harness linknet`(7, 접속용 서버 포트의 인증 전 방어: 프레임 한도 16KB → 인증 뒤 4MB, 잘못된 접속 차단) 는 서버 없이. `harness cloudnode <jamsu-cloud 설치 폴더> <stay포트> <walk포트>`(34, 약 6분, `NODE_VERBOSE=1` 이면 각 프로세스 로그)는
+    본 서버 1(18790, 링크 18791) + 접속용 서버 2 를 스스로 띄우고 프로세스를 강제로 죽여 본다. **한 PC 안에서만 확인함 — 실제 다른 컴퓨터·다른 IP 로는 아직 안 돌려 봄.** 본 서버를 정상 종료(Ctrl+C)할 때의 순서는 시험이 없음(윈도우에서 신호를 못 보냄)
 - 앱: `CloudHub`(연결 기록 prefs `jamsuham_cloud`, 계정별 SSE — 앱이 앞에 있을 때만, 이벤트 → `SessionHub.remote*`), `CloudSection`(설정 카드), `ServerEntry.cloud`.
   `SessionHub.activeIds()/anyActive` 는 **폰 잠수만**(서비스·알림·이어서 잠수·무료 동시 제한), `isActive` 는 둘 다. 앱의 클라우드 잠수 화면에서는 지도·이동·아이템 사용 불가(미구현)
 - **웹 이동 (v2.0.1)**: `POST /api/servers/{id}/move {east, south, jump}` → `SessionManager.move` 가 `setStick`·`setMovement(16)`. 입력은 1.5초만 유효(`MOVE_HOLD_MS`) → 화면이 누르는 동안 0.45초마다 다시 보냄,
@@ -114,7 +124,8 @@
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
-## 다음 세션에서 이어서 할 일 (2026-11-27 기준, 앱·클라우드 v2.0.1 / FastPack 0.3.0)
+## 다음 세션에서 이어서 할 일 (2026-11-27 기준, 앱·클라우드 v2.1.0(브랜치 `feature/cloud-multinode`, main 병합 전 — main 은 v2.0.1) / FastPack 0.3.0)
+- **접속용 서버 실사용 확인 (사용자)**: 본 서버에 `workerPort` 설정 → `data/worker.key` → 다른 컴퓨터에서 `jamsu-cloud worker` → 본 서버 로그 `[노드] 연결됨`·`[배정] … → 이름`, 접속용 서버를 껐을 때 30초 뒤 옮겨지는지
 - **클라우드 잠수 실사용 확인 (사용자)**: 서버 컴퓨터에 jamsu-cloud.zip 설치 → msClientId 입력 → 웹 기기 코드 로그인 / 앱 "연결"(v2.0.0 에서 새로 로그인한 계정) / 클라우드에서 시작·채팅·끊기 /
   폰 잠수 중 클라우드 시작 차단·반대 방향 차단이 실제 폰에서 되는지. HTTPS 공개(Cloudflare 터널 또는 Caddy), 저장소 변수 CLOUD_URL
 - 클라우드 다음 작업 후보: 앱의 클라우드 화면에 이동 붙이기(서버 API 는 있음), 웹·앱의 클라우드 지도, 아이템 사용, 웹의 리소스팩 그림 글자, 앱이 뒤에 있을 때 사망·메뉴 푸시 알림, 결제 연동(지금은 premium.txt 수동), 운영자용 관리 화면,
