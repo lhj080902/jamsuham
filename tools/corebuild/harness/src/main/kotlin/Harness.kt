@@ -426,6 +426,7 @@ fun main(args: Array<String>) {
         "cloudnode" -> ok = cloudNodeTest(args[1], args[2], args[3])
         "linknet" -> ok = linkNetTest()
         "nodeunit" -> ok = nodeUnitTest()
+        "demo" -> ok = demoTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)
