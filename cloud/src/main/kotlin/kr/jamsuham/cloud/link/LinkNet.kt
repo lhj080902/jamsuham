@@ -16,8 +16,9 @@ import io.netty.channel.WriteBufferWaterMark
 import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
 import io.netty.channel.socket.nio.NioSocketChannel
-import io.netty.handler.codec.LengthFieldBasedFrameDecoder
+import io.netty.handler.codec.ByteToMessageDecoder
 import io.netty.handler.codec.LengthFieldPrepender
+import io.netty.handler.codec.TooLongFrameException
 import io.netty.handler.timeout.IdleState
 import io.netty.handler.timeout.IdleStateEvent
 import io.netty.handler.timeout.IdleStateHandler
@@ -80,6 +81,8 @@ class LinkPeer internal constructor(private val ch: Channel, private val cipher:
  */
 object LinkNet {
     const val MAX_FRAME = 4 * 1024 * 1024
+    /** 인증 전(서로 확인하는 네 프레임)의 프레임 한도. 아무나 붙을 수 있는 동안에는 큰 것을 받아 두지 않는다 */
+    const val HANDSHAKE_MAX_FRAME = 16 * 1024
     /** 내용 하나의 최대 크기 (한글 100만 자쯤). 프레임 한도 안에 넉넉히 들어온다 */
     const val MAX_SEND = 3_000_000
     const val PING_MS = 5_000L
@@ -108,10 +111,32 @@ object LinkNet {
 
     private fun b64(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
 
-    private fun pipeline(ch: SocketChannel, handler: SimpleChannelInboundHandler<ByteBuf>) {
+    /**
+     * 길이 4바이트 + 내용으로 프레임을 나눈다. 한도를 넘는 길이가 적혀 있으면 내용이 오기를 기다리지 않고 바로 오류를 낸다.
+     * 한도는 인증 전에는 작게([HANDSHAKE_MAX_FRAME]), 인증이 끝나면 [MAX_FRAME] 으로 올린다.
+     */
+    private class Frames : ByteToMessageDecoder() {
+        @Volatile var limit = HANDSHAKE_MAX_FRAME
+
+        override fun decode(ctx: ChannelHandlerContext, buf: ByteBuf, out: MutableList<Any>) {
+            if (buf.readableBytes() < 4) return
+            val len = buf.getInt(buf.readerIndex())
+            if (len < 0 || len > limit) {
+                buf.skipBytes(buf.readableBytes())
+                throw TooLongFrameException("프레임 길이가 올바르지 않습니다 ($len)")
+            }
+            if (buf.readableBytes() < 4 + len) return
+            buf.skipBytes(4)
+            out.add(buf.readRetainedSlice(len))
+        }
+    }
+
+    private fun pipeline(ch: SocketChannel, handler: Conn) {
+        val frames = Frames()
+        handler.frames = frames
         ch.pipeline().addLast(
             IdleStateHandler(DEAD_MS, PING_MS, 0, TimeUnit.MILLISECONDS),
-            LengthFieldBasedFrameDecoder(MAX_FRAME, 0, 4, 0, 4),
+            frames,
             LengthFieldPrepender(4),
             handler,
         )
@@ -119,8 +144,16 @@ object LinkNet {
 
     /** 인증이 끝난 뒤의 공통 처리: 암호를 풀어 넘기고, 조용하면 ping 을 보내고, 오래 조용하면 끊는다 */
     private abstract class Conn : SimpleChannelInboundHandler<ByteBuf>() {
+        var frames: Frames? = null
         protected var peer: LinkPeer? = null
         protected var handler: LinkHandler? = null
+
+        /** 인증이 끝났을 때: 이제부터 큰 프레임도 받는다 */
+        protected fun authed(p: LinkPeer, h: LinkHandler) {
+            frames?.limit = MAX_FRAME
+            handler = h
+            peer = p
+        }
 
         protected abstract fun handshake(ctx: ChannelHandlerContext, msg: JsonObject)
         protected abstract fun failed(ctx: ChannelHandlerContext, why: String)
@@ -237,8 +270,7 @@ object LinkNet {
                             }
                             // welcome 이 먼저 나가야 한다: accept 안에서 보낸 것들은 이 함수가 끝난 뒤에 나간다 (LinkPeer.send 가 뒤로 미룸)
                             plain(ctx.channel(), jsonOf("t" to "welcome", "mac" to b64(LinkCrypto.masterMac(psk, nonceW, nonceM))))
-                            handler = accepted
-                            peer = p
+                            authed(p, accepted)
                         }
 
                         override fun channelInactive(ctx: ChannelHandlerContext) {
@@ -307,8 +339,7 @@ object LinkNet {
                                         return failed(ctx, "본 서버를 확인할 수 없습니다 (비밀키가 다름)")
                                     }
                                     val p = LinkPeer(ctx.channel(), FrameCipher(psk, nonceW, m, isWorker = true))
-                                    handler = onUp(p)
-                                    peer = p
+                                    authed(p, onUp(p))
                                 }
                                 else -> failed(ctx, "알 수 없는 응답")
                             }

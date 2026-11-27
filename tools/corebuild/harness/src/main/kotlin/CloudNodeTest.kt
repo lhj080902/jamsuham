@@ -115,6 +115,85 @@ fun linkCryptoTest(): Boolean {
     return c.done()
 }
 
+// ------------------------------------------------------------ 접속용 서버 포트의 방어 (이 프로그램 안에서 포트만 열어 확인)
+
+/**
+ * 본 서버가 여는 접속용 서버 포트에 엉뚱한 것이 들어올 때의 동작. 서버 없이 실행: harness linknet
+ * (실패한 접속이 쌓이면 이 프로그램 안에서 127.0.0.1 이 차단되므로, 차단 확인은 맨 끝에 둔다)
+ */
+fun linkNetTest(): Boolean {
+    val c = Checks("linknet")
+    val group = io.netty.channel.nio.NioEventLoopGroup(2)
+    val psk = LinkCrypto.randomNonce()
+    val server = LinkNet.serve("127.0.0.1", 0, psk, group) { _, peer ->
+        object : LinkHandler {
+            // 받은 것을 그대로 돌려준다
+            override fun onMessage(msg: JsonObject) = peer.send(msg)
+            override fun onClosed() {}
+        }
+    }
+    val port = (server.localAddress() as java.net.InetSocketAddress).port
+
+    /** 정상 접속을 해 본다: (연결된 상대, 받은 것들, 실패 사유) */
+    class Dial {
+        @Volatile var peer: LinkPeer? = null
+        @Volatile var failed: String? = null
+        val got = CopyOnWriteArrayList<JsonObject>()
+
+        init {
+            LinkNet.dial("127.0.0.1", port, psk, Hello("t1", 1, "test"), group, { p ->
+                peer = p
+                object : LinkHandler {
+                    override fun onMessage(msg: JsonObject) { got += msg }
+                    override fun onClosed() {}
+                }
+            }, { reason, _ -> failed = reason })
+            waitFor(5000) { peer != null || failed != null }
+        }
+    }
+
+    /** 인증 없이 [bytes] 를 보냈을 때 서버가 [withinMs] 안에 연결을 닫는지 */
+    fun closes(bytes: ByteArray, withinMs: Int): Boolean = Socket("127.0.0.1", port).use { s ->
+        s.soTimeout = withinMs
+        s.getOutputStream().write(bytes)
+        s.getOutputStream().flush()
+        try {
+            s.getInputStream().read() == -1
+        } catch (_: java.net.SocketTimeoutException) {
+            false
+        } catch (_: java.io.IOException) {
+            true
+        }
+    }
+
+    try {
+        val d = Dial()
+        c.check("올바른 비밀키로 연결", d.peer != null)
+        // 인증 뒤에는 큰 내용(채팅 기록·접속자 목록 등)도 양쪽으로 오갈 수 있어야 한다
+        val big = "가".repeat(300_000)
+        d.peer?.send(JsonObject().apply { addProperty("t", "echo"); addProperty("text", big) })
+        c.check("인증 뒤에는 큰 내용도 오감 (약 900KB)", waitFor(5000) { d.got.any { it.get("text")?.asString == big } })
+        d.peer?.close()
+
+        // 인증 전에는 "1MB 를 보내겠다"는 머리말만으로 바로 끊어야 한다 (다 올 때까지 메모리에 쌓아 두지 않는다)
+        c.check("인증 전의 큰 프레임(1MB 예고)은 바로 끊음", closes(byteArrayOf(0x00, 0x10, 0x00, 0x00, 1, 2, 3), 2000))
+        c.check("길이가 4GB 인 프레임은 바로 끊음", closes(byteArrayOf(-1, -1, -1, -1, 1, 2, 3), 2000))
+        c.check("HTTP 요청 같은 엉뚱한 데이터는 바로 끊음", closes("GET / HTTP/1.1\r\nHost: x\r\n\r\n".toByteArray(), 2000))
+        val d2 = Dial()
+        c.check("잘못된 접속 몇 번으로는 정상 접속이 막히지 않음", d2.peer != null)
+        d2.peer?.close()
+
+        repeat(10) { closes(byteArrayOf(-1, -1, -1, -1), 2000) }
+        val d3 = Dial()
+        c.check("잘못된 접속이 이어지면 그 IP 를 받지 않음", d3.peer == null && closes(ByteArray(0), 2000))
+        d3.peer?.close()
+    } finally {
+        server.close()
+        group.shutdownGracefully()
+    }
+    return c.done()
+}
+
 // ------------------------------------------------------------ 본 서버 + 접속용 서버를 실제로 띄워 보는 시험
 
 /** 시험이 띄우는 프로세스 하나 (본 서버 또는 접속용 서버). 표준 출력을 줄 단위로 모아 둔다 */

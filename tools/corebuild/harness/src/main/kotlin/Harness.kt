@@ -376,6 +376,7 @@ fun main(args: Array<String>) {
         "sched" -> ok = schedTest()
         "linkcrypto" -> ok = linkCryptoTest()
         "cloudnode" -> ok = cloudNodeTest(args[1], args[2], args[3])
+        "linknet" -> ok = linkNetTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)
