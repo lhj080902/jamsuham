@@ -25,7 +25,7 @@
   - `SessionHub` 서버별 세션 상태(메인 스레드 콜백), `AfkService` 포그라운드 서비스(알림, 화면 꺼져도 유지)
   - `MainActivity` 서버 목록(태블릿은 두 칸), `ChatPanel` 채팅/지도/인벤/접속자/상태 5페이지 + 사망 알림 줄 + 💾 채팅 기록 저장,
     `StatusPanel`(체력·최대 체력·흡수·허기·데이터 사용량·리소스팩 그림 글자 상태(팩 주소·실패 이유)·마지막 사망), `ChatLog`(채팅을 files/chatlogs/<서버>/날짜.txt 로 30일 보관, SAF 로 .txt 내보내기), `MapPanel` 미니맵·이동·웨이포인트,
-    `InventoryPanel`, `PlayerPanel`, `ServerEditActivity`(서버별 설정·메뉴 자동 클릭 규칙), `LoginActivity`(MS 로그인 WebView),
+    `InventoryPanel`(사용·버리기 — 버리기는 창 0 THROW 클릭, 서버 메뉴가 열려 있으면 거절), `PlayerPanel`, `ServerEditActivity`(서버별 설정·메뉴 자동 클릭 규칙), `LoginActivity`(MS 로그인 WebView),
     `Store`(서버·웨이포인트·기록, Gson+SharedPreferences),
     `SettingsActivity`(메인 ⚙ 설정: 계정 관리(`AccountsSection`, AccountsActivity 는 서버 설정의 계정 고르기용), 디자인 3종·밝기·언어·글자 크기, 채팅 글자 크기·시간·화면 켜 두기,
     새 서버 기본값(리소스팩·이어서 잠수), 알림 데이터 줄, 저장 공간) — 값은 `AppSettings`(jamsuham_settings), 바뀌면 version 이 올라 BaseActivity 가 화면을 다시 만듦.
@@ -107,14 +107,14 @@
 - `tools/test-server/server.js <버전> <포트>` — node-minecraft-protocol 가짜 서버 (`npm install` 후).
   리소스팩 요청, 강제 텔레포트, 상자 메뉴(13번 칸 = 적용), 인벤토리, 1.21.6+ 대화창 등을 보낸다.
   주의: 대화창(show_dialog)은 node 쪽 라이브러리가 첫 바이트를 가끔 쓰레기 값으로 보내 가끔 실패한다(앱 문제 아님)
-  시나리오: `full`(이미 접속 킥 → 소켓 끊김 → 밴), `stay`(유지), `dupe`(중복 로그인 킥 → 앱이 멈춰야 함), `authkick`(정품 인증 실패 킥 → 2번 재시도 후 멈춤), `vitals`(1.21.4: 체력 31.5/최대 40/흡수 4 → 좀비에게 사망), `click`(누를 수 있는 채팅: [수락] 명령어 버튼 + 설명, 링크), `pack`(그림 글자 채팅, `PACK_URL=` 로 시험용 팩 서버 지정), `walk`(1.21.4 평평한 땅 청크만 보냄 → 접속 걷기 확인, 받은 위치를 로그로. `npm install --no-save prismarine-chunk` 불필요, 손으로 만든 청크)
+  시나리오: `full`(이미 접속 킥 → 소켓 끊김 → 밴), `stay`(유지), `dupe`(중복 로그인 킥 → 앱이 멈춰야 함), `authkick`(정품 인증 실패 킥 → 2번 재시도 후 멈춤), `vitals`(1.21.4: 체력 31.5/최대 40/흡수 4 → 좀비에게 사망), `click`(누를 수 있는 채팅: [수락] 명령어 버튼 + 설명, 링크), `pack`(그림 글자 채팅, `PACK_URL=` 로 시험용 팩 서버 지정), `walk`(1.21.4 평평한 땅 청크만 보냄 → 접속 걷기 확인, 받은 위치를 로그로. `npm install --no-save prismarine-chunk` 불필요, 손으로 만든 청크), `drop`(인벤토리만 보내고 받은 창 클릭을 채팅으로 돌려줌 → `harness drop`, 1.8.8·1.12.2·1.21.4 확인)
 - core 는 JVM 에서 `AfkSession(...)` 을 직접 만들어 테스트 서버에 붙여 보는 식으로 검증해 왔다
 - 클라우드(Claude Code 웹) 환경은 dl.google.com 이 막혀 안드로이드 플러그인을 못 받는다 → 루트 빌드 대신 **`tools/corebuild/`**
   (core 만 include 한 별도 Gradle 설정)을 쓴다. app 코드는 Maven Central 의 `org.robolectric:android-all:16-robolectric-13921718`(API 36)
   을 compileOnly 로 두고 Kotlin 컴파일만 확인 (APK 빌드는 GitHub Actions)
   - 앱 컴파일 확인: `./gradlew -p tools/corebuild :appcheck:compileKotlin -Pflavor=github` (그리고 `-Pflavor=play`). 출력이 없으면 성공
   - 시험 프로그램: `./gradlew -p tools/corebuild :harness:installDist` → `tools/corebuild/harness/build/install/harness/bin/harness <모드> [포트]`
-    모드: dupe, authkick, vitals, click, walk, stick, miny, world, deathparse, packtest, packnet, overlay, report, prune, spaces, png, msa …
+    모드: dupe, authkick, vitals, click, drop, walk, stick, miny, world, deathparse, packtest, packnet, overlay, report, prune, spaces, png, msa …
     (테스트 서버를 먼저 띄움: `node tools/test-server/server.js 1.21.4 <포트> <시나리오>`, 팩은 `node tools/test-server/pack/serve.js <포트> <zip>`,
     시험 팩은 `cd tools/test-server/pack && python3 make.py`. `EN=1` 이면 영어 모드, 임시 폴더는 `HARNESS_TMP`)
 - 지원 버전 확인됨: 1.8.8, 1.12.2, 1.20.x, 1.21.4, 1.21.8, 26.1 (테스트 서버 기준)

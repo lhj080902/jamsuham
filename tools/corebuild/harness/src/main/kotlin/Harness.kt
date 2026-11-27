@@ -280,6 +280,25 @@ fun main(args: Array<String>) {
                 t4.all { it.click?.value == "ABC-123" }
             println("RESULT click ok=$ok")
         }
+        "drop" -> {
+            // 아이템 버리기: 1개(Q) → THROW 버튼 0, 전부(Ctrl+Q) → 버튼 1. 1.8 서버면 ViaRewind 가 옛 형식으로 바꿔 보낸다
+            val got = CopyOnWriteArrayList<String>()
+            val r2 = object : SessionListener { override fun onLine(line: LogLine) { got += line.text.plain } }
+            val s = AfkSession(File("" + TMP + "/data"), SessionConfig("127.0.0.1:${args[1]}", walkOnJoin = false), { JoinCredentials.offline("Tester") }, r2, log = CoreLog { _, _, _ -> }, dns = null)
+            s.start()
+            waitFor(15_000) { got.any { it.contains("READY") } }
+            Thread.sleep(300)
+            val badSlot = s.dropItem(3, false) // 제작 칸은 거절
+            val one = s.dropItem(37, false)
+            Thread.sleep(400)
+            val all = s.dropItem(9, true)
+            waitFor(5_000) { got.count { it.contains("CLICK") } >= 2 }
+            val clicks = got.filter { it.contains("CLICK") }
+            println("RESULT drop badSlot=$badSlot one=$one all=$all clicks=$clicks")
+            ok = !badSlot && one && all && clicks.size == 2 &&
+                clicks[0].contains("window=0 slot=37 button=0 mode=4") && clicks[1].contains("window=0 slot=9 button=1 mode=4")
+            s.stop(); Thread.sleep(500)
+        }
         "clicknet" -> {
             val got = CopyOnWriteArrayList<LogLine>()
             val r2 = object : SessionListener { override fun onLine(line: LogLine) { got += line } }

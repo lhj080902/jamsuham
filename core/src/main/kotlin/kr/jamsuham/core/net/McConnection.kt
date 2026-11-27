@@ -1037,6 +1037,28 @@ class McConnection(
         return true
     }
 
+    /**
+     * 인벤토리 아이템 버리기 (Q = 1개, Ctrl+Q = 전부). [slot] 은 인벤토리 창 칸 번호 (5~45).
+     * 서버 메뉴가 열려 있으면 서버가 인벤토리 창 클릭을 받지 않으므로 false. 아무 스레드에서나 불러도 된다.
+     */
+    fun dropItem(slot: Int, all: Boolean): Boolean {
+        val ch = channel ?: return false
+        if (state != State.PLAY || menuId > 0 || slot !in 5..45) return false
+        ch.eventLoop().execute {
+            if (state != State.PLAY || menuId > 0) return@execute
+            send(PlayOut.CONTAINER_CLICK) {
+                it.writeVarInt(0)
+                it.writeVarInt(invStateId)
+                it.writeShort(slot)
+                it.writeByte(if (all) 1 else 0)
+                it.writeVarInt(4) // THROW
+                it.writeVarInt(0) // 바뀐 칸 없음 (서버가 다시 보내 줌)
+                it.writeVarInt(0)
+            }
+        }
+        return true
+    }
+
     fun closeMenu() {
         val ch = channel ?: return
         ch.eventLoop().execute {

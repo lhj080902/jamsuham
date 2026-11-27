@@ -179,6 +179,9 @@ class AfkSession(
     /** 인벤토리 아이템 우클릭 사용 */
     fun useItem(slot: Int): Boolean = if (status.state == SessionState.ONLINE) connection?.useItem(slot) ?: false else false
 
+    /** 인벤토리 아이템 버리기 ([all] = 한 묶음 전부). 서버 메뉴가 열려 있으면 false */
+    fun dropItem(slot: Int, all: Boolean): Boolean = if (status.state == SessionState.ONLINE) connection?.dropItem(slot, all) ?: false else false
+
     /** 열린 메뉴 닫기 */
     fun closeMenu() {
         connection?.closeMenu()

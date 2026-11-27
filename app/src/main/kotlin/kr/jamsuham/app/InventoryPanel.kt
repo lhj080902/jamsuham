@@ -1,6 +1,7 @@
 package kr.jamsuham.app
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
@@ -12,7 +13,7 @@ import kr.jamsuham.core.Inventory
 import kr.jamsuham.core.MenuItem
 import kr.jamsuham.core.text.ChatText
 
-/** 채팅 화면의 "인벤" 페이지: 내 인벤토리 보기 + 아이템 우클릭 사용 (버리기·옮기기 없음) */
+/** 채팅 화면의 "인벤" 페이지: 내 인벤토리 보기 + 아이템 우클릭 사용·버리기 (옮기기 없음) */
 class InventoryPanel(private val activity: Activity, private val ui: Ui, private val serverId: String) : LinearLayout(activity) {
 
     private val p = ui.p
@@ -29,7 +30,7 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
         elevation = ui.dp(8).toFloat()
         countView = ui.text(tr("인벤토리", "Inventory"), 16f, p.accent, bold = true)
         addView(countView)
-        addView(ui.hint(tr("아이템을 누르면 설명과 [사용] 버튼이 나옵니다. 사용 = 손에 들고 우클릭 한 번 (가방 아이템은 지금 든 핫바 칸과 바뀝니다).", "Tap an item for details and a [Use] button. Use = hold it and right-click once (backpack items swap with the selected hotbar slot).")))
+        addView(ui.hint(tr("아이템을 누르면 설명과 [사용]·[버리기] 버튼이 나옵니다. 사용 = 손에 들고 우클릭 한 번 (가방 아이템은 지금 든 핫바 칸과 바뀝니다).", "Tap an item for details and [Use]/[Drop] buttons. Use = hold it and right-click once (backpack items swap with the selected hotbar slot).")))
         box = ui.vertical()
         scrollView = ScrollView(activity).apply { addView(box) }
         addView(scrollView, ui.lp(Ui.MATCH, 0, 1f).apply { topMargin = ui.dp(6) })
@@ -88,17 +89,26 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
             details.addView(ui.button(tr("사용 (우클릭)", "Use (right-click)"), "primary") {
                 if (SessionHub.useItem(serverId, item.slot)) {
                     SessionHub.note(serverId, tr("아이템 사용: ${item.name.plain}", "Used item: ${item.name.plain}"))
-                    android.widget.Toast.makeText(activity, tr("'${item.name.plain}' 사용", "Used '${item.name.plain}'"), android.widget.Toast.LENGTH_SHORT).show()
-                } else {
-                    android.widget.Toast.makeText(
-                        activity,
-                        if (SessionHub.isRemote(serverId)) tr("클라우드 잠수에서는 아직 아이템을 쓸 수 없습니다", "Using items isn't available for cloud AFK yet")
-                        else tr("접속 중일 때만 쓸 수 있습니다", "Only available while connected"),
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
-                }
+                    toast(tr("'${item.name.plain}' 사용", "Used '${item.name.plain}'"))
+                } else toast(unavailable())
             }, ui.lp(Ui.WRAP, ui.dp(38)).apply { topMargin = ui.dp(6) })
         }
+        // 폰 폭에서 넘치지 않게 사용 버튼과 줄을 나눈다
+        val buttons = ui.horizontal()
+        buttons.addView(ui.button(if (item.count > 1) tr("1개 버리기", "Drop 1") else tr("버리기", "Drop")) {
+            drop(item, all = false)
+        }, ui.lp(Ui.WRAP, ui.dp(38)).apply { rightMargin = ui.dp(6) })
+        if (item.count > 1) {
+            buttons.addView(ui.button(tr("전부 버리기", "Drop all")) {
+                AlertDialog.Builder(activity)
+                    .setTitle(tr("전부 버리기", "Drop all"))
+                    .setMessage(tr("'${item.name.plain}' ${item.count}개를 모두 버릴까요?", "Drop all ${item.count} of '${item.name.plain}'?"))
+                    .setPositiveButton(tr("버리기", "Drop")) { _, _ -> drop(item, all = true) }
+                    .setNegativeButton(tr("취소", "Cancel"), null)
+                    .show()
+            }, ui.lp(Ui.WRAP, ui.dp(38)))
+        }
+        details.addView(buttons, ui.lp().apply { topMargin = ui.dp(6) })
         details.visibility = if (item.slot in expanded) VISIBLE else GONE
         row.addView(details)
         row.isClickable = true
@@ -108,6 +118,23 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
         }
         return row
     }
+
+    private fun drop(item: MenuItem, all: Boolean) {
+        if (SessionHub.dropItem(serverId, item.slot, all)) {
+            val n = if (all) item.count else 1
+            SessionHub.note(serverId, tr("아이템 버림: ${item.name.plain} x$n", "Dropped item: ${item.name.plain} x$n"))
+            toast(tr("'${item.name.plain}' ${n}개 버림", "Dropped $n '${item.name.plain}'"))
+        } else toast(
+            if (!SessionHub.isRemote(serverId) && SessionHub.menuOpen(serverId)) tr("서버 메뉴가 열려 있으면 버릴 수 없습니다. 메뉴를 닫고 다시 해 주세요", "Can't drop while a server menu is open. Close it and try again")
+            else unavailable()
+        )
+    }
+
+    private fun unavailable() =
+        if (SessionHub.isRemote(serverId)) tr("클라우드 잠수에서는 아직 아이템을 쓰거나 버릴 수 없습니다", "Using or dropping items isn't available for cloud AFK yet")
+        else tr("접속 중일 때만 쓸 수 있습니다", "Only available while connected")
+
+    private fun toast(msg: String) = android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_SHORT).show()
 
     private fun spans(t: ChatText): CharSequence =
         Glyphs.build(t, { s -> s.color?.let { p.readable(it) } ?: p.text }, ui.dp(14).toFloat(), SessionHub.glyphs(serverId))

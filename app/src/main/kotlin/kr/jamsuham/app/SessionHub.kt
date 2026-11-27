@@ -125,6 +125,16 @@ object SessionHub {
         return e.session?.useItem(slot) ?: false
     }
 
+    /** 인벤토리 아이템 버리기 (클라우드 잠수에서는 아직 지원하지 않는다) */
+    fun dropItem(serverId: String, slot: Int, all: Boolean): Boolean {
+        val e = entries[serverId] ?: return false
+        if (e.remote) return false
+        return e.session?.dropItem(slot, all) ?: false
+    }
+
+    /** 서버 메뉴(상자 창 등)가 열려 있는지 */
+    fun menuOpen(serverId: String): Boolean = entries[serverId]?.menu != null
+
     fun closeMenu(serverId: String) {
         val e = entries[serverId] ?: return
         if (e.remote) CloudHub.closeMenu(serverId) else e.session?.closeMenu()

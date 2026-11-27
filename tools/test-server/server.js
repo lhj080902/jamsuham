@@ -66,6 +66,16 @@ server.on('playerJoin', (client) => {
     client.on('position_look', (d) => log('pos', d.x.toFixed(2), d.y.toFixed(2), d.z.toFixed(2)))
     return
   }
+  if (scenario === 'drop') {
+    // 아이템 버리기 시험: 인벤토리만 보내고, 받은 창 클릭을 채팅으로 돌려준다 (앱 하네스가 채팅으로 확인)
+    setTimeout(() => safe(() => sendInventory(client)), 500)
+    setTimeout(() => safe(() => sendChat(client, 'READY')), 800)
+    client.on('window_click', (d) => {
+      log(`CLICK window=${d.windowId} slot=${d.slot} button=${d.mouseButton} mode=${d.mode}`)
+      safe(() => sendChat(client, `CLICK window=${d.windowId} slot=${d.slot} button=${d.mouseButton} mode=${d.mode}`))
+    })
+    return
+  }
   setTimeout(() => safe(() => sendChat(client, '§a어서오세요 §e테스트 서버입니다')), 300)
   setTimeout(() => safe(() => sendPlayerChat(client, 'Steve', '반가워요')), 500)
   setTimeout(() => safe(() => sendResourcePack(client)), 700)
