@@ -95,9 +95,10 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
         }
         // 폰 폭에서 넘치지 않게 사용 버튼과 줄을 나눈다
         val buttons = ui.horizontal()
+        // 기본 버튼 배경은 아이템 칸과 같은 색이라 안 보인다 → 카드 색으로
         buttons.addView(ui.button(if (item.count > 1) tr("1개 버리기", "Drop 1") else tr("버리기", "Drop")) {
             drop(item, all = false)
-        }, ui.lp(Ui.WRAP, ui.dp(38)).apply { rightMargin = ui.dp(6) })
+        }.apply { background = ui.rounded(p.card, 12) }, ui.lp(Ui.WRAP, ui.dp(38)).apply { rightMargin = ui.dp(6) })
         if (item.count > 1) {
             buttons.addView(ui.button(tr("전부 버리기", "Drop all")) {
                 AlertDialog.Builder(activity)
@@ -106,7 +107,7 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
                     .setPositiveButton(tr("버리기", "Drop")) { _, _ -> drop(item, all = true) }
                     .setNegativeButton(tr("취소", "Cancel"), null)
                     .show()
-            }, ui.lp(Ui.WRAP, ui.dp(38)))
+            }.apply { background = ui.rounded(p.card, 12) }, ui.lp(Ui.WRAP, ui.dp(38)))
         }
         details.addView(buttons, ui.lp().apply { topMargin = ui.dp(6) })
         details.visibility = if (item.slot in expanded) VISIBLE else GONE

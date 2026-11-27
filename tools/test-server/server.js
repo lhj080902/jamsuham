@@ -17,6 +17,8 @@ const server = mc.createServer({
   motd: process.env.MOTD || '§b잠수 테스트 서버',
   maxPlayers: Number(process.env.MAX_PLAYERS || 20),
   // 서버 목록에 보일 접속자 수를 바꾼다 (스크린샷용, ONLINE=37 처럼)
+  // 서버 목록에 보일 아이콘 (스크린샷용, FAVICON=64x64 png 경로)
+  favicon: process.env.FAVICON ? 'data:image/png;base64,' + require('fs').readFileSync(process.env.FAVICON).toString('base64') : undefined,
   beforePing: (res) => { if (process.env.ONLINE) res.players.online = Number(process.env.ONLINE); return res }
 })
 const mcData = require('minecraft-data')(server.version)

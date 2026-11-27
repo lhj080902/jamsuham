@@ -160,7 +160,7 @@ module.exports = function ({ mcData, nbt, text, sendChat, sendPosition, varint, 
       return 0
     }
     if (y === 64 && !onPath && pond >= 9) {
-      const h = hash(x, z) % 40
+      const h = hash(x, z) % 110
       if (h === 0) return B.poppy
       if (h === 1) return B.dandelion
     }

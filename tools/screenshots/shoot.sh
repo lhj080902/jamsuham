@@ -26,18 +26,28 @@ demo() { adb shell am broadcast -a com.android.systemui.demo "$@" > /dev/null; }
 
 adb root > /dev/null 2>&1; sleep 2; adb wait-for-device
 adb shell setprop persist.sys.timezone Asia/Seoul
+adb shell settings put system time_12_24 24
+# 채팅 시간이 장면(저녁 9시 낚시 대회 전)과 맞게 기기 시계를 오늘 저녁 7시 30분으로
+adb shell settings put global auto_time 0
+adb shell "date $(TZ=Asia/Seoul date +%m%d)1930$(TZ=Asia/Seoul date +%Y).00" > /dev/null
 adb shell settings put secure show_ime_with_hard_keyboard 0
+# 제스처 내비게이션: 태블릿 아래쪽에 다른 앱 아이콘 줄(작업 표시줄)이 계속 보이지 않게
+adb shell cmd overlay enable com.android.internal.systemui.navbar.gestural > /dev/null
 adb install -r "$APK"
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS
 adb shell dumpsys deviceidle whitelist +$PKG > /dev/null
 
-# 상태 줄을 깔끔하게 (시계는 채팅 시간과 맞게 지금 한국 시간)
-adb shell settings put global sysui_demo_allowed 1
-demo -e command enter
-demo -e command clock -e hhmm "$(TZ=Asia/Seoul date +%H%M)"
-demo -e command battery -e level 100 -e plugged false
-demo -e command network -e wifi show -e level 4 -e mobile show -e datatype none -e level 4
-demo -e command notifications -e visible false
+# 상태 줄을 깔끔하게 (시계는 채팅 시간과 같게 기기 시간으로 고정)
+status_bar() {
+  adb shell settings put global sysui_demo_allowed 1
+  demo -e command enter
+  demo -e command clock -e hhmm "$(adb shell date +%H%M | tr -d '\r')"
+  demo -e command battery -e level 100 -e plugged false
+  demo -e command network -e wifi show -e level 4 -e fully true
+  demo -e command network -e mobile show -e datatype none -e level 4 -e fully true
+  demo -e command notifications -e visible false
+}
+status_bar
 
 tour() { # tour <파일 이름 뒤에 붙일 글자> — 채팅 화면이 보이는 상태에서 시작
   local s=$1
@@ -63,7 +73,9 @@ adb shell am start -W -n $PKG/.MainActivity > /dev/null
 sleep 10 # 서버 목록의 서버 정보(이름·접속자 수) 받기
 shot "00-servers-before"
 tap "시작"
-sleep 15 # 접속 + 채팅이 다 올라올 때까지
+sleep 5
+status_bar # 채팅에 찍히는 시간과 같은 분으로
+sleep 10 # 접속 + 채팅이 다 올라올 때까지
 tour ""
 if [ "$KIND" = phone ]; then
   adb shell am start -W -n $PKG/.MainActivity --activity-clear-top > /dev/null

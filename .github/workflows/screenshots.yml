@@ -53,9 +53,10 @@ jobs:
         working-directory: tools/test-server
         run: |
           npm install --no-audit --no-fund
-          MOTD='§b바다마을 야생 §7· §f낚시와 잠수 보상' ONLINE=37 MAX_PLAYERS=100 nohup node server.js 1.21.4 25565 showcase > /tmp/srv1.log 2>&1 &
-          MOTD='§e하늘섬 경제 §7· §f섬 키우기' ONLINE=112 MAX_PLAYERS=300 nohup node server.js 1.21.4 25566 stay > /tmp/srv2.log 2>&1 &
-          MOTD='§d블록 미니게임 §7· §f매일 새 게임' ONLINE=58 MAX_PLAYERS=200 nohup node server.js 1.21.4 25567 stay > /tmp/srv3.log 2>&1 &
+          ICONS=../screenshots/icons
+          MOTD='§b낚시와 잠수 보상' ONLINE=37 MAX_PLAYERS=100 FAVICON=$ICONS/sea.png nohup node server.js 1.21.4 25565 showcase > /tmp/srv1.log 2>&1 &
+          MOTD='§e섬을 키우는 경제 서버' ONLINE=112 MAX_PLAYERS=300 FAVICON=$ICONS/sky.png nohup node server.js 1.21.4 25566 stay > /tmp/srv2.log 2>&1 &
+          MOTD='§d매일 새로운 게임' ONLINE=58 MAX_PLAYERS=200 FAVICON=$ICONS/blocks.png nohup node server.js 1.21.4 25567 stay > /tmp/srv3.log 2>&1 &
           sleep 5
           cat /tmp/srv1.log /tmp/srv2.log /tmp/srv3.log
 
