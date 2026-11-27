@@ -102,6 +102,11 @@
 - 서명: GitHub 판은 저장소의 `app/debug.keystore`(공개). Play 판 release 는 Secrets 업로드 키(`docs/RELEASE_KEY.md`), 없으면 디버그 키
 - 출시 문서: `docs/PLAYSTORE_PLAN.md`(전체 과정), `docs/store-listing.md`(Play Console 입력 초안), `app/src/main/assets/legal/privacy-policy.md`, 앱 "정보" 화면 `AppInfo.kt`
 - 로컬: `./gradlew :app:assembleGithubDebug` / `:app:bundlePlayRelease` (JDK 17, Android SDK 필요)
+- **스토어 스크린샷 (2026-11-27)**: `.github/workflows/screenshots.yml` (직접 실행 또는 `screenshots` 브랜치에 푸시) 가 에뮬레이터에서 찍는다 — 폰 1080×1920(pixel_2), 태블릿 2560×1600(Nexus 10, 아래 작업 표시줄 120px 을 잘라 2560×1480). 약 10분, 아티팩트 `store-screenshots-phone`·`-tablet`
+  - 빌드: `JAMSUHAM_SCREENSHOTS=true` 로 Play 판 디버그 → `Screenshots.kt` 가 시험 계정(비정품 이름 접속)·시험 서버 3개(10.0.2.2:25565~7)·한국어 고정. **배포판에서는 항상 꺼져 있다** (매니페스트 meta-data `kr.jamsuham.SCREENSHOTS`)
+  - 장면: `tools/test-server/showcase.js` (`server.js 1.21.4 <포트> showcase`) — 지어낸 서버 "바다마을 야생"·지어낸 닉네임만. 채팅·접속자·인벤토리·작은 마을 월드, 메뉴는 `SHOWCASE_MENU_FILE` 파일이 생기면 연다. 서버 목록용 `MOTD`·`ONLINE`·`MAX_PLAYERS`·`FAVICON` 환경 변수. 확인: `harness showcase <포트> <메뉴 파일>`
+  - 촬영: `tools/screenshots/shoot.sh`(화면 글자를 찾아 누름 `ui.py`, 상태 줄 데모 모드, 기기 시계 19:30, 밝은 화면·어두운 화면) → `finish.py`(투명도 없는 PNG, 태블릿 작업 표시줄 자르기)
+  - 받아 둔 그림은 `docs/store/screenshots/` (저장소에는 넣지 않음). 화면이 바뀌면 다시 돌려서 바꿔 올릴 것. 실제 서버 이름·다른 사람 닉네임이 보이는 그림은 스토어에 쓰지 않는다
 
 ## 테스트 (PC)
 - `tools/test-server/server.js <버전> <포트>` — node-minecraft-protocol 가짜 서버 (`npm install` 후).
