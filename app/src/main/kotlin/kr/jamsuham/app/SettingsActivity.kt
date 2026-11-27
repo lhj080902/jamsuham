@@ -50,10 +50,12 @@ class SettingsActivity : BaseActivity() {
         body.addView(accounts.listCard, ui.lp())
         body.addView(accounts.addCard, ui.gap(10))
 
-        // ---------------------------------------------------------------- 클라우드 잠수
-        val cloud = CloudSection(this, ui)
-        body.addView(cloud.card, ui.gap(10))
-        accounts.onChanged = { cloud.refresh() }
+        // ---------------------------------------------------------------- 클라우드 잠수 (Play 판에는 없다)
+        if (!Flavor.PLAY) {
+            val cloud = CloudSection(this, ui)
+            body.addView(cloud.card, ui.gap(10))
+            accounts.onChanged = { cloud.refresh() }
+        }
 
         // ---------------------------------------------------------------- 화면
         val look = ui.card()

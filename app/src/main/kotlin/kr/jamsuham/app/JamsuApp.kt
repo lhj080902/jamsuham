@@ -29,8 +29,8 @@ class JamsuApp : Application() {
                     // 앱을 다시 열었다: 내려 둔 리소스팩 그림 글자를 다시 읽는다
                     main.removeCallbacks(release)
                     SessionHub.restoreGlyphs()
-                    // 클라우드 잠수의 상태·채팅을 다시 받기 시작한다
-                    CloudHub.onForeground()
+                    // 클라우드 잠수의 상태·채팅을 다시 받기 시작한다 (Play 판에는 클라우드 잠수가 없다)
+                    if (!Flavor.PLAY) CloudHub.onForeground()
                 }
             }
             override fun onActivityStopped(a: Activity) {

@@ -199,7 +199,8 @@ class ServerEditActivity : BaseActivity() {
             "When on, the cloud server stays connected instead of this phone. It stays connected even if you turn off the phone or remove the app, until you disconnect or the server kicks you, and you can see the same screen on the web. " +
                 "Link this account first in Settings → Cloud AFK. Map, movement and item use aren't available for cloud AFK yet.",
         )))
-        form.addView(cloudCard, ui.gap(10))
+        // Play 판에는 클라우드 잠수가 없다: 카드를 보이지 않고, 저장할 때 값은 원래대로 둔다
+        if (!Flavor.PLAY) form.addView(cloudCard, ui.gap(10))
 
         // 리소스팩 그림 글자
         val packCard = ui.card()
@@ -266,7 +267,7 @@ class ServerEditActivity : BaseActivity() {
             return
         }
         // 클라우드 잠수는 클라우드에 연결한 계정만 켤 수 있다
-        if (cloudSwitch.isChecked && !CloudHub.isLinked(pendingAccountId)) {
+        if (!Flavor.PLAY && cloudSwitch.isChecked && !CloudHub.isLinked(pendingAccountId)) {
             cloudSwitch.isChecked = false
             AlertDialog.Builder(this)
                 .setTitle(tr("클라우드 연결이 필요합니다", "Cloud link required"))
