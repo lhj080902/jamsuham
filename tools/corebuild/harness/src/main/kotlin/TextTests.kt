@@ -36,3 +36,35 @@ fun blockMatchTest(): Boolean {
     println("RESULT blockmatch ok=$ok/$total")
     return ok == total
 }
+
+/**
+ * 아이템 잠금 열쇠(`harness lockkey`): 아이템 종류 + 서버가 붙인 이름. 기본 이름(한국어든 영어든)은 "이름 없음"으로 쳐서,
+ * 앱 언어를 바꿔도 잠금이 풀리지 않아야 한다.
+ */
+fun lockKeyTest(): Boolean {
+    val N = kr.jamsuham.core.text.ItemNames
+    val sword = "minecraft:diamond_sword"
+    val checks = ArrayList<Pair<String, Boolean>>()
+    for (english in listOf(false, true)) {
+        kr.jamsuham.core.Lang.english = english
+        val lang = if (english) "영어" else "한국어"
+        checks += "$lang: 한국어 기본 이름 → 종류만" to (N.lockKey(sword, "다이아몬드 검") == sword)
+        checks += "$lang: 영어 기본 이름 → 종류만" to (N.lockKey(sword, "Diamond Sword") == sword)
+        checks += "$lang: 서버가 붙인 이름 → 종류 + 이름" to (N.lockKey(sword, "전설의 검") == sword + 10.toChar() + "전설의 검")
+        checks += "$lang: 블록 아이템의 기본 이름" to (N.lockKey("minecraft:cobblestone", "조약돌") == "minecraft:cobblestone")
+        checks += "$lang: 앞뒤 빈칸은 무시" to (N.lockKey(sword, " Diamond Sword ") == sword)
+        checks += "$lang: 이름이 비면 종류만" to (N.lockKey(sword, "") == sword)
+        checks += "$lang: 같은 이름, 다른 종류는 다른 열쇠" to (N.lockKey("minecraft:stick", "전설의 검") != N.lockKey(sword, "전설의 검"))
+    }
+    kr.jamsuham.core.Lang.english = false
+    // 지금 언어로 보이는 기본 이름이 무엇이든 종류만 남는다 (앱이 실제로 넘기는 값)
+    val ko = N.name(sword)
+    kr.jamsuham.core.Lang.english = true
+    val en = N.name(sword)
+    kr.jamsuham.core.Lang.english = false
+    checks += "보이는 기본 이름($ko / $en) 둘 다 같은 열쇠" to (N.lockKey(sword, ko) == sword && N.lockKey(sword, en) == sword)
+    for ((name, pass) in checks) if (!pass) println("  실패  $name")
+    val passed = checks.count { it.second }
+    println("RESULT lockkey $passed/${checks.size}")
+    return passed == checks.size
+}

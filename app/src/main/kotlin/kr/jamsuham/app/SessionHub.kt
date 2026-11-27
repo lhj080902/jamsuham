@@ -131,6 +131,8 @@ object SessionHub {
     fun dropItem(serverId: String, slot: Int, all: Boolean): Boolean {
         val e = entries[serverId] ?: return false
         if (e.remote) return false
+        // 잠근 아이템은 어디서 부르든 버리지 않는다 (화면도 버튼을 감추지만 여기서 한 번 더 막는다)
+        if (e.inventory.slots.any { it.slot == slot && DropLocks.isLocked(serverId, it) }) return false
         return e.session?.dropItem(slot, all) ?: false
     }
 

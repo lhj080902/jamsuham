@@ -428,6 +428,7 @@ fun main(args: Array<String>) {
         "nodeunit" -> ok = nodeUnitTest()
         "demo" -> ok = demoTest()
         "blockmatch" -> ok = blockMatchTest()
+        "lockkey" -> ok = lockKeyTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)

@@ -30,7 +30,7 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
         elevation = ui.dp(8).toFloat()
         countView = ui.text(tr("인벤토리", "Inventory"), 16f, p.accent, bold = true)
         addView(countView)
-        addView(ui.hint(tr("아이템을 누르면 설명과 [사용]·[버리기] 버튼이 나옵니다. 사용 = 손에 들고 우클릭 한 번 (가방 아이템은 지금 든 핫바 칸과 바뀝니다).", "Tap an item for details and [Use]/[Drop] buttons. Use = hold it and right-click once (backpack items swap with the selected hotbar slot).")))
+        addView(ui.hint(tr("아이템을 누르면 설명과 [사용]·[버리기]·[잠금] 버튼이 나옵니다. 사용 = 손에 들고 우클릭 한 번 (가방 아이템은 지금 든 핫바 칸과 바뀝니다). 잠금 = 그 아이템을 버리지 못하게.", "Tap an item for details and [Use]/[Drop]/[Lock] buttons. Use = hold it and right-click once (backpack items swap with the selected hotbar slot). Lock = keeps that item from being dropped.")))
         box = ui.vertical()
         scrollView = ScrollView(activity).apply { addView(box) }
         addView(scrollView, ui.lp(Ui.MATCH, 0, 1f).apply { topMargin = ui.dp(6) })
@@ -77,6 +77,8 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
         val head = ui.horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
         head.addView(ui.text(label, 12f, if (held) p.accent else p.muted, bold = held), ui.lp(ui.dp(44), Ui.WRAP))
         head.addView(ui.marquee(ui.text(spans(item.name), 15f, bold = true)), ui.lp(0, Ui.WRAP, 1f))
+        val locked = DropLocks.isLocked(serverId, item)
+        if (locked) head.addView(ui.text(tr("잠김", "Locked"), 11f, p.accent, bold = true).apply { setPadding(ui.dp(8), 0, 0, 0) })
         if (item.count > 1) head.addView(ui.text("x${item.count}", 13f, p.muted).apply { setPadding(ui.dp(8), 0, 0, 0) })
         row.addView(head)
         val details = ui.vertical().apply { setPadding(ui.dp(44), ui.dp(2), 0, 0) }
@@ -95,11 +97,13 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
         }
         // 폰 폭에서 넘치지 않게 사용 버튼과 줄을 나눈다
         val buttons = ui.horizontal()
+        // 잠근 아이템: 버리기 버튼 대신 안내 글 (사용은 그대로 된다)
+        if (locked) details.addView(ui.text(tr("잠긴 아이템은 버릴 수 없습니다", "Locked items can't be dropped"), 12f, p.muted).apply { setPadding(0, ui.dp(8), 0, 0) })
         // 기본 버튼 배경은 아이템 칸과 같은 색이라 안 보인다 → 카드 색으로
-        buttons.addView(ui.button(if (item.count > 1) tr("1개 버리기", "Drop 1") else tr("버리기", "Drop")) {
+        if (!locked) buttons.addView(ui.button(if (item.count > 1) tr("1개 버리기", "Drop 1") else tr("버리기", "Drop")) {
             drop(item, all = false)
         }.apply { background = ui.rounded(p.card, 12) }, ui.lp(Ui.WRAP, ui.dp(38)).apply { rightMargin = ui.dp(6) })
-        if (item.count > 1) {
+        if (!locked && item.count > 1) {
             buttons.addView(ui.button(tr("전부 버리기", "Drop all")) {
                 AlertDialog.Builder(activity)
                     .setTitle(tr("전부 버리기", "Drop all"))
@@ -110,6 +114,13 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
             }.apply { background = ui.rounded(p.card, 12) }, ui.lp(Ui.WRAP, ui.dp(38)))
         }
         details.addView(buttons, ui.lp().apply { topMargin = ui.dp(6) })
+        // 버리기 잠금: 같은 종류·같은 이름의 아이템을 이 서버에서 버리지 못하게 (실수 방지)
+        details.addView(ui.button(if (locked) tr("잠금 해제", "Unlock") else tr("잠금", "Lock")) {
+            DropLocks.toggle(serverId, item)
+            val inv = shown
+            shown = null
+            if (inv != null) show(inv)
+        }.apply { background = ui.rounded(p.card, 12) }, ui.lp(Ui.WRAP, ui.dp(38)).apply { topMargin = ui.dp(6) })
         details.visibility = if (item.slot in expanded) VISIBLE else GONE
         row.addView(details)
         row.isClickable = true
@@ -126,7 +137,8 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
             SessionHub.note(serverId, tr("아이템 버림: ${item.name.plain} x$n", "Dropped item: ${item.name.plain} x$n"))
             toast(tr("'${item.name.plain}' ${n}개 버림", "Dropped $n '${item.name.plain}'"))
         } else toast(
-            if (!SessionHub.isRemote(serverId) && SessionHub.menuOpen(serverId)) tr("서버 메뉴가 열려 있으면 버릴 수 없습니다. 메뉴를 닫고 다시 해 주세요", "Can't drop while a server menu is open. Close it and try again")
+            if (DropLocks.isLocked(serverId, item)) tr("잠긴 아이템은 버릴 수 없습니다", "Locked items can't be dropped")
+            else if (!SessionHub.isRemote(serverId) && SessionHub.menuOpen(serverId)) tr("서버 메뉴가 열려 있으면 버릴 수 없습니다. 메뉴를 닫고 다시 해 주세요", "Can't drop while a server menu is open. Close it and try again")
             else unavailable()
         )
     }

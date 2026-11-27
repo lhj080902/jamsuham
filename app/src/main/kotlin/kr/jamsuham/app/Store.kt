@@ -125,6 +125,8 @@ class Store(context: Context) {
         writeServers(servers().filter { it.id != id })
         sp.edit().remove("history_$id").remove("waypoints_$id").apply()
         ChatLog.delete(id)
+        DropLocks.init(app)
+        DropLocks.clear(id)
     }
 
     // ------------------------------------------------------------ 웨이포인트 (서버별)

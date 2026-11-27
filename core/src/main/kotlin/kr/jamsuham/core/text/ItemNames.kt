@@ -21,8 +21,21 @@ object ItemNames {
         val key = id.removePrefix("minecraft:")
         // 영어 모드: 영어 번역표는 따로 두지 않고 ID 에서 만든다 ("diamond_sword" → "Diamond Sword")
         if (Lang.english) return titleCase(key)
-        return names["item.minecraft.$key"] ?: names["block.minecraft.$key"]
-            ?: titleCase(key)
+        return korean(key)
+    }
+
+    private fun korean(key: String): String = names["item.minecraft.$key"] ?: names["block.minecraft.$key"] ?: titleCase(key)
+
+    /**
+     * 아이템 버리기 잠금에 쓰는 열쇠: 아이템 종류 + 서버가 붙인 이름.
+     * [shownName] 이 그 아이템의 기본 이름(한국어든 영어든)이면 이름이 없는 것으로 쳐서 종류만 남긴다 —
+     * 앱 언어([Lang.english])를 바꿔도 같은 열쇠가 나와야 잠금이 풀리지 않는다.
+     */
+    fun lockKey(itemId: String, shownName: String): String {
+        val key = itemId.removePrefix("minecraft:")
+        val shown = shownName.trim()
+        if (shown.isEmpty() || shown == korean(key) || shown == titleCase(key)) return itemId
+        return itemId + "\n" + shown
     }
 
     /** "diamond_sword" → "Diamond Sword" (밑줄을 띄어쓰기로, 단어 첫 글자 대문자) */
