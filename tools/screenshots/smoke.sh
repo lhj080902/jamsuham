@@ -30,6 +30,15 @@ maybe() {
   if out=$(UI_TRIES=3 $UI tap "$1"); then note "$out"; else note "(없어서 넘어감) $1"; fi
 }
 focus() { adb shell dumpsys window 2>/dev/null | grep -m1 mCurrentFocus | tr -d '\r'; }
+# 다른 앱(메일 등)이 앞에 있으면 뒤로 가기로 돌아온다. 앱이 앞에 있으면 아무것도 누르지 않는다
+back_to_app() {
+  local i
+  for i in 1 2 3; do
+    case "$(focus)" in *$PKG*) return 0;; esac
+    adb shell input keyevent KEYCODE_BACK; sleep 2
+  done
+  note "앱으로 돌아오지 못함: $(focus)"
+}
 service() { adb shell dumpsys activity services $PKG 2>/dev/null | tr -d '\r' | grep -E "ServiceRecord|isForeground" | head -4; }
 
 adb root > /dev/null 2>&1; sleep 2; adb wait-for-device
@@ -86,24 +95,39 @@ shot "08-blocked"
 tap "Chat"; sleep 1
 shot "09-chat-after-block"
 
-# ---------------------------------------------------------------- 6. 신고
+# ---------------------------------------------------------------- 6. 신고 (메일 앱이 있을 때)
 tap "^Players"; sleep 2
 tap "Report"; sleep 1
 shot "10-report"
 tap "Send report"; sleep 4
 shot "11-report-sent"
 note "신고 보내기 뒤의 화면: $(focus)"
-# 메일 앱이 없으면 앱이 "복사했습니다" 창을 띄운다. 메일 앱이 열렸으면 뒤로 돌아온다
-maybe "OK"
-case "$(focus)" in *$PKG*) ;; *) adb shell input keyevent KEYCODE_BACK; sleep 1; adb shell input keyevent KEYCODE_BACK; sleep 2; note "뒤로 간 뒤의 화면: $(focus)";; esac
+# 메일 앱이 열렸으면 앱으로 돌아온다 (한 번에 하나씩 — 더 누르면 앱의 "목록으로 나갈까요?" 창이 뜬다)
+back_to_app
 shot "11b-players-after-report"
+tap "Chat"; sleep 1
+shot "11c-chat-after-report"
 
 # ---------------------------------------------------------------- 7. 채팅 줄 길게 누르기
-tap "Chat"; sleep 1
-longtap "~Welcome to Seaside"; sleep 1
+longtap "~AFK mode is on"; sleep 1
 shot "12-line-menu"
+# 메일 앱이 없는 기기에서의 신고: 죽지 않고, 내용을 복사한 뒤 보낼 주소를 보여 줘야 한다
+adb shell pm disable-user --user 0 com.google.android.gm > /dev/null 2>&1
+tap "Report this message"; sleep 1
+shot "12b-report-line"
+tap "Send report"; sleep 3
+shot "12c-report-no-mail-app"
+note "메일 앱 없이 신고 보내기 뒤의 화면: $(focus)"
+maybe "OK"
+back_to_app
+longtap "~AFK mode is on"; sleep 1
 tap "Hide this message"; sleep 1
-shot "12b-line-hidden"
+shot "12d-line-hidden"
+longtap "~<Haneul_Fish>"; sleep 1
+tap "Block the sender"; sleep 1
+shot "12e-block-sender-confirm"
+taplast "Block"; sleep 2
+shot "12f-chat-after-block-sender"
 
 # ---------------------------------------------------------------- 8. 홈 → 화면 끄기 → 다시 열기
 adb shell input keyevent KEYCODE_HOME
