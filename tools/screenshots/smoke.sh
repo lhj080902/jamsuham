@@ -2,7 +2,8 @@
 # 눌러 보기: 배포판과 같은 설정의 Play 판 디버그 빌드(스크린샷 모드 아님)를 에뮬레이터에 깔고
 # 첫 실행 약관 → 체험 서버 → 잠금·차단·신고 → 화면을 꺼도 유지 를 순서대로 눌러 본다.
 # GitHub Actions(smoke.yml)의 에뮬레이터 안에서 돈다. 에뮬레이터 기본 언어가 영어라 영어 문구로 누른다.
-# 결과: shots/smoke/*.png, log.txt (화면마다 보인 글자·누른 것. 못 누른 것은 "찾지 못함: …"), crash.txt (앱이 죽었으면 그 기록)
+# 결과: shots/smoke/*.png, log.txt (화면마다 보인 글자·누른 것. 못 누른 것은 "찾지 못함: …", 기대와 다른 것은 "실패: …"), crash.txt (앱이 죽었으면 그 기록)
+# 끝에 smoke-verdict.sh 가 판정한다: 못 누른 것·실패·앱 충돌이 있거나 포그라운드 서비스가 아니면 이 스크립트도 실패로 끝난다
 set -u
 OUT=shots/smoke
 PKG=kr.jamsuham.app
@@ -24,6 +25,21 @@ shot() { # shot <이름>
 tap() { $UI tap "$1" | tee -a "$LOG"; }
 taplast() { $UI taplast "$1" | tee -a "$LOG"; }
 longtap() { $UI longtap "$1" | tee -a "$LOG"; }
+moved() { $UI moved "$1" | tee -a "$LOG"; }
+# 화면을 아래로 내려 가며 찾아 누른다 (긴 설정 화면)
+find_tap() {
+  local i out
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if out=$(UI_TRIES=1 $UI tap "$1"); then note "$out"; return 0; fi
+    adb shell input swipe 540 1500 540 800 300; sleep 1
+  done
+  note "찾지 못함: $1"
+}
+# 있으면 안 되는 글자가 화면에 보이면 실패로 적는다
+absent() {
+  if $UI texts | grep -qi -- "$1"; then note "실패: 보이면 안 되는 글자가 보임 '$1'"; else note "없음 확인: $1"; fi
+}
+frames() { adb shell dumpsys gfxinfo $PKG 2>/dev/null | tr -d '\r' | grep -m1 "Total frames rendered" | tr -dc 0-9; }
 # 있으면 누르고 없으면 넘어간다 (기기에 따라 뜨기도 안 뜨기도 하는 창)
 maybe() {
   local out
@@ -86,6 +102,14 @@ tap "Lock"; sleep 1
 shot "06-inv-locked"
 tap "^Players"; sleep 2
 shot "07-players"
+# 긴 이름이 실제로 움직이는지 (왕복형), 탭을 바꾸면 그리기를 멈추는지
+moved "~Tide_Runner"
+f1=$(frames); sleep 5; f2=$(frames)
+tap "Status"; sleep 2
+f3=$(frames); sleep 5; f4=$(frames)
+note "5초 동안 그린 화면 수: 접속자 탭 $((f2 - f1)), 다른 탭으로 바꾼 뒤 $((f4 - f3))"
+if [ $((f4 - f3)) -ge 100 ]; then note "실패: 접속자 탭을 떠난 뒤에도 계속 그림 ($((f4 - f3)))"; fi
+tap "^Players"; sleep 2
 
 # ---------------------------------------------------------------- 5. 차단
 tap "Block"; sleep 1
@@ -129,6 +153,18 @@ shot "12e-block-sender-confirm"
 taplast "Block"; sleep 2
 shot "12f-chat-after-block-sender"
 
+# ---------------------------------------------------------------- 7b. 서버 메뉴 (체험 서버의 메뉴 창)
+tap "Chat or /command"; sleep 1
+adb shell input text "/menu"; sleep 1
+tap "Send"; sleep 3
+shot "12g-menu"
+tap "Claim AFK reward"; sleep 1
+shot "12h-menu-item"
+# 체험 서버에는 자동 클릭 규칙을 만들 수 없다 (서버 설정에서 지울 수 없으므로)
+absent "Auto-click rule"
+tap "Click"; sleep 3
+shot "12i-menu-clicked"
+
 # ---------------------------------------------------------------- 8. 홈 → 화면 끄기 → 다시 열기
 adb shell input keyevent KEYCODE_HOME
 sleep 2
@@ -151,9 +187,33 @@ sleep 3
 shot "14-disconnected"
 note "끊은 뒤의 잠수 서비스: $(service | tr '\n' ' ')"
 
+# ---------------------------------------------------------------- 9. 설정: 차단한 사용자
+tap "⚙ Settings"; sleep 2
+find_tap "Unblock"; sleep 2
+shot "15-settings-after-unblock"
+adb shell input keyevent KEYCODE_BACK; sleep 2
+
+# ---------------------------------------------------------------- 10. 체험 서버 설정 → 지우기 → 설정에서 다시 추가
+longtap "Demo server"; sleep 2
+shot "16-demo-editor"
+tap "Save"; sleep 2
+longtap "Demo server"; sleep 2
+tap "Delete this server"; sleep 1
+taplast "Delete"; sleep 2
+shot "17-list-after-delete"
+tap "⚙ Settings"; sleep 2
+find_tap "Add demo server"; sleep 2
+shot "18-settings-demo-added"
+adb shell input keyevent KEYCODE_BACK; sleep 2
+shot "19-list-demo-again"
+tap "Start"; sleep 10
+note "다시 추가한 체험 서버: $(service | tr '\n' ' ')"
+shot "20-demo-again-chat"
+adb shell am start -W -n $PKG/.MainActivity --activity-clear-top > /dev/null
+sleep 3
+tap "Disconnect"; sleep 2
+
 # 앱이 죽은 적이 있는지
 adb logcat -d -b crash > "$OUT/crash.txt" 2>&1
-note "crash.txt 줄 수: $(wc -l < "$OUT/crash.txt")"
-note "찾지 못함 건수: $(grep -c '^찾지 못함' "$LOG")"
 ls -la "$OUT"
-exit 0
+bash tools/screenshots/smoke-verdict.sh "$OUT"
