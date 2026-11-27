@@ -94,11 +94,14 @@
   누가 쓴 줄인지는 글자로 판단 — `core/text/ChatAuthor.kt` (줄 앞쪽 "쓴 사람 자리"에 닉네임이 낱말로 있는지. 닉네임이 흔한 낱말이면 다른 줄도 숨는 한계가 있음). 접속자 탭 줄마다 [차단]·[신고] (내 줄 제외), 설정 → 차단한 사용자
 - **신고**: `Reports.kt` — 내용을 채운 **메일 작성 화면**을 연다 (`AppInfo.CONTACT_EMAIL`, 앱이 직접 보내는 것은 없음. 메일 앱이 없으면 복사 + 주소 안내). 채팅 줄 길게 누르기 = 이 채팅 신고 / 숨기기 / 쓴 사람 차단 / 그림 글자 정보
 - **아이템 버리기 잠금**: `DropLocks.kt` (prefs `jamsuham_locks`, 서버별). 열쇠 `ItemNames.lockKey` = 아이템 종류 + 서버가 붙인 이름 (기본 이름은 뺌 → 앱 언어를 바꿔도 유지). `SessionHub.dropItem` 에서도 막는다. 사용은 안 막음
-- **왕복형 이름**: `Ui.pingPong` (접속자 탭 이름만. 끝까지 갔다가 되돌아옴). 다른 곳은 `Ui.marquee` 그대로
+- **왕복형 이름**: `Ui.pingPong` (접속자 탭 이름만. 끝까지 갔다가 되돌아옴). 다른 곳은 `Ui.marquee` 그대로. 글씨를 담은 칸(`PingPongBox`)이 그릴 때 옆으로 밀어 보여 주고, 얼마나 밀지는 `core/text/PingPongMotion.kt`.
+  애니메이터를 쓰지 않고 그려질 때마다 다음 그림을 부탁하므로 탭을 떠나거나 앱이 뒤로 가면 저절로 멈춘다 (기기의 "애니메이션 없애기"와도 상관없음)
+- 체험 서버의 메뉴 항목 창에는 "자동 클릭 규칙" 버튼이 없다 (체험 서버 설정에는 규칙을 지우는 칸이 없으므로)
 - **Play 판에는 클라우드 잠수가 없다**: `Flavor.PLAY` 면 설정의 클라우드 카드·서버 설정의 클라우드 카드를 넣지 않고 `CloudHub.onForeground()` 를 부르지 않는다 (GitHub 판은 그대로). 그래서 Play 데이터 보안 신고는 "수집 안 함". 다시 넣으면 신고를 바꿔야 함 (`docs/store-listing.md`)
-- 시험: 서버 없이 `harness demo`(12: 핑·접속·장면·채팅 되돌림·메뉴·버리기·다시 켜기·언어·127.0.0.1 만)·`harness blockmatch`(17)·`harness lockkey`(15).
+- 시험: 서버 없이 `harness demo`(12: 핑·접속·장면·채팅 되돌림·메뉴·버리기·다시 켜기·언어·127.0.0.1 만)·`harness blockmatch`(26)·`harness lockkey`(15)·`harness pingpong`(13).
   앱 화면은 `.github/workflows/smoke.yml` (직접 실행 또는 `play-review` 브랜치에 푸시) → `tools/screenshots/smoke.sh` 가 **스크린샷 모드가 꺼진** Play 판 디버그 빌드를 에뮬레이터에서 눌러 본다
-  (약관 거절·동의 → 체험 → 잠금 → 차단 → 신고 → 화면 끄기). 아티팩트 `smoke-shots` 의 그림과 `log.txt`(`찾지 못함` 이 없어야 함, `isForeground=true`)
+  (약관 거절·동의 → 체험 → 잠금 → 왕복형 이름이 움직이는지 → 차단 → 신고 → 체험 메뉴 → 화면 끄기 → 설정의 차단 해제 → 체험 서버 설정·삭제·다시 추가). 아티팩트 `smoke-shots` 의 그림과 `log.txt`.
+  끝에 `tools/screenshots/smoke-verdict.sh` 가 판정해서 못 누른 것(`찾지 못함`)·기대와 다른 것(`실패`)·앱 충돌이 있거나 `isForeground=true` 가 없으면 작업이 실패한다
 
 ## PC 모드 (tools/fastpack-mod)
 - FastPack 0.3.0: ⓪ 게임을 다시 켜도 — `FastPackState` 가 마지막 서버 팩(UUID·경로·서버 주소)을 config/fastpack-lastpack.properties 에 저장,
@@ -139,7 +142,7 @@
   을 compileOnly 로 두고 Kotlin 컴파일만 확인 (APK 빌드는 GitHub Actions)
   - 앱 컴파일 확인: `./gradlew -p tools/corebuild :appcheck:compileKotlin -Pflavor=github` (그리고 `-Pflavor=play`). 출력이 없으면 성공
   - 시험 프로그램: `./gradlew -p tools/corebuild :harness:installDist` → `tools/corebuild/harness/build/install/harness/bin/harness <모드> [포트]`
-    모드: dupe, authkick, vitals, click, drop, walk, stick, miny, world, deathparse, packtest, packnet, overlay, report, prune, spaces, png, msa, demo, blockmatch, lockkey …
+    모드: dupe, authkick, vitals, click, drop, walk, stick, miny, world, deathparse, packtest, packnet, overlay, report, prune, spaces, png, msa, demo, blockmatch, lockkey, pingpong …
     (테스트 서버를 먼저 띄움: `node tools/test-server/server.js 1.21.4 <포트> <시나리오>`, 팩은 `node tools/test-server/pack/serve.js <포트> <zip>`,
     시험 팩은 `cd tools/test-server/pack && python3 make.py`. `EN=1` 이면 영어 모드, 임시 폴더는 `HARNESS_TMP`)
 - 지원 버전 확인됨: 1.8.8, 1.12.2, 1.20.x, 1.21.4, 1.21.8, 26.1 (테스트 서버 기준)

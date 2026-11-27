@@ -104,7 +104,7 @@ class PlayerPanel(private val activity: Activity, private val ui: Ui) : LinearLa
                 }
                 addView(img, ui.lp(ui.dp(32), ui.dp(32)).apply { rightMargin = ui.dp(10) })
                 // 이름이 길면(칭호 등) 끝까지 갔다가 되돌아오는 왕복형으로 보여 준다
-                addView(ui.pingPong(ui.text("", 15f)).apply { id = ID_NAME }, ui.lp(0, Ui.WRAP, 1f))
+                addView(ui.pingPong(ui.text("", 15f).apply { id = ID_NAME }), ui.lp(0, Ui.WRAP, 1f))
                 addView(ui.text("", 11f, p.muted).apply { id = ID_PING }, ui.lp(Ui.WRAP, Ui.WRAP).apply { leftMargin = ui.dp(6) })
                 addView(smallButton(ID_BLOCK), ui.lp(Ui.WRAP, ui.dp(32)).apply { leftMargin = ui.dp(8) })
                 addView(smallButton(ID_REPORT), ui.lp(Ui.WRAP, ui.dp(32)).apply { leftMargin = ui.dp(4) })

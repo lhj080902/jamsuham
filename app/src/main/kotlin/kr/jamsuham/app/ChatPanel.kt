@@ -535,7 +535,7 @@ class ChatPanel(
         } else {
             for (l in lore) box.addView(ui.text(spans(l).ifEmpty { " " }, 14f))
         }
-        android.app.AlertDialog.Builder(activity)
+        val dialog = android.app.AlertDialog.Builder(activity)
             .setView(android.widget.ScrollView(activity).apply { addView(box) })
             .setPositiveButton(tr("클릭", "Click")) { _, _ ->
                 // 설명을 보는 사이 메뉴가 닫혔거나 바뀌었으면 누르지 않는다
@@ -548,9 +548,12 @@ class ChatPanel(
                     Toast.makeText(activity, tr("누르지 못했습니다", "Could not click"), Toast.LENGTH_SHORT).show()
                 }
             }
-            .setNeutralButton(tr("자동 클릭 규칙", "Auto-click rule")) { _, _ -> addRule(menu, item) }
             .setNegativeButton(tr("닫기", "Close"), null)
-            .show()
+        // 체험 서버에는 자동 클릭 규칙을 만들지 않는다 (체험 서버 설정에는 규칙을 지우는 칸이 없다)
+        if (store.server(serverId)?.demo != true) {
+            dialog.setNeutralButton(tr("자동 클릭 규칙", "Auto-click rule")) { _, _ -> addRule(menu, item) }
+        }
+        dialog.show()
     }
 
     private fun spans(t: kr.jamsuham.core.text.ChatText): CharSequence =

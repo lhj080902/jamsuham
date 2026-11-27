@@ -76,9 +76,9 @@ NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR 
 This app is a chat/AFK client for Minecraft: Java Edition servers.
 
 A) Demo mode - no account needed (recommended for review)
-1. Open the app, read the Terms of Use and tap "Agree and start".
+1. Open the app, read the Terms of Use and tap "Agree and start", then allow notifications.
 2. On the empty server list tap "Try without signing in". A "Demo server" is added. It is a practice server that runs inside the app.
-3. Tap "Start" and allow notifications. A persistent notification appears and the connection is kept while the screen is off.
+3. Tap "Start". A persistent notification appears and the connection is kept while the screen is off.
 4. All screens work: Chat (send a message, tap "[Open menu]"), Map, Inv (Use / Drop / Lock an item), Players (Block / Report next to each player), Status. Long-press a chat line to report or hide it or to block its sender.
 5. Tap "Disconnect" in the app or in the notification to stop.
 (If the server list is not empty: "Settings" > "Add demo server".)
@@ -92,7 +92,7 @@ Note: Microsoft may ask for an extra verification code when this account signs i
 ```
 칸에 글자 수 제한이 있어 위 글이 다 들어가지 않으면 아래 짧은 글을 씁니다 (500자 이내):
 ```
-No account needed: open the app > "Agree and start" > "Try without signing in" > "Start" (allow notifications). This demo server runs inside the app and shows every screen: Chat, Map, Inv, Players (Block/Report), Status. "Disconnect" stops it. Real servers need the test account above ("Settings" > "Add account"); Microsoft may ask it for an email code on a new device, which we cannot turn off - please use the demo in that case.
+No account needed: open the app > "Agree and start" (allow notifications) > "Try without signing in" > "Start". This demo server runs inside the app and shows every screen: Chat, Map, Inv, Players (Block/Report), Status. "Disconnect" stops it. Real servers need the test account above ("Settings" > "Add account"); Microsoft may ask it for an email code on a new device, which we cannot turn off - please use the demo in that case.
 ```
 맨 아래 "전체 액세스 권한을 제공합니다" 체크: Play 판에는 유료 기능도 클라우드 잠수도 없으므로(v2.3.0 에서 숨김) 체크해도 사실과 맞습니다.
 

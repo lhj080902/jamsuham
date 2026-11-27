@@ -119,12 +119,12 @@ class Ui(val ctx: Context) {
     /**
      * 한 줄에 다 안 들어가는 글씨를 왕복시킨다: 잠깐 멈춤 → 끝까지 → 잠깐 멈춤 → 처음으로 되돌아옴.
      * (마키처럼 한 방향으로 돌지 않아서 이름의 앞·뒤를 번갈아 읽을 수 있다.) 다 들어가면 가만히 둔다.
+     * 돌려주는 것은 [tv] 를 담은 칸이다 — 배치에는 이 칸을 넣고, 글은 [tv] 에 그대로 넣으면 된다.
      */
-    fun pingPong(tv: TextView): TextView = tv.apply {
-        setSingleLine(true)
-        ellipsize = null
-        setHorizontallyScrolling(true)
-        PingPong(this, dp(40).toFloat())
+    fun pingPong(tv: TextView): View {
+        tv.setSingleLine(true)
+        tv.ellipsize = null
+        return PingPongBox(tv, dp(40).toFloat())
     }
 
     fun title(s: String) = text(s, 22f, p.text, bold = true)
@@ -279,69 +279,56 @@ fun TextView.setTextIfChanged(value: CharSequence) {
 }
 
 /**
- * [Ui.pingPong] 의 움직임: 글이 칸보다 길 때만 가로로 밀었다가 되돌린다.
- * 1.2초 멈춤 → 초당 [pxPerSec] 로 끝까지 → 1.2초 멈춤 → 같은 빠르기로 처음까지, 되풀이.
- * 글이 바뀌면 처음부터 다시 하고, 화면에서 떨어지면 멈춘다.
+ * [Ui.pingPong] 의 칸: 안의 글씨([tv])를 제 폭대로 두고, 칸보다 길 때만 그릴 때 옆으로 밀어서 보여 준다.
+ * 얼마나 밀지는 지난 시간으로 계산한다 ([PingPongMotion]: 1.2초 멈춤 → 초당 [pxPerSec] 로 끝까지 → 1.2초 멈춤 → 처음까지).
+ *
+ * 애니메이터를 쓰지 않고 **그려질 때마다 다음 그림을 부탁**한다. 그래서 탭을 바꾸거나 앱이 뒤로 가서 그려지지 않으면
+ * 저절로 멈추고(밤새 잠수할 때 배터리를 쓰지 않는다), 다시 보이면 이어서 움직인다. 기기의 "애니메이션 없애기" 설정과도 상관없다.
+ * 글씨 자체를 스크롤하지 않으므로 목록을 새로 그릴 때 글씨가 처음으로 튀지 않는다. 글이나 폭이 바뀌면 처음부터 다시 한다.
  */
-private class PingPong(private val tv: TextView, private val pxPerSec: Float) :
-    View.OnLayoutChangeListener, View.OnAttachStateChangeListener, android.text.TextWatcher {
+private class PingPongBox(private val tv: TextView, private val pxPerSec: Float) : android.widget.FrameLayout(tv.context) {
 
-    private var animator: android.animation.ValueAnimator? = null
-
-    /** 지금 움직이는 거리 (글 폭 - 칸 폭). -1 = 아직 재지 않음 */
-    private var range = -1
+    /** 글 폭 - 칸 폭 (0 이면 다 들어가서 움직이지 않는다) */
+    private var range = 0
+    private var shownText = ""
+    private var startMs = 0L
 
     init {
-        tv.addOnLayoutChangeListener(this)
-        tv.addOnAttachStateChangeListener(this)
-        tv.addTextChangedListener(this)
+        addView(tv, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
     }
 
-    override fun onLayoutChange(v: View?, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) = restart()
-    override fun onViewAttachedToWindow(v: View) = restart()
-    override fun onViewDetachedFromWindow(v: View) = stop()
-    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-    override fun afterTextChanged(s: android.text.Editable?) {
-        // 글이 바뀌었으니 처음부터 (새 글의 폭은 배치가 끝난 뒤에 잰다)
-        stop()
-        tv.post { restart() }
+    /** 글씨는 칸보다 길어도 제 폭대로 잰다 */
+    override fun measureChildWithMargins(child: View, parentWidthMeasureSpec: Int, widthUsed: Int, parentHeightMeasureSpec: Int, heightUsed: Int) {
+        val lp = child.layoutParams as MarginLayoutParams
+        child.measure(
+            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+            ViewGroup.getChildMeasureSpec(parentHeightMeasureSpec, paddingTop + paddingBottom + lp.topMargin + lp.bottomMargin + heightUsed, lp.height),
+        )
     }
 
-    private fun stop() {
-        animator?.cancel()
-        animator = null
-        range = -1
-        tv.scrollTo(0, 0)
-    }
-
-    private fun restart() {
-        val layout = tv.layout
-        val box = tv.width - tv.compoundPaddingLeft - tv.compoundPaddingRight
-        val text = if (layout == null || layout.lineCount == 0) 0 else Math.ceil(layout.getLineWidth(0).toDouble()).toInt()
-        val wanted = if (box <= 0) 0 else (text - box).coerceAtLeast(0)
-        if (wanted == range && (animator != null || wanted == 0)) return // 달라진 것이 없으면 하던 대로
-        stop()
-        range = wanted
-        if (wanted == 0 || !tv.isAttachedToWindow) return
-        val pause = 1200f
-        val travel = (wanted / pxPerSec * 1000f).coerceAtLeast(300f)
-        val total = pause + travel + pause + travel
-        animator = android.animation.ValueAnimator.ofFloat(0f, total).apply {
-            duration = total.toLong()
-            repeatCount = android.animation.ValueAnimator.INFINITE
-            interpolator = android.view.animation.LinearInterpolator()
-            addUpdateListener { a ->
-                val at = a.animatedValue as Float
-                val x = when {
-                    at < pause -> 0f
-                    at < pause + travel -> (at - pause) / travel
-                    at < pause + travel + pause -> 1f
-                    else -> 1f - (at - pause - travel - pause) / travel
-                }
-                tv.scrollTo((x.coerceIn(0f, 1f) * wanted).toInt(), 0)
-            }
-            start()
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        val now = (tv.width - (width - paddingLeft - paddingRight)).coerceAtLeast(0)
+        val text = tv.text.toString()
+        // 글이나 넘치는 폭이 바뀌었을 때만 처음부터 (같은 내용으로 목록만 새로 그릴 때는 하던 대로)
+        if (now != range || text != shownText) {
+            range = now
+            shownText = text
+            startMs = android.os.SystemClock.uptimeMillis()
         }
+    }
+
+    override fun dispatchDraw(canvas: android.graphics.Canvas) {
+        if (range <= 0) {
+            super.dispatchDraw(canvas)
+            return
+        }
+        val x = kr.jamsuham.core.text.PingPongMotion.offset(android.os.SystemClock.uptimeMillis() - startMs, range, pxPerSec)
+        canvas.save()
+        canvas.translate(-x, 0f)
+        super.dispatchDraw(canvas)
+        canvas.restore()
+        // 그려지는 동안에만 다음 그림을 부탁한다
+        postInvalidateOnAnimation()
     }
 }

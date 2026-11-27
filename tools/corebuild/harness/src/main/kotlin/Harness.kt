@@ -429,6 +429,7 @@ fun main(args: Array<String>) {
         "demo" -> ok = demoTest()
         "blockmatch" -> ok = blockMatchTest()
         "lockkey" -> ok = lockKeyTest()
+        "pingpong" -> ok = pingPongTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)

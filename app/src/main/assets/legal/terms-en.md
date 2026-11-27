@@ -6,7 +6,7 @@ You must agree to these terms to use "Jamsucraft" (the "app"). If you do not agr
 
 ## 1. What this app does
 - The app connects to Minecraft: Java Edition servers that you enter, using your own account. It shows the chat of that server, lets you send chat, and keeps the connection while the screen is off (AFK).
-- The chat, nicknames, server menus and images shown in the app are **created by that server and its other users**. The developer does not create, pre-screen or store this content.
+- The chat, nicknames, server menus and images shown in the app are **created by that server and its other users**. The developer does not create, pre-screen or store this content (except what you send yourself by e-mail when you report something, which is handled under the Privacy Policy).
 - The app is not an official Minecraft product. It is not approved by or associated with Mojang or Microsoft.
 - The "Demo server" is a practice screen that runs only inside the app. It is not a real server, and every server name and nickname shown there is made up.
 
