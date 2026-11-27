@@ -8,8 +8,13 @@ import kotlin.system.exitProcess
  *   jamsu-cloud [설정 파일]                  서버 실행 (기본 cloud.properties)
  *   jamsu-cloud grant <닉네임|UUID> [일수]   프리미엄 주기 (일수를 안 적으면 기한 없음)
  *   jamsu-cloud revoke <닉네임|UUID>         프리미엄 빼기
+ *   jamsu-cloud worker [설정 파일]           접속용 서버로 실행 (기본 worker.properties, docs/CLOUD.md "접속용 서버 붙이기")
  */
 fun main(args: Array<String>) {
+    if (args.firstOrNull() == "worker") {
+        kr.jamsuham.cloud.link.workerMain(File(args.getOrNull(1) ?: "worker.properties"))
+        return
+    }
     val command = args.firstOrNull()?.takeIf { it == "grant" || it == "revoke" }
     val configPath = if (command == null) args.firstOrNull() else null
     val config = Config(File(configPath ?: System.getenv("JAMSU_CLOUD_CONFIG") ?: "cloud.properties"))
@@ -37,6 +42,7 @@ fun main(args: Array<String>) {
     val scheduler = Scheduler()
     if (config.localWorker) scheduler.add(LocalRunner("local", config.localCapacity, File(config.dataDir, "engine"), config.allowPrivateTargets, cloudCoreLog))
     val sessions = SessionManager(config, store, premium, auth, Presence(), scheduler)
+    val link = if (config.workerPort > 0) kr.jamsuham.cloud.link.MasterLink(config, scheduler, sessions::runnerAttached, sessions::runnerLost) else null
     val http = HttpApi(config, store, premium, auth, sessions)
     try {
         http.start()
@@ -44,9 +50,16 @@ fun main(args: Array<String>) {
         Log.w("포트 ${config.port} 를 열 수 없습니다 (이미 다른 프로그램이 쓰고 있거나 서버가 이미 켜져 있음)")
         exitProcess(1)
     }
+    try {
+        link?.start()
+    } catch (e: Exception) {
+        Log.w("접속용 서버 포트 ${config.workerPort} 를 열 수 없습니다", e)
+        exitProcess(1)
+    }
     Runtime.getRuntime().addShutdownHook(Thread {
         Log.i("서버를 끕니다. 잠수 중이던 서버는 다시 켜면 이어서 접속합니다")
         http.stop()
+        link?.stop()
         sessions.shutdown()
     })
 

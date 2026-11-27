@@ -503,7 +503,13 @@ class SessionManager(
             }
         }
         // 실행기가 바로 접속을 시작하지만, 그쪽 소식은 이 계정의 잠금이 풀린 뒤에야 처리되므로 아래 "준비 중" 이 먼저 나간다
-        box.run = runner.launch(LaunchRequest(randomId(), uuid, box.entry), listener, hooks)
+        box.run = try {
+            runner.launch(LaunchRequest(randomId(), uuid, box.entry), listener, hooks)
+        } catch (e: IllegalStateException) {
+            // 고른 직후에 그 접속용 서버의 연결이 끊긴 경우
+            Log.w("${runner.id} 에 잠수를 맡기지 못했습니다", e)
+            return false
+        }
         box.runner = runner.id
         Log.i("[배정] ${store.account(uuid)?.name ?: uuid.take(8)}/$id → ${runner.id}")
         setStatus(h, box, SessionStatus(SessionState.PREPARING, "준비 중…"))
@@ -568,6 +574,29 @@ class SessionManager(
                 s.stop()
             }
             return true
+        }
+    }
+
+    // ------------------------------------------------------------ 접속용 서버
+
+    /** 접속용 서버가 붙었을 때 */
+    fun runnerAttached(runnerId: String) {
+    }
+
+    /** 접속용 서버의 연결이 끊겼을 때 ([graceful] = 그쪽에서 끄면서 알려 옴): 거기서 돌던 잠수는 이미 끊겼다 */
+    fun runnerLost(runnerId: String, graceful: Boolean) {
+        for (h in hubs.values) {
+            synchronized(h) {
+                for (b in h.boxes.values) {
+                    if (b.runner != runnerId || b.run == null) continue
+                    b.gen = null
+                    b.run = null
+                    moving.remove(b)
+                    if (!b.status.state.isActive()) continue
+                    addLine(h, b, LogLine(System.currentTimeMillis(), LogLine.Kind.ERROR, ChatText.of("접속용 서버 연결이 끊겼습니다")))
+                    setStatus(h, b, b.status.copy(state = SessionState.STOPPED, message = "접속용 서버 연결이 끊겼습니다", onlineSinceMs = null, nextAttemptAtMs = null))
+                }
+            }
         }
     }
 

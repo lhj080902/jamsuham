@@ -4,10 +4,31 @@ import kr.jamsuham.cloud.ReplaceBudget
 import kr.jamsuham.cloud.RunHandle
 import kr.jamsuham.cloud.Runner
 import kr.jamsuham.cloud.Scheduler
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import kr.jamsuham.cloud.link.FrameCipher
+import kr.jamsuham.cloud.link.Hello
 import kr.jamsuham.cloud.link.LinkCrypto
+import kr.jamsuham.cloud.link.LinkHandler
+import kr.jamsuham.cloud.link.LinkNet
+import kr.jamsuham.cloud.link.LinkPeer
+import kr.jamsuham.core.ResolvedTarget
 import kr.jamsuham.core.SessionListener
+import kr.jamsuham.core.SessionState
+import kr.jamsuham.core.SessionStatus
+import kr.jamsuham.core.cloud.CloudClient
+import kr.jamsuham.core.cloud.CloudEntry
+import kr.jamsuham.core.cloud.CloudException
+import kr.jamsuham.core.cloud.CloudStream
+import kr.jamsuham.core.cloud.Wire
+import kr.jamsuham.core.net.StatusPinger
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.net.Socket
+import java.util.Base64
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 
 // 클라우드 멀티 노드(본 서버 + 접속용 서버) 시험. 계획: docs/superpowers/plans/2026-11-27-cloud-multinode.md
 
@@ -91,5 +112,223 @@ fun linkCryptoTest(): Boolean {
         val f = File(TMP, "wk-test.key").also { it.delete() }
         LinkCrypto.loadOrCreateKey(f).contentEquals(LinkCrypto.loadOrCreateKey(f)) && f.readText().trim().length == 44
     })
+    return c.done()
+}
+
+// ------------------------------------------------------------ 본 서버 + 접속용 서버를 실제로 띄워 보는 시험
+
+/** 시험이 띄우는 프로세스 하나 (본 서버 또는 접속용 서버). 표준 출력을 줄 단위로 모아 둔다 */
+class Proc(val name: String, installDir: File, val dir: File, args: List<String>, jvmOpts: List<String> = emptyList()) {
+    val lines = CopyOnWriteArrayList<String>()
+    private val p: Process
+
+    init {
+        dir.mkdirs()
+        val java = File(System.getProperty("java.home"), "bin/java").path
+        val cmd = listOf(java, "-Dfile.encoding=UTF-8") + jvmOpts +
+            listOf("-cp", File(installDir, "lib").path + File.separator + "*", "kr.jamsuham.cloud.MainKt") + args
+        p = ProcessBuilder(cmd).directory(dir).redirectErrorStream(true).start()
+        Thread {
+            p.inputStream.bufferedReader(Charsets.UTF_8).forEachLine { lines += it; if (VERBOSE) println("      [$name] $it") }
+        }.apply { isDaemon = true; start() }
+        all += this
+    }
+
+    fun waitLog(re: Regex, timeoutMs: Long): Boolean = waitFor(timeoutMs) { lines.any { re.containsMatchIn(it) } }
+
+    fun kill() {
+        p.destroyForcibly()
+        p.waitFor(5, TimeUnit.SECONDS)
+    }
+
+    companion object {
+        val all = CopyOnWriteArrayList<Proc>()
+        val VERBOSE = System.getenv("NODE_VERBOSE") == "1"
+    }
+}
+
+/** 실시간 연결로 받은 이벤트를 모아 둔다 */
+class NodeSeen : CloudStream.Listener {
+    val events = CopyOnWriteArrayList<Pair<String, JsonObject>>()
+    @Volatile var lastSeq = 0L
+    override fun onConnection(connected: Boolean, error: String?) {}
+    override fun onEvent(type: String, data: JsonObject, id: Long?) { events += type to data; if (id != null) lastSeq = id }
+    override fun onAuthLost() {}
+    fun statuses(sid: String) = events.filter { it.first == "status" && it.second.get("sid")?.asString == sid }.map { Wire.parseStatus(it.second.getAsJsonObject("status")) }
+    fun states(sid: String) = statuses(sid).map { it.state }
+    fun lines(sid: String) = events.filter { it.first == "line" && it.second.get("sid")?.asString == sid }.map { Wire.parseLine(it.second).second.text.plain }
+    fun pos(sid: String) = events.lastOrNull { it.first == "pos" && it.second.get("sid")?.asString == sid }?.let { Wire.parsePos(it.second.get("pos")) }
+}
+
+/** 시험 계정 하나 (닉네임 로그인 + 실시간 연결) */
+class NodeUser(base: String, name: String) {
+    val app = CloudClient(base)
+    val seen = NodeSeen()
+    private val stream: CloudStream
+
+    init {
+        app.loginDev(name, "시험-$name")
+        stream = CloudStream(app, { seen.lastSeq.takeIf { it > 0 } }, seen)
+        stream.start()
+    }
+
+    fun code(block: (CloudClient) -> Unit): String? = try { block(app); null } catch (e: CloudException) { e.code }
+    fun close() = stream.stop()
+}
+
+/**
+ * 본 서버 1개 + 접속용 서버 2개를 이 PC 에서 띄워 원격 실행·배정·거절을 확인한다.
+ * 먼저 띄울 것: `node server.js 1.21.4 <stay포트> stay`, `node server.js 1.21.4 <walk포트> walk`
+ * 실행: harness cloudnode <jamsu-cloud 설치 폴더> <stay포트> <walk포트>   (자세히 보려면 NODE_VERBOSE=1)
+ */
+fun cloudNodeTest(install: String, stayPort: String, walkPort: String): Boolean {
+    val c = Checks("cloudnode")
+    val installDir = File(install).absoluteFile
+    val root = File(TMP, "node").also { it.deleteRecursively() }
+    val base = "http://127.0.0.1:18790"
+    val linkPort = 18791
+    val stay = stayPort.toInt()
+
+    fun online(port: Int): Int = try {
+        StatusPinger.ping(ResolvedTarget("127.0.0.1", port, "127.0.0.1", port), 769, 3000).online
+    } catch (e: Exception) {
+        -1
+    }
+
+    fun startMaster(jvm: List<String> = emptyList()): Proc {
+        val dir = File(root, "master").also { it.mkdirs() }
+        File(dir, "cloud.properties").writeText(
+            "port=18790\nbind=127.0.0.1\npremiumMode=open\nallowPrivateTargets=true\nmaxAccountsPerTarget=2\n" +
+                "localWorker=false\nworkerPort=$linkPort\nworkerBind=127.0.0.1\n",
+        )
+        val p = Proc("master", installDir, dir, listOf("cloud.properties"), listOf("-Djamsu.devLogin=true") + jvm)
+        waitFor(20000) { try { CloudClient(base).info(); true } catch (_: Exception) { false } }
+        return p
+    }
+    fun keyText() = File(root, "master/data/worker.key").readText().trim()
+    fun startWorker(name: String, dirName: String = name, secret: String = keyText()): Proc {
+        val dir = File(root, dirName).also { it.mkdirs() }
+        File(dir, "worker.properties").writeText("master=127.0.0.1:$linkPort\nsecret=$secret\nname=$name\ncapacity=5\nallowPrivateTargets=true\n")
+        return Proc(name, installDir, dir, listOf("worker", "worker.properties"))
+    }
+
+    /** 본 서버 로그에서 이 잠수가 마지막으로 배정된 노드 */
+    fun placedOn(master: Proc, who: String, sid: String): String? =
+        master.lines.mapNotNull { Regex("\\[배정] $who/$sid → (\\S+)").find(it)?.groupValues?.get(1) }.lastOrNull()
+
+    try {
+        val master = startMaster()
+        c.check("본 서버가 비밀키 파일을 만듦", waitFor(5000) { File(root, "master/data/worker.key").exists() })
+        startWorker("w1")
+        startWorker("w2")
+        c.check("워커 2개 연결", master.waitLog(Regex("\\[노드] 연결됨: w1"), 15000) && master.waitLog(Regex("\\[노드] 연결됨: w2"), 15000))
+
+        val entry = CloudEntry(id = "h1", name = "노드 시험", address = "127.0.0.1:$stay", joinCommands = listOf("/잠수"))
+        val a = NodeUser(base, "Tester")
+        a.app.putEntry(entry)
+        a.app.start("h1")
+        c.check("원격 노드에서 접속 → ONLINE", waitFor(25000) { SessionState.ONLINE in a.seen.states("h1") } && placedOn(master, "Tester", "h1") in listOf("w1", "w2"))
+        c.check("채팅 줄 수신", waitFor(5000) { a.seen.lines("h1").any { it.contains("반가워요") } })
+        c.check("채팅 보내기", a.code { it.chat("h1", "노드 시험에서 보낸 채팅") } == null)
+        c.check("메뉴 수신", waitFor(5000) { a.seen.events.any { it.first == "menu" && Wire.parseMenu(it.second.get("menu"))?.title?.plain == "리소스팩 적용" } })
+        c.check("메뉴 클릭", a.code { it.menuClick("h1", 13) } == null && waitFor(5000) { a.seen.events.last { it.first == "menu" }.second.get("menu").isJsonNull })
+        c.check("자동완성", a.app.suggest("h1", "/s")?.matches == listOf("spawn", "server"))
+        c.check("접속자 수신", waitFor(5000) { a.seen.events.any { it.first == "players" && Wire.parsePlayers(it.second.getAsJsonObject("players")).players.size == 2 } })
+
+        val b = NodeUser(base, "Tester_B")
+        b.app.putEntry(entry)
+        b.app.start("h1")
+        c.check(
+            "같은 서버의 둘째 계정은 다른 노드로",
+            waitFor(25000) { SessionState.ONLINE in b.seen.states("h1") } &&
+                placedOn(master, "Tester_B", "h1").let { it != null && it != placedOn(master, "Tester", "h1") },
+        )
+        val third = NodeUser(base, "Tester_C")
+        third.app.putEntry(entry)
+        c.check("서버별 인원은 전체 합계: 셋째는 자리 없음(limit)", third.code { it.start("h1") } == "limit" && online(stay) == 2)
+
+        val walk = CloudEntry(id = "h3", name = "걷기 서버", address = "127.0.0.1:$walkPort", walkOnJoin = false)
+        a.app.putEntry(walk)
+        a.app.start("h3")
+        c.check("원격 이동: 위치 수신", waitFor(25000) { a.seen.pos("h3") != null })
+        val x0 = a.seen.pos("h3")?.x ?: 0.0
+        var sendErr: String? = null
+        repeat(4) { sendErr = sendErr ?: a.code { it.move("h3", 1f, 0f) }; Thread.sleep(400) }
+        val x1 = a.seen.pos("h3")?.x ?: 0.0
+        println("        → x ${"%.1f".format(x0)} → ${"%.1f".format(x1)}")
+        c.check("동쪽으로 걸음", sendErr == null && x1 - x0 > 4.0)
+        Thread.sleep(2500)
+        val x2 = a.seen.pos("h3")?.x ?: 0.0
+        Thread.sleep(1500)
+        val x3 = a.seen.pos("h3")?.x ?: 0.0
+        c.check("입력이 끊기면 스스로 멈춤", x2 == x3 && x2 - x1 < 9.0)
+        a.app.stop("h3")
+
+        b.app.stop("h1")
+        c.check("끊기 → STOPPED + 실제 접속도 끊김", waitFor(8000) { b.seen.states("h1").lastOrNull() == SessionState.STOPPED } && waitFor(5000) { online(stay) == 1 })
+
+        val bad = startWorker("w3", secret = Base64.getEncoder().encodeToString(ByteArray(32) { 7 }))
+        c.check("틀린 비밀키는 거절", bad.waitLog(Regex("본 서버가 거절했습니다: 비밀키가 맞지 않습니다"), 15000) && CloudClient(base).info().get("api").asInt == Wire.API)
+        bad.kill()
+        val dup = startWorker("w1", dirName = "w1dup")
+        c.check("같은 이름의 워커는 거절", dup.waitLog(Regex("본 서버가 거절했습니다: 같은 이름의"), 15000) && a.seen.states("h1").last() == SessionState.ONLINE)
+        dup.kill()
+
+        c.check("링크 버전이 다르면 거절", Socket("127.0.0.1", linkPort).use { s ->
+            s.soTimeout = 6000
+            val hello = JsonObject().apply {
+                addProperty("t", "hello"); addProperty("ver", 999); addProperty("api", Wire.API); addProperty("version", "x")
+                addProperty("name", "old"); addProperty("capacity", 1)
+                addProperty("nonce", Base64.getEncoder().encodeToString(ByteArray(32)))
+            }
+            val out = DataOutputStream(s.getOutputStream())
+            hello.toString().toByteArray(Charsets.UTF_8).let { out.writeInt(it.size); out.write(it); out.flush() }
+            val din = DataInputStream(s.getInputStream())
+            val reply = JsonParser.parseString(String(ByteArray(din.readInt()).also { din.readFully(it) }, Charsets.UTF_8)).asJsonObject
+            println("        → ${reply.get("reason")?.asString}")
+            reply.get("t").asString == "reject" && reply.get("code").asString == "version"
+        })
+        c.check(
+            "엉뚱한 데이터는 그 연결만 닫힘",
+            Socket("127.0.0.1", linkPort).use { s ->
+                s.soTimeout = 6000
+                s.getOutputStream().write("GET / HTTP/1.1\r\n\r\n".toByteArray())
+                s.getOutputStream().flush()
+                try { s.getInputStream().read() == -1 } catch (_: java.net.SocketTimeoutException) { false } catch (_: java.io.IOException) { true }
+            } && CloudClient(base).info().get("api").asInt == Wire.API && a.seen.states("h1").last() == SessionState.ONLINE,
+        )
+
+        // 올바른 비밀키로 붙은 접속용 서버라도, 자기에게 배정되지 않은 실행의 로그인 정보는 받을 수 없어야 한다
+        val group = io.netty.channel.nio.NioEventLoopGroup(1)
+        val got = CopyOnWriteArrayList<JsonObject>()
+        var rogue: LinkPeer? = null
+        LinkNet.dial("127.0.0.1", linkPort, LinkCrypto.parseKey(keyText()), Hello("rogue", 1, "test"), group, { peer ->
+            rogue = peer
+            object : LinkHandler {
+                override fun onMessage(msg: JsonObject) { got += msg }
+                override fun onClosed() {}
+            }
+        }, { reason, _ -> println("        → rogue 연결 실패: $reason") })
+        val rogueOk = waitFor(8000) { rogue != null }
+        rogue?.send(JsonObject().apply { addProperty("t", "credsQ"); addProperty("rid", 1); addProperty("run", "nope"); addProperty("force", false) })
+        val refused = waitFor(5000) { got.any { it.get("t")?.asString == "creds" } } &&
+            got.first { it.get("t")?.asString == "creds" }.let { it.has("error") && !it.has("token") }
+        rogue?.send(JsonObject().apply { addProperty("t", "ev"); addProperty("run", "nope"); addProperty("k", "status"); add("v", Wire.status(SessionStatus(SessionState.STOPPED, "가짜"))) })
+        Thread.sleep(1000)
+        c.check("배정받지 않은 실행의 토큰은 주지 않음", rogueOk && refused && rogue?.alive == true && a.seen.states("h1").last() == SessionState.ONLINE)
+        rogue?.close()
+        group.shutdownGracefully()
+
+        c.check("접속용 서버 디스크에 계정 정보 없음", listOf("w1", "w2").all { w ->
+            listOf("accounts", "servers", "master.key", "tokens.json", "worker.key", "premium.txt").none { File(root, "$w/data/$it").exists() } &&
+                !File(root, "$w/cloud.properties").exists()
+        })
+
+        a.app.deleteEntry("h1")
+        c.check("서버 항목을 지우면 원격 접속도 끊김", waitFor(8000) { online(stay) == 0 })
+        a.close(); b.close(); third.close()
+    } finally {
+        for (p in Proc.all) p.kill()
+    }
     return c.done()
 }
