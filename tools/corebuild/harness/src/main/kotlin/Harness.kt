@@ -371,6 +371,7 @@ fun main(args: Array<String>) {
             s.stop(); Thread.sleep(500)
         }
         "cloud" -> ok = cloudTest(args[1], args[2], args.getOrNull(3))
+        "wire" -> ok = wireTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)
@@ -499,5 +500,61 @@ fun cloudTest(base: String, mcPort: String, dupePort: String?): Boolean {
 
     val failed = results.filter { !it.second }
     println("RESULT cloud ${results.size - failed.size}/${results.size}" + if (failed.isEmpty()) "" else " 실패: ${failed.map { it.first }}")
+    return failed.isEmpty()
+}
+
+
+/** 클라우드와 주고받는 JSON(Wire)이 만들었다 읽어도 같은 값으로 돌아오는지 (서버 없이 확인) */
+fun wireTest(): Boolean {
+    val W = kr.jamsuham.core.cloud.Wire
+    val T = kr.jamsuham.core.text.ChatText
+    val text = kr.jamsuham.core.text.ChatText(listOf(
+        kr.jamsuham.core.text.ChatSpan("[수락]", 0x55FF55, bold = true, click = kr.jamsuham.core.text.ChatClick(kr.jamsuham.core.text.ChatClick.Action.RUN_COMMAND, "/tpaccept"), hover = "눌러서 수락"),
+        kr.jamsuham.core.text.ChatSpan(" 한글 \"따옴표\" \\ 줄\n바꿈 ", italic = true),
+        kr.jamsuham.core.text.ChatSpan("", glyphs = "\uE001\uF80C", font = "server:rank"),
+        kr.jamsuham.core.text.ChatSpan("https://example.com/a?b=1", 0x5555FF, click = kr.jamsuham.core.text.ChatClick(kr.jamsuham.core.text.ChatClick.Action.OPEN_URL, "https://example.com/a?b=1")),
+    ))
+    val checks = ArrayList<Pair<String, Boolean>>()
+    checks += "글자" to (W.parseText(W.text(text)) == text)
+    val line = LogLine(1795737160465, LogLine.Kind.ERROR, text)
+    checks += "줄" to (W.parseLine(W.line(line, 42)) == (42L to line))
+    val st = SessionStatus(SessionState.WAITING_RECONNECT, "30초 뒤 다시 접속합니다", "1.21.4", null, 1795737190465, 3, 7200000)
+    checks += "상태" to (W.parseStatus(W.status(st)) == st)
+    checks += "상태(온라인)" to (SessionStatus(SessionState.ONLINE, "접속 중", "1.8.9", 5L).let { W.parseStatus(W.status(it)) == it })
+    val players = PlayerList(listOf(
+        PlayerInfo(java.util.UUID.randomUUID(), "Jamsu_Kim", text, 120, 0, "http://textures.minecraft.net/texture/abc123", 0),
+        PlayerInfo(java.util.UUID.randomUUID(), "Notch", null, 42, 1, null, 1),
+    ), T.of("머리말", 0xFFAA00), T.of("꼬리말"))
+    checks += "접속자" to (W.parsePlayers(W.players(players)) == players)
+    checks += "접속자(빈 목록)" to (W.parsePlayers(W.players(PlayerList.EMPTY)) == PlayerList.EMPTY)
+    val vitals = Vitals(31.5f, 40f, 4f, 17, 2.5f)
+    checks += "체력" to (W.parseVitals(W.vitals(vitals)) == vitals && W.parseVitals(W.vitals(null)) == null)
+    val items = listOf(MenuItem(13, "minecraft:lime_concrete", 2, text, listOf(T.of("설명 1"), text)), MenuItem(40, "minecraft:stick", 1, T.of("막대기"), emptyList()))
+    val menu = Menu(7, T.of("리소스팩 적용", 0x00AA00), 27, items)
+    checks += "메뉴" to (W.parseMenu(W.menu(menu)) == menu && W.parseMenu(W.menu(null)) == null)
+    val inv = Inventory(items, 3)
+    checks += "인벤토리" to (W.parseInventory(W.inventory(inv)) == inv)
+    val death = DeathInfo(1795737160465, "좀비", "공격당함", null, "Tester이(가) 좀비에게 살해당했습니다")
+    checks += "사망" to (W.parseDeath(W.death(death)) == death && W.parseDeath(W.death(null)) == null)
+    val entry = kr.jamsuham.core.cloud.CloudEntry("abc-123_X", "내 서버", "play.example.kr", "1.20.4", listOf("/잠수", "/server afk"), 5, 2, false, true, listOf("리소스팩 > 적용", "* > #13"), false)
+    checks += "서버 설정" to (W.parseEntry(W.entry(entry)) == entry)
+    // 사용자가 보낸 엉터리 값: 길이·개수를 자르고, id 가 이상하면 거절
+    val bad = com.google.gson.JsonParser.parseString("""{"id":"../../etc","address":"x"}""").asJsonObject
+    checks += "이상한 id 거절" to (W.parseEntry(bad) == null)
+    val big = com.google.gson.JsonObject().apply {
+        addProperty("id", "ok"); addProperty("name", "가".repeat(500)); addProperty("address", "a".repeat(900)); addProperty("joinDelaySec", 99999)
+        add("joinCommands", com.google.gson.JsonArray().apply { repeat(50) { add("/명령어$it") } })
+    }
+    val cut = W.parseEntry(big)
+    checks += "길이·개수 자르기" to (cut != null && cut.name.length == 60 && cut.address.length == 255 && cut.joinDelaySec == 120 && cut.joinCommands.size == 10)
+    // 틀린 모양이 와도 예외 없이 기본값
+    val junk = com.google.gson.JsonParser.parseString("""{"state":123,"spans":"x","players":{"players":[1,"a",{"u":"not-a-uuid"}]},"kind":"??"}""").asJsonObject
+    checks += "틀린 모양에도 안 죽음" to (try {
+        W.parseStatus(junk).state == SessionState.IDLE && W.parseLine(junk).second.text.spans.isEmpty() && W.parsePlayers(junk.getAsJsonObject("players")).players.isEmpty()
+    } catch (t: Throwable) { false })
+    checks += "주소 키" to (W.addressKey(" Play.Example.KR:25565 ") == "play.example.kr" && W.addressKey("mc.example.com.") == "mc.example.com" && W.addressKey("a.b:25566") == "a.b:25566")
+    for ((name, pass) in checks) println((if (pass) "  통과  " else "  실패  ") + name)
+    val failed = checks.filter { !it.second }
+    println("RESULT wire ${checks.size - failed.size}/${checks.size}")
     return failed.isEmpty()
 }
