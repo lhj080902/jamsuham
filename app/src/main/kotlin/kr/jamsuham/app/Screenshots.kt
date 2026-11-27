@@ -28,6 +28,8 @@ object Screenshots {
         if (!on) return
         val settings = context.getSharedPreferences("jamsuham_settings", Context.MODE_PRIVATE)
         if (!settings.contains("language")) settings.edit().putString("language", "KOREAN").apply()
+        // 스크린샷에 동의 창이 찍히지 않게 (이 모드는 배포판에 없다)
+        settings.edit().putInt(Terms.KEY, Terms.VERSION).apply()
         val store = Store(context)
         if (store.servers().isNotEmpty()) return
         fun server(n: Int, name: String, port: Int, commands: List<String> = emptyList()) = ServerEntry(

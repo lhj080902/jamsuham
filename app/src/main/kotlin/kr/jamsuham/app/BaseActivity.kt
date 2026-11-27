@@ -14,14 +14,30 @@ abstract class BaseActivity : Activity(), Starter {
     /** 이 화면을 만들 때의 설정 판 (설정 화면에서 디자인·언어·글자 크기를 바꾸고 돌아오면 다시 만든다) */
     private var settingsVersion = -1
 
+    /** 이 화면에 떠 있는 이용 약관 동의 창 (화면마다 하나만) */
+    private var termsDialog: AlertDialog? = null
+
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         AppSettings.init(this)
         settingsVersion = AppSettings.version
         super.onCreate(savedInstanceState)
+        // 이용 약관에 동의하기 전에는 어느 화면도 쓸 수 없다
+        termsDialog = Terms.gate(this)
+    }
+
+    override fun onDestroy() {
+        termsDialog?.dismiss()
+        termsDialog = null
+        super.onDestroy()
     }
 
     override fun onResume() {
         super.onResume()
+        // 다른 화면에서 동의하고 돌아왔으면 이 화면의 동의 창은 닫는다
+        if (termsDialog != null && Terms.accepted(this)) {
+            termsDialog?.dismiss()
+            termsDialog = null
+        }
         if (settingsVersion != AppSettings.version && settingsAffectLayout()) {
             settingsVersion = AppSettings.version
             recreate()

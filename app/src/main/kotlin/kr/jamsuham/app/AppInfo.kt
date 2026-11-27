@@ -23,6 +23,9 @@ object AppInfo {
     /** Play Console 에 넣는 개인정보처리방침 주소 (앱 안 문서와 같은 파일) */
     const val PRIVACY_URL = "https://github.com/lhj080902/jamsuham/blob/main/app/src/main/assets/legal/privacy-policy.md"
 
+    /** 문의·신고를 받는 주소 (개인정보처리방침·이용 약관에 적힌 문의 주소와 같게 둘 것) */
+    const val CONTACT_EMAIL = "limhj080902@naver.com"
+
     /** 앱에 들어간 오픈소스: 이름, 라이선스, 라이선스 전문 파일 */
     private val LIBRARIES get() = listOf(
         Triple("ViaVersion · ViaBackwards · ViaRewind", "GPL-3.0", "GPL-3.0.txt"),
@@ -43,7 +46,8 @@ object AppInfo {
         box.addView(ui.hint(tr("서버마다 잠수·비공식 클라이언트에 대한 규칙이 다를 수 있으니, 서버 규칙을 확인하고 사용해 주세요.", "Rules on AFK and unofficial clients differ between servers, so check the server rules before using it.")))
 
         box.addView(ui.label(tr("정책", "Policies")))
-        box.addView(ui.button(tr("개인정보처리방침", "Privacy policy"), "plain") { showDocument(activity, ui, tr("개인정보처리방침", "Privacy policy"), "privacy-policy.md") }, ui.gap(4))
+        box.addView(ui.button(tr("이용 약관", "Terms of Use"), "plain") { showDocument(activity, ui, tr("이용 약관", "Terms of Use"), Terms.file) }, ui.gap(4))
+        box.addView(ui.button(tr("개인정보처리방침", "Privacy policy"), "plain") { showDocument(activity, ui, tr("개인정보처리방침", "Privacy policy"), "privacy-policy.md") }, ui.gap(6))
         box.addView(ui.button(tr("이름·아이콘 이용 안내", "Name and icon usage"), "plain") { showDocument(activity, ui, tr("이름·아이콘 이용 안내", "Name and icon usage"), "trademark.md") }, ui.gap(6))
 
         box.addView(ui.label(tr("오픈소스 라이선스", "Open source licenses")))
