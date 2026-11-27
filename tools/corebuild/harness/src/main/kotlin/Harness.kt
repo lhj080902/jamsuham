@@ -427,6 +427,7 @@ fun main(args: Array<String>) {
         "linknet" -> ok = linkNetTest()
         "nodeunit" -> ok = nodeUnitTest()
         "demo" -> ok = demoTest()
+        "blockmatch" -> ok = blockMatchTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)

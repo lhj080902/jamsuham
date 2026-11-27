@@ -19,6 +19,7 @@ class JamsuApp : Application() {
         ChatLog.init(this)
         Screenshots.init(this)
         AppSettings.init(this)
+        BlockList.init(this)
         CloudHub.init(this)
         // 화면이 하나라도 보이는지 (메뉴 알림을 띄울지 판단용)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {

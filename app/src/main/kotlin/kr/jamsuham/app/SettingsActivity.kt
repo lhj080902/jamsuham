@@ -152,6 +152,25 @@ class SettingsActivity : BaseActivity() {
         body.addView(storage, ui.gap(10))
         measure(packSize, logSize)
 
+        // ---------------------------------------------------------------- 차단한 사용자
+        val blocks = ui.card()
+        blocks.addView(ui.section(tr("차단한 사용자", "Blocked users")))
+        val blocked = BlockList.list()
+        if (blocked.isEmpty()) {
+            blocks.addView(ui.text(tr("차단한 사용자가 없습니다", "No blocked users"), 14f, p.muted))
+        }
+        for (b in blocked) {
+            val row = ui.horizontal().apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+            row.addView(ui.text(b.name, 15f), ui.lp(0, Ui.WRAP, 1f))
+            row.addView(ui.button(tr("해제", "Unblock"), "plain") {
+                BlockList.remove(b.name)
+                rebuild()
+            }, ui.lp(Ui.WRAP, ui.dp(38)))
+            blocks.addView(row, ui.gap(6))
+        }
+        blocks.addView(ui.hint(tr("차단한 사람의 채팅은 이 기기에서 보이지 않습니다. 채팅 화면의 접속자 탭이나 채팅 줄을 길게 눌러 차단할 수 있습니다.", "Chat from blocked users is hidden on this device. Block someone from the Players tab or by long-pressing a chat line.")))
+        body.addView(blocks, ui.gap(10))
+
         // ---------------------------------------------------------------- 앱
         val app = ui.card()
         app.addView(ui.section(tr("앱", "App")))

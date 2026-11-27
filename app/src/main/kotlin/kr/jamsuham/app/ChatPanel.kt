@@ -191,6 +191,12 @@ class ChatPanel(
         chatPage.addView(logCard, ui.lp(Ui.MATCH, 0, 1f))
         mapPage = MapPanel(activity, ui, serverId)
         playerPanel = PlayerPanel(activity, ui)
+        playerPanel.selfName = selfName()
+        playerPanel.onBlock = { player -> confirmBlock(player.name, player.uuid) }
+        playerPanel.onUnblock = { player ->
+            BlockList.remove(player.name)
+            playerPanel.show(SessionHub.players(serverId))
+        }
         invPanel = InventoryPanel(activity, ui, serverId)
         statusPanel = StatusPanel(activity, ui)
         pages = FrameLayout(activity)
@@ -356,6 +362,29 @@ class ChatPanel(
 
     override fun onLine(serverId: String, line: LogLine) {
         if (serverId == this.serverId) adapter.add(line)
+    }
+
+    override fun onLinesReset(serverId: String) {
+        if (serverId == this.serverId) adapter.reload()
+    }
+
+    /** 이 서버에서 내 닉네임 (체험 서버는 지어낸 이름) */
+    private fun selfName(): String? {
+        val server = store.server(serverId) ?: return null
+        return if (server.demo) kr.jamsuham.core.demo.DemoServer.NAME else AccountStore(activity).get(server.accountId)?.name
+    }
+
+    /** 차단: 물어본 뒤 그 사람의 채팅을 숨긴다 (이미 화면에 있던 줄도) */
+    private fun confirmBlock(name: String, uuid: java.util.UUID?) {
+        android.app.AlertDialog.Builder(activity)
+            .setTitle(tr("차단", "Block"))
+            .setMessage(tr("'${name}' 님의 채팅을 숨길까요? 설정 → 차단한 사용자에서 풀 수 있습니다.", "Hide chat from '${name}'? You can undo this in Settings → Blocked users."))
+            .setPositiveButton(tr("차단", "Block")) { _, _ ->
+                BlockList.add(name, uuid)
+                playerPanel.show(SessionHub.players(serverId))
+            }
+            .setNegativeButton(tr("취소", "Cancel"), null)
+            .show()
     }
 
     override fun onMenu(serverId: String, menu: Menu?) {
@@ -553,7 +582,10 @@ class ChatPanel(
         playerPanel.show(list)
     }
 
-    fun refreshTitle() = render(SessionHub.status(serverId))
+    fun refreshTitle() {
+        playerPanel.selfName = selfName() // 서버 설정에서 계정을 바꾸고 돌아왔을 수 있다
+        render(SessionHub.status(serverId))
+    }
 
     private fun render(s: SessionStatus) {
         val server = store.server(serverId)

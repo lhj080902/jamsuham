@@ -38,6 +38,8 @@ object SessionHub {
         fun onDeath(serverId: String, death: DeathInfo?) {}
         /** 리소스팩 그림 글자를 새로 불러왔을 때 (채팅을 다시 그림) */
         fun onGlyphs(serverId: String) {}
+        /** 이미 보낸 줄 가운데 일부가 빠졌을 때 (차단·숨기기). [lines] 로 다시 채운다 */
+        fun onLinesReset(serverId: String) {}
     }
 
     private class Entry {
@@ -505,6 +507,8 @@ object SessionHub {
     fun remoteLine(serverId: String, line: LogLine, save: Boolean) {
         val e = entries[serverId] ?: return
         if (!e.remote) return
+        // 차단한 사람의 채팅은 화면에도 기록에도 남기지 않는다
+        if (BlockList.blocks(line)) return
         val buf = e.lines
         buf.addLast(line)
         while (buf.size > MAX_LINES) buf.removeFirst()
@@ -602,6 +606,19 @@ object SessionHub {
         entries[serverId]?.lines?.clear()
     }
 
+    /** 방금 차단한 사람의 줄을 모든 서버의 화면에서 지운다 ([BlockList.add] 가 부른다) */
+    fun purgeBlocked() {
+        for ((id, e) in entries) {
+            if (e.lines.removeAll { BlockList.blocks(it) }) for (o in observers.toList()) o.onLinesReset(id)
+        }
+    }
+
+    /** 채팅 한 줄을 화면에서 숨긴다 (이 줄만. 채팅 기록 파일에는 이미 적힌 대로 남는다) */
+    fun hideLine(serverId: String, line: LogLine) {
+        val e = entries[serverId] ?: return
+        if (e.lines.removeAll { it === line }) for (o in observers.toList()) o.onLinesReset(serverId)
+    }
+
     fun note(serverId: String, text: String, kind: LogLine.Kind = LogLine.Kind.SYSTEM) {
         publishLine(serverId, LogLine(System.currentTimeMillis(), kind, ChatText.of(text)))
     }
@@ -612,6 +629,8 @@ object SessionHub {
     }
 
     private fun publishLine(serverId: String, line: LogLine) {
+        // 차단한 사람의 채팅은 화면에도 기록에도 남기지 않는다
+        if (BlockList.blocks(line)) return
         val buf = entry(serverId).lines
         buf.addLast(line)
         while (buf.size > MAX_LINES) buf.removeFirst()
