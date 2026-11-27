@@ -373,6 +373,7 @@ fun main(args: Array<String>) {
         "cloud" -> ok = cloudTest(args[1], args[2], args.getOrNull(3), args.getOrNull(4))
         "wire" -> ok = wireTest()
         "chatlimit" -> ok = chatLimitTest()
+        "sched" -> ok = schedTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)

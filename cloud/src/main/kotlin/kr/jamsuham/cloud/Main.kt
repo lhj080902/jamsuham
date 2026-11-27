@@ -34,7 +34,9 @@ fun main(args: Array<String>) {
     val store = DataStore(config.dataDir)
     val vault = Vault(config.dataDir)
     val auth = MsAuth(config, store, vault)
-    val sessions = SessionManager(config, store, premium, auth, Presence())
+    val scheduler = Scheduler()
+    if (config.localWorker) scheduler.add(LocalRunner("local", config.localCapacity, File(config.dataDir, "engine"), config.allowPrivateTargets, cloudCoreLog))
+    val sessions = SessionManager(config, store, premium, auth, Presence(), scheduler)
     val http = HttpApi(config, store, premium, auth, sessions)
     try {
         http.start()
@@ -56,6 +58,7 @@ fun main(args: Array<String>) {
     if (config.bind != "127.0.0.1" && config.bind != "localhost") Log.w("bind=${config.bind}: HTTPS 없이 인터넷에 직접 열면 로그인 정보가 노출될 수 있습니다. 앞에 Caddy·Cloudflare 터널을 두세요")
     if (config.devLogin) Log.w("시험 모드: 닉네임만으로 로그인할 수 있습니다 (실제 운영에서는 절대 켜지 마세요)")
     if (config.allowPrivateTargets) Log.w("allowPrivateTargets=true: 내부망 주소로도 접속합니다 (시험용)")
+    if (!config.localWorker && config.workerPort == 0) Log.w("잠수를 돌릴 곳이 없습니다 (localWorker=false 인데 workerPort 도 꺼져 있음)")
     Log.i("계정 ${store.accountCount()}개")
 
     sessions.resumeAtBoot()

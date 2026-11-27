@@ -2,8 +2,6 @@ package kr.jamsuham.cloud
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import kr.jamsuham.core.AfkSession
-import kr.jamsuham.core.CoreLog
 import kr.jamsuham.core.DeathInfo
 import kr.jamsuham.core.Inventory
 import kr.jamsuham.core.LogLine
@@ -17,7 +15,6 @@ import kr.jamsuham.core.cloud.CloudEntry
 import kr.jamsuham.core.cloud.Wire
 import kr.jamsuham.core.net.CommandSuggestions
 import kr.jamsuham.core.text.ChatText
-import java.io.File
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -71,7 +68,9 @@ class Subscriber(val tokenHash: String) {
 
 /** 서버 하나의 잠수 상태 (세션이 꺼져 있어도 마지막 상태·채팅은 남겨 둔다) */
 class SessionBox(@Volatile var entry: CloudEntry) {
-    var session: AfkSession? = null
+    /** 지금(또는 마지막으로) 이 잠수를 돌린 실행 손잡이와 그 실행기 이름 */
+    var run: RunHandle? = null
+    var runner: String? = null
     var gen: Any? = null
     @Volatile var status = SessionStatus(SessionState.IDLE, "꺼짐")
     var players: PlayerList = PlayerList.EMPTY
@@ -92,6 +91,8 @@ class SessionBox(@Volatile var entry: CloudEntry) {
     val sentAt = ArrayDeque<Long>()
     /** 잠수 중으로 세어 둔 주소 키 (세고 있지 않으면 null) */
     var activeKey: String? = null
+    /** 잠수 중으로 세어 둔 실행기 (세고 있지 않으면 null) */
+    var countedRunner: String? = null
     /** 실제로 접속한 IP:포트 (자리 수를 세어 둔 것. 없으면 null) */
     @Volatile var ipKey: String? = null
     /** 이동 입력이 유효한 시각 (이때까지 새 입력이 없으면 멈춘다) */
@@ -184,14 +185,12 @@ class SessionManager(
     private val premium: Premium,
     private val auth: MsAuth,
     val presence: Presence,
+    private val scheduler: Scheduler,
 ) {
     private val hubs = ConcurrentHashMap<String, AccountHub>()
     private val ticker = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "cloud-ticker").apply { isDaemon = true } }
-    private val engineDir = File(config.dataDir, "engine")
     @Volatile private var shuttingDown = false
     private var ticks = 0L
-
-    private val coreLog = CoreLog { level, message, error -> if (level >= CoreLog.WARN) Log.w("[엔진] $message", error) }
 
     /** 지금 이동 입력이 들어와 있는 세션들 (위치를 자주 알리고, 입력이 끊기면 멈추려고 따로 본다) */
     private val moving = ConcurrentHashMap<SessionBox, AccountHub>()
@@ -225,12 +224,15 @@ class SessionManager(
             box.activeKey = key
             activeTotal.incrementAndGet()
             activeByKey.computeIfAbsent(key) { AtomicInteger() }.incrementAndGet()
+            box.runner?.let { r -> scheduler.placed(r, key); box.countedRunner = r }
         } else {
             val key = box.activeKey ?: return
             box.activeKey = null
             activeTotal.decrementAndGet()
             // 0 이 되면 지운다 (사용자가 적은 주소마다 항목이 쌓이지 않게)
             activeByKey.computeIfPresent(key) { _, n -> if (n.decrementAndGet() <= 0) null else n }
+            box.countedRunner?.let { scheduler.released(it, key) }
+            box.countedRunner = null
             box.ipKey?.let { ip -> activeByIp.computeIfPresent(ip) { _, set -> set.remove(box); if (set.isEmpty()) null else set } }
             box.ipKey = null
         }
@@ -276,7 +278,7 @@ class SessionManager(
     private fun boxJson(b: SessionBox): JsonObject {
         val packs = JsonArray()
         for ((url, hash) in b.packs) packs.add(jsonOf("url" to url, "hash" to hash))
-        val t = b.session?.traffic
+        val t = b.run?.traffic()
         return jsonOf(
             "entry" to Wire.entry(b.entry),
             "status" to Wire.status(b.status),
@@ -399,8 +401,8 @@ class SessionManager(
         synchronized(h) {
             val box = h.boxes.remove(id) ?: return false
             box.gen = null
-            box.session?.shutdown()
-            box.session = null
+            box.run?.shutdown()
+            box.run = null
             moving.remove(box)
             countActive(box, false)
             synchronized(sf) {
@@ -443,18 +445,20 @@ class SessionManager(
             if (cap > 0 && (activeByKey[key]?.get() ?: 0) >= cap) {
                 return StartResult.Limit("지금 이 서버는 클라우드 자리(${cap}개)가 모두 찼습니다. 자리가 나면 다시 시도하거나 폰 앱으로 접속해 주세요")
             }
-            launch(h, box, note)
+            if (!launch(h, box, note)) return StartResult.Limit("지금 클라우드 서버가 가득 찼습니다. 잠시 뒤 다시 시도해 주세요")
             return StartResult.Ok
         }
     }
 
-    /** hub 잠금 안에서 부른다 */
-    private fun launch(h: AccountHub, box: SessionBox, note: String?) {
+    /** hub 잠금 안에서 부른다. 맡길 실행기(자리)가 없으면 아무것도 바꾸지 않고 false */
+    private fun launch(h: AccountHub, box: SessionBox, note: String?): Boolean {
         val uuid = h.uuid
         val id = box.entry.id
+        val runner = scheduler.pick(Wire.addressKey(box.entry.address)) ?: return false
         val gen = Any()
         box.gen = gen
-        box.session?.shutdown()
+        box.run?.shutdown()
+        box.run = null
         box.duplicateAt = 0
         box.packs.clear()
         box.players = PlayerList.EMPTY
@@ -492,18 +496,19 @@ class SessionManager(
             }
             override fun onDuplicateLogin() = mine { box.duplicateAt = System.currentTimeMillis() }
         }
-        val s = AfkSession(
-            engineDir, box.entry.sessionConfig(), { forceRefresh -> auth.credentials(uuid, forceRefresh) }, listener, coreLog,
-            targetFilter = { target ->
-                val t = NetGuard.filter(target, config.allowPrivateTargets)
-                if (box.gen === gen) claimIp(box, "${t.connectHost}:${t.connectPort}", config.targetLimit(Wire.addressKey(box.entry.address)))
-                t
-            },
-        )
-        box.session = s
+        val hooks = object : LaunchHooks {
+            override fun credentials(forceRefresh: Boolean) = auth.credentials(uuid, forceRefresh)
+            override fun claimTarget(connectHost: String, connectPort: Int) {
+                if (box.gen === gen) claimIp(box, "$connectHost:$connectPort", config.targetLimit(Wire.addressKey(box.entry.address)))
+            }
+        }
+        // 실행기가 바로 접속을 시작하지만, 그쪽 소식은 이 계정의 잠금이 풀린 뒤에야 처리되므로 아래 "준비 중" 이 먼저 나간다
+        box.run = runner.launch(LaunchRequest(randomId(), uuid, box.entry), listener, hooks)
+        box.runner = runner.id
+        Log.i("[배정] ${store.account(uuid)?.name ?: uuid.take(8)}/$id → ${runner.id}")
         setStatus(h, box, SessionStatus(SessionState.PREPARING, "준비 중…"))
         if (note != null) addLine(h, box, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(note)))
-        s.start()
+        return true
     }
 
     /** hub 잠금 안에서 부른다 */
@@ -556,7 +561,7 @@ class SessionManager(
         val h = hub(uuid)
         synchronized(h) {
             val box = h.boxes[id] ?: return false
-            val s = box.session
+            val s = box.run
             if (s == null || !box.status.state.isActive()) {
                 if (box.status.state != SessionState.STOPPED) setStatus(h, box, box.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
             } else {
@@ -573,7 +578,7 @@ class SessionManager(
             for (b in h.boxes.values) {
                 if (!b.status.state.isActive()) continue
                 if (why != null) addLine(h, b, LogLine(System.currentTimeMillis(), LogLine.Kind.ERROR, ChatText.of(why)))
-                b.session?.stop()
+                b.run?.stop()
             }
         }
     }
@@ -584,8 +589,8 @@ class SessionManager(
         synchronized(h) {
             for (b in h.boxes.values) {
                 b.gen = null
-                b.session?.shutdown()
-                b.session = null
+                b.run?.shutdown()
+                b.run = null
                 moving.remove(b)
                 countActive(b, false)
             }
@@ -612,7 +617,7 @@ class SessionManager(
             val now = System.currentTimeMillis()
             while (box.sentAt.isNotEmpty() && now - box.sentAt.first() > 10_000) box.sentAt.removeFirst()
             if (box.sentAt.size >= 20) return "너무 빨리 보내고 있습니다. 잠시 뒤 다시 보내 주세요"
-            if (box.status.state != SessionState.ONLINE || box.session?.sendChat(clean) != true) return "서버에 접속해 있을 때만 보낼 수 있습니다"
+            if (box.status.state != SessionState.ONLINE || box.run?.sendChat(clean) != true) return "서버에 접속해 있을 때만 보낼 수 있습니다"
             box.sentAt.addLast(now)
             return null
         }
@@ -622,9 +627,7 @@ class SessionManager(
 
     private fun position(b: SessionBox): Wire.Pos? {
         if (b.status.state != SessionState.ONLINE) return null
-        val c = b.session?.liveConnection ?: return null
-        if (!c.canWalk) return null
-        return Wire.Pos(c.currentX, c.currentY, c.currentZ, c.worldName)
+        return b.run?.position()
     }
 
     /** hub 잠금 안에서 부른다. 위치가 바뀌었으면 알린다 */
@@ -645,13 +648,12 @@ class SessionManager(
         val h = hub(uuid)
         synchronized(h) {
             val box = h.boxes[id] ?: return "서버를 찾을 수 없습니다"
-            val s = box.session
-            val conn = s?.liveConnection
-            if (s == null || conn == null || box.status.state != SessionState.ONLINE) return "서버에 접속해 있을 때만 움직일 수 있습니다"
+            val s = box.run
+            if (s == null || box.status.state != SessionState.ONLINE) return "서버에 접속해 있을 때만 움직일 수 있습니다"
             val e = if (east.isFinite()) east.coerceIn(-1f, 1f) else 0f
             val so = if (south.isFinite()) south.coerceIn(-1f, 1f) else 0f
             val stop = e == 0f && so == 0f && !jump
-            if (!stop && !conn.canWalk) return "아직 움직일 수 없습니다 (주변 지형을 받는 중입니다. 잠시 뒤 다시 해 주세요)"
+            if (!stop && s.position() == null) return "아직 움직일 수 없습니다 (주변 지형을 받는 중입니다. 잠시 뒤 다시 해 주세요)"
             s.setStick(e, so)
             s.setMovement(if (jump) 16 else 0)
             if (stop) {
@@ -671,8 +673,8 @@ class SessionManager(
             for ((box, h) in moving) {
                 synchronized(h) {
                     if (now > box.moveUntil) {
-                        box.session?.setStick(0f, 0f)
-                        box.session?.setMovement(0)
+                        box.run?.setStick(0f, 0f)
+                        box.run?.setMovement(0)
                         moving.remove(box)
                     }
                     publishPos(h, box)
@@ -685,12 +687,12 @@ class SessionManager(
 
     fun menuClick(uuid: String, id: String, slot: Int): Boolean {
         val h = hub(uuid)
-        return synchronized(h) { h.boxes[id]?.session?.clickMenu(slot) ?: false }
+        return synchronized(h) { h.boxes[id]?.run?.clickMenu(slot) ?: false }
     }
 
     fun menuClose(uuid: String, id: String) {
         val h = hub(uuid)
-        synchronized(h) { h.boxes[id]?.session?.closeMenu() }
+        synchronized(h) { h.boxes[id]?.run?.closeMenu() }
     }
 
     fun clearDeath(uuid: String, id: String) {
@@ -706,7 +708,7 @@ class SessionManager(
     /** 명령어 자동완성 후보 (최대 3초 기다림) */
     fun suggest(uuid: String, id: String, text: String): CommandSuggestions? {
         val h = hub(uuid)
-        val s = synchronized(h) { h.boxes[id]?.session } ?: return null
+        val s = synchronized(h) { h.boxes[id]?.run } ?: return null
         val latch = CountDownLatch(1)
         val out = AtomicReference<CommandSuggestions?>(null)
         if (!s.requestSuggestions(text.take(256)) { r -> out.set(r); latch.countDown() }) return null
@@ -738,7 +740,7 @@ class SessionManager(
                         }
                         publishPos(h, b)
                         if (ticks % 60 == 0L && b.status.state.isActive()) {
-                            b.session?.traffic?.let { t ->
+                            b.run?.traffic()?.let { t ->
                                 publish(h, "traffic", jsonOf("sid" to id, "traffic" to jsonOf("rx" to t.received, "tx" to t.sent, "onlineMs" to t.onlineMs)))
                             }
                         }
@@ -805,7 +807,7 @@ class SessionManager(
         for (h in hubs.values) {
             synchronized(h) {
                 for (s in h.subs) s.close()
-                for (b in h.boxes.values) b.session?.shutdown()
+                for (b in h.boxes.values) b.run?.shutdown()
             }
         }
         store.flush()

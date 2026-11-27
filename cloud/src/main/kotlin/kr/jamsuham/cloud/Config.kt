@@ -59,6 +59,14 @@ class Config(val file: File) {
     /** 내부망·이 컴퓨터 주소(127.0.0.1, 192.168.x.x 등)로 접속 허용. 시험할 때만 켠다 */
     val allowPrivateTargets = bool("allowPrivateTargets", false)
 
+    /** 이 프로그램(본 서버) 안에서도 잠수를 돌릴지. 접속용 서버만 쓰려면 false */
+    val localWorker = bool("localWorker", true)
+    /** 본 서버 안에서 돌릴 최대 잠수 수 */
+    val localCapacity = int("localCapacity", maxActiveSessions).coerceIn(0, 5000)
+    /** 접속용 서버(다른 컴퓨터)가 붙는 포트. 0 = 받지 않음 */
+    val workerPort = int("workerPort", 0).coerceIn(0, 65535)
+    val workerBind = str("workerBind", "0.0.0.0")
+
     /** 시험 전용: 닉네임만으로 로그인 (비정품 시험 서버용). 설정 파일로는 못 켠다 */
     val devLogin: Boolean = System.getProperty("jamsu.devLogin") == "true"
 
@@ -114,6 +122,19 @@ class Config(val file: File) {
             |
             |# 내부망 주소(127.0.0.1, 192.168.x.x 등)의 마인크래프트 서버에 접속 허용 (시험할 때만 true)
             |allowPrivateTargets=false
+            |
+            |# ---- 접속용 서버(컴퓨터를 여러 대로 늘릴 때. 자세한 것은 docs/CLOUD.md "접속용 서버 붙이기") ----
+            |# 이 프로그램 안에서도 잠수를 돌릴지 (접속용 서버에서만 돌리려면 false)
+            |localWorker=true
+            |
+            |# 이 프로그램 안에서 돌릴 최대 잠수 수 (비워 두면 maxActiveSessions 와 같음)
+            |#localCapacity=200
+            |
+            |# 접속용 서버가 붙는 포트 (0 = 받지 않음). 켜면 data/worker.key 가 만들어지고, 그 값을 접속용 서버 설정에 적습니다
+            |workerPort=0
+            |
+            |# 그 포트를 여는 주소
+            |workerBind=0.0.0.0
             |
         """.trimMargin()
     }
