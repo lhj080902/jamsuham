@@ -1,0 +1,55 @@
+name: Smoke test (emulator)
+
+# 배포판과 같은 설정의 Play 판 디버그 빌드(스크린샷 모드 아님)를 에뮬레이터에 깔고
+# 첫 실행 약관 → 체험 서버 → 잠금·차단·신고 → 화면을 꺼도 유지 를 눌러 본다 (tools/screenshots/smoke.sh).
+# 릴리스와 무관. 결과(화면 그림 + log.txt)는 아티팩트 smoke-shots
+on:
+  workflow_dispatch:
+  # play-review 브랜치에 올리면 바로 돈다 (main 에 올리지 않고 고쳐 가며 시험할 때)
+  push:
+    branches: [play-review]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK (Play 판 디버그)
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assemblePlayDebug
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash tools/screenshots/smoke.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-shots
+          path: shots/smoke/
