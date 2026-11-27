@@ -59,8 +59,9 @@ fun main(args: Array<String>) {
     Runtime.getRuntime().addShutdownHook(Thread {
         Log.i("서버를 끕니다. 잠수 중이던 서버는 다시 켜면 이어서 접속합니다")
         http.stop()
-        link?.stop()
+        // 잠수를 먼저 정리한다 (그 뒤에 접속용 서버 연결이 닫히는 것은 "끊김"으로 처리하지 않는다)
         sessions.shutdown()
+        link?.stop()
     })
 
     Log.i("설정 파일: ${config.file.absolutePath}")

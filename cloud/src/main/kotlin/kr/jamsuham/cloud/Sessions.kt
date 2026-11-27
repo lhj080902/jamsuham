@@ -99,6 +99,21 @@ class SessionBox(@Volatile var entry: CloudEntry) {
     @Volatile var moveUntil = 0L
     /** 마지막으로 내보낸 위치 (같으면 다시 내보내지 않는다) */
     var lastPos: String? = null
+
+    /**
+     * 맡길 곳(자리)을 기다리는 중: 접속용 서버가 끊겨 다른 곳으로 옮기는 중이거나, 다시 켰는데 자리가 없을 때.
+     * 화면에는 "다시 접속 대기"로 보이지만 실제 접속은 없으므로 잠수 수(전체·서버별·실행기별)에는 세지 않는다.
+     */
+    var queued = false
+    /** 자리를 기다리기 시작한 시각, 다음에 시도할 시각 */
+    var queuedAt = 0L
+    var notBefore = 0L
+    /** 대기가 풀려 접속할 때 채팅에 남길 안내 */
+    var queueNote: String? = null
+    /** 오래 기다려도 자리가 없어 멈춰 둔 것. "잠수 중" 표시는 남아 있어, 접속용 서버가 붙거나 다시 켜면 이어서 접속한다 */
+    var parked = false
+    /** 다른 실행기로 다시 배정한 횟수 제한 */
+    val replaces = ReplaceBudget()
 }
 
 class AccountHub(val uuid: String) {
@@ -194,6 +209,9 @@ class SessionManager(
 
     /** 지금 이동 입력이 들어와 있는 세션들 (위치를 자주 알리고, 입력이 끊기면 멈추려고 따로 본다) */
     private val moving = ConcurrentHashMap<SessionBox, AccountHub>()
+
+    /** 마지막으로 잠수를 실행기에 맡긴 시각 (자리를 기다리던 잠수들을 한꺼번에 시작하지 않으려고 본다) */
+    @Volatile private var lastLaunchAt = 0L
 
     init {
         ticker.scheduleWithFixedDelay({ tick() }, 1, 1, TimeUnit.SECONDS)
@@ -403,6 +421,8 @@ class SessionManager(
             box.gen = null
             box.run?.shutdown()
             box.run = null
+            box.queued = false
+            box.parked = false
             moving.remove(box)
             countActive(box, false)
             synchronized(sf) {
@@ -422,35 +442,46 @@ class SessionManager(
         val h = hub(acc.uuid)
         synchronized(h) {
             val box = h.boxes[id] ?: return StartResult.NotFound
-            if (!premium.status(acc.uuid, acc.name).active) return StartResult.NotPremium
-            if (box.entry.address.isBlank()) return StartResult.Bad("서버 주소를 먼저 입력해 주세요")
-            if (box.status.state.isActive()) {
-                // 이미 잠수 중: 요청한 쪽 화면이 지금 상태로 맞춰지도록 한 번 더 알린다
+            if (box.status.state.isActive() && premium.status(acc.uuid, acc.name).active && box.entry.address.isNotBlank()) {
+                // 이미 잠수 중(자리를 기다리는 중 포함): 요청한 쪽 화면이 지금 상태로 맞춰지도록 한 번 더 알린다
                 publish(h, "status", jsonOf("sid" to id, "status" to Wire.status(box.status)))
                 return StartResult.Ok
             }
-            val key = Wire.addressKey(box.entry.address)
-            // 같은 서버에 이 계정이 다른 매체로 들어가 있으면 시작하지 않는다 (서로 튕겨 내는 것을 막음)
-            presence.holder(acc.uuid, key)?.let { return StartResult.InUse("app", it.label, canForce = false) }
-            h.boxes.values.firstOrNull { it !== box && it.status.state.isActive() && Wire.addressKey(it.entry.address) == key }
-                ?.let { return StartResult.InUse("cloud", "클라우드 (${it.entry.name.ifBlank { it.entry.address }})", canForce = false) }
-            if (!force && box.duplicateAt > 0 && System.currentTimeMillis() - box.duplicateAt < OTHER_HOLD_MS) {
-                return StartResult.InUse("other", "다른 클라이언트(PC 게임 등)", canForce = true)
-            }
-            val mine = h.boxes.values.count { it.status.state.isActive() }
-            if (mine >= config.maxSessionsPerAccount) return StartResult.Limit("동시에 잠수할 수 있는 서버는 ${config.maxSessionsPerAccount}개까지입니다. 다른 서버를 끊고 다시 시도해 주세요")
-            if (activeCount() >= config.maxActiveSessions) return StartResult.Limit("지금 클라우드 서버가 가득 찼습니다. 잠시 뒤 다시 시도해 주세요")
-            // 클라우드의 모든 계정은 IP 하나로 나가므로, 한 서버에 너무 많이 들어가 그 서버의 같은 IP 제한에 걸리지 않게 한다
-            val cap = config.targetLimit(key)
-            if (cap > 0 && (activeByKey[key]?.get() ?: 0) >= cap) {
-                return StartResult.Limit("지금 이 서버는 클라우드 자리(${cap}개)가 모두 찼습니다. 자리가 나면 다시 시도하거나 폰 앱으로 접속해 주세요")
-            }
-            if (!launch(h, box, note)) return StartResult.Limit("지금 클라우드 서버가 가득 찼습니다. 잠시 뒤 다시 시도해 주세요")
+            startBlock(h, acc, box, force)?.let { return it.result }
+            if (!launch(h, box, note)) return StartResult.Limit(FULL_TEXT)
             return StartResult.Ok
         }
     }
 
-    /** hub 잠금 안에서 부른다. 맡길 실행기(자리)가 없으면 아무것도 바꾸지 않고 false */
+    /** 시작할 수 없는 이유. [noRoom] = 지금 자리가 없을 뿐이라 기다리면 풀릴 수 있는 것 */
+    private class StartBlock(val result: StartResult, val noRoom: Boolean = false)
+
+    /** hub 잠금 안에서 부른다. 이 잠수를 지금 시작해도 되는지 확인한다 (되면 null). 직접 시작·이어서 접속·다시 배정이 같이 쓴다 */
+    private fun startBlock(h: AccountHub, acc: AccountRec, box: SessionBox, force: Boolean): StartBlock? {
+        if (!premium.status(acc.uuid, acc.name).active) return StartBlock(StartResult.NotPremium)
+        if (box.entry.address.isBlank()) return StartBlock(StartResult.Bad("서버 주소를 먼저 입력해 주세요"))
+        val key = Wire.addressKey(box.entry.address)
+        // 같은 서버에 이 계정이 다른 매체로 들어가 있으면 시작하지 않는다 (서로 튕겨 내는 것을 막음)
+        presence.holder(acc.uuid, key)?.let { return StartBlock(StartResult.InUse("app", it.label, canForce = false)) }
+        h.boxes.values.firstOrNull { it !== box && it.status.state.isActive() && Wire.addressKey(it.entry.address) == key }
+            ?.let { return StartBlock(StartResult.InUse("cloud", "클라우드 (${it.entry.name.ifBlank { it.entry.address }})", canForce = false)) }
+        if (!force && box.duplicateAt > 0 && System.currentTimeMillis() - box.duplicateAt < OTHER_HOLD_MS) {
+            return StartBlock(StartResult.InUse("other", "다른 클라이언트(PC 게임 등)", canForce = true))
+        }
+        val mine = h.boxes.values.count { it !== box && it.status.state.isActive() }
+        if (mine >= config.maxSessionsPerAccount) {
+            return StartBlock(StartResult.Limit("동시에 잠수할 수 있는 서버는 ${config.maxSessionsPerAccount}개까지입니다. 다른 서버를 끊고 다시 시도해 주세요"))
+        }
+        if (activeCount() >= config.maxActiveSessions) return StartBlock(StartResult.Limit(FULL_TEXT), noRoom = true)
+        // 한 마인크래프트 서버에 클라우드 계정이 너무 많이 들어가지 않게 한다. 접속용 서버를 늘려도 이 합계는 늘지 않는다 (전체 기준)
+        val cap = config.targetLimit(key)
+        if (cap > 0 && (activeByKey[key]?.get() ?: 0) >= cap) {
+            return StartBlock(StartResult.Limit("지금 이 서버는 클라우드 자리(${cap}개)가 모두 찼습니다. 자리가 나면 다시 시도하거나 폰 앱으로 접속해 주세요"), noRoom = true)
+        }
+        return null
+    }
+
+    /** hub 잠금 안에서 부른다. 맡길 실행기(자리)가 없으면 false (상태는 바꾸지 않는다) */
     private fun launch(h: AccountHub, box: SessionBox, note: String?): Boolean {
         val uuid = h.uuid
         val id = box.entry.id
@@ -511,6 +542,10 @@ class SessionManager(
             return false
         }
         box.runner = runner.id
+        box.queued = false
+        box.parked = false
+        box.queueNote = null
+        lastLaunchAt = System.currentTimeMillis()
         Log.i("[배정] ${store.account(uuid)?.name ?: uuid.take(8)}/$id → ${runner.id}")
         setStatus(h, box, SessionStatus(SessionState.PREPARING, "준비 중…"))
         if (note != null) addLine(h, box, LogLine(System.currentTimeMillis(), LogLine.Kind.SYSTEM, ChatText.of(note)))
@@ -522,7 +557,7 @@ class SessionManager(
         val wasActive = box.status.state.isActive()
         box.status = status
         val active = status.state.isActive()
-        if (!active) {
+        if (!active || box.queued) {
             // 끊긴 뒤에 예전 체력·메뉴·접속자가 남아 보이지 않게
             box.vitals = null; box.vitalsDirty = true
             box.players = PlayerList.EMPTY; box.playersDirty = true
@@ -532,14 +567,20 @@ class SessionManager(
             }
         }
         publish(h, "status", jsonOf("sid" to box.entry.id, "status" to Wire.status(status)))
+        // 자리를 기다리는 동안은 실제 접속이 없으므로 세지 않는다 (이미 맞으면 아무것도 하지 않는다)
+        countActive(box, active && !box.queued)
         if (wasActive != active) {
-            countActive(box, active)
-            // "잠수 중이어야 하는 서버" 표시 (서버 컴퓨터가 다시 켜지면 이어서 접속)
-            val sf = store.servers(h.uuid)
-            val changed = synchronized(sf) { if (active) sf.running.add(box.entry.id) else sf.running.remove(box.entry.id) }
-            if (changed) store.saveServers(h.uuid)
+            // "잠수 중이어야 하는 서버" 표시 (서버 컴퓨터가 다시 켜지면 이어서 접속). 자리가 없어 멈춰 둔 것은 표시를 남긴다
+            if (active) mark(h, box, true) else if (!box.parked) mark(h, box, false)
             publishPresence(h)
         }
+    }
+
+    /** "잠수 중이어야 하는 서버" 표시를 올리거나 내린다 */
+    private fun mark(h: AccountHub, box: SessionBox, on: Boolean) {
+        val sf = store.servers(h.uuid)
+        val changed = synchronized(sf) { if (on) sf.running.add(box.entry.id) else sf.running.remove(box.entry.id) }
+        if (changed) store.saveServers(h.uuid)
     }
 
     /** hub 잠금 안에서 부른다 */
@@ -567,6 +608,10 @@ class SessionManager(
         val h = hub(uuid)
         synchronized(h) {
             val box = h.boxes[id] ?: return false
+            if (box.queued || box.parked) {
+                halt(h, box, "꺼짐", null)
+                return true
+            }
             val s = box.run
             if (s == null || !box.status.state.isActive()) {
                 if (box.status.state != SessionState.STOPPED) setStatus(h, box, box.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
@@ -577,14 +622,51 @@ class SessionManager(
         }
     }
 
-    // ------------------------------------------------------------ 접속용 서버
-
-    /** 접속용 서버가 붙었을 때 */
-    fun runnerAttached(runnerId: String) {
+    /** hub 잠금 안에서 부른다. 자리를 기다리거나 멈춰 둔 잠수를 완전히 멈춘다 (다시 켜도 이어서 접속하지 않는다) */
+    private fun halt(h: AccountHub, box: SessionBox, message: String, line: LogLine.Kind?) {
+        box.queued = false
+        box.parked = false
+        box.queueNote = null
+        if (line != null) addLine(h, box, LogLine(System.currentTimeMillis(), line, ChatText.of(message)))
+        setStatus(h, box, SessionStatus(SessionState.STOPPED, message, reconnectCount = box.status.reconnectCount, totalOnlineMs = box.status.totalOnlineMs))
+        // 멈춰 둔 것은 이미 STOPPED 라서 위에서 표시가 내려가지 않는다
+        mark(h, box, false)
     }
 
-    /** 접속용 서버의 연결이 끊겼을 때 ([graceful] = 그쪽에서 끄면서 알려 옴): 거기서 돌던 잠수는 이미 끊겼다 */
+    // ------------------------------------------------------------ 접속용 서버·자리 대기
+
+    /** hub 잠금 안에서 부른다. 자리를 기다리는 줄에 넣는다 ([notBefore] 전에는 시도하지 않는다) */
+    private fun enqueue(h: AccountHub, box: SessionBox, notBefore: Long, message: String, note: String?) {
+        box.parked = false
+        box.queued = true
+        // 기다린 시간은 처음 시도할 수 있는 때부터 잰다
+        box.queuedAt = notBefore
+        box.notBefore = notBefore
+        box.queueNote = note
+        setStatus(h, box, SessionStatus(SessionState.WAITING_RECONNECT, message, nextAttemptAtMs = notBefore,
+            reconnectCount = box.status.reconnectCount, totalOnlineMs = box.status.totalOnlineMs))
+    }
+
+    /** 접속용 서버가 붙었을 때: 자리가 없어 멈춰 둔 잠수를 다시 줄에 넣는다 */
+    fun runnerAttached(runnerId: String) {
+        if (shuttingDown) return
+        val now = System.currentTimeMillis()
+        for (h in hubs.values) {
+            synchronized(h) {
+                for (b in h.boxes.values) if (b.parked) enqueue(h, b, now, WAIT_ROOM_TEXT, "자리가 나서 이어서 접속합니다")
+            }
+        }
+    }
+
+    /**
+     * 접속용 서버의 연결이 끊겼을 때 ([graceful] = 그쪽에서 끄면서 알려 옴). 거기서 돌던 잠수를 다른 곳에 다시 맡긴다.
+     * 그쪽이 살아 있는데 연결만 끊긴 경우에는 그쪽도 연결이 끊긴 것을 알아채고(15초) 잠수를 끊을 때까지 기다린 뒤에 옮긴다
+     * — 바로 옮기면 한 계정이 두 곳에서 접속해 서로 튕겨 낸다.
+     */
     fun runnerLost(runnerId: String, graceful: Boolean) {
+        // 본 서버를 끄는 중이면 그대로 둔다 ("잠수 중" 표시가 남아 있어 다시 켜면 이어서 접속한다)
+        if (shuttingDown) return
+        val now = System.currentTimeMillis()
         for (h in hubs.values) {
             synchronized(h) {
                 for (b in h.boxes.values) {
@@ -593,11 +675,73 @@ class SessionManager(
                     b.run = null
                     moving.remove(b)
                     if (!b.status.state.isActive()) continue
-                    addLine(h, b, LogLine(System.currentTimeMillis(), LogLine.Kind.ERROR, ChatText.of("접속용 서버 연결이 끊겼습니다")))
-                    setStatus(h, b, b.status.copy(state = SessionState.STOPPED, message = "접속용 서버 연결이 끊겼습니다", onlineSinceMs = null, nextAttemptAtMs = null))
+                    if (!b.replaces.tryUse(now)) {
+                        halt(h, b, "접속용 서버가 자주 끊겨 잠수를 멈췄습니다", LogLine.Kind.ERROR)
+                        continue
+                    }
+                    val text = "접속용 서버 연결이 끊겨 다른 곳에서 다시 접속합니다"
+                    // 엔진이 재접속을 미루고 있었다면(모장 요청 제한 등) 그 시각보다 앞당기지 않는다
+                    val at = maxOf(if (graceful) now else now + REPLACE_DELAY_MS, b.status.nextAttemptAtMs ?: 0)
+                    addLine(h, b, LogLine(now, LogLine.Kind.SYSTEM, ChatText.of(text)))
+                    enqueue(h, b, at, text, "다른 접속용 서버에서 이어서 접속합니다")
                 }
             }
         }
+    }
+
+    /** 자리를 기다리는 잠수를 맡겨 본다 (1초마다). 한꺼번에 로그인하지 않게 [PLACE_GAP_MS] 에 하나씩만 시작한다 */
+    private fun placeQueued() {
+        val now = System.currentTimeMillis()
+        if (now - lastLaunchAt < PLACE_GAP_MS) return
+        val due = ArrayList<Pair<AccountHub, SessionBox>>()
+        for (h in hubs.values) {
+            synchronized(h) { for (b in h.boxes.values) if (b.queued && now >= b.notBefore) due.add(h to b) }
+        }
+        if (due.isEmpty()) return
+        // 오래 기다린 것부터
+        due.sortBy { it.second.notBefore }
+        for ((h, b) in due) {
+            val started = synchronized(h) {
+                if (hubs[h.uuid] !== h || h.boxes[b.entry.id] !== b || !b.queued) return@synchronized false
+                val acc = store.account(h.uuid)
+                if (acc == null) {
+                    b.queued = false
+                    return@synchronized false
+                }
+                val block = startBlock(h, acc, b, force = true)
+                when {
+                    block == null -> if (launch(h, b, b.queueNote)) return@synchronized true else waitRoom(h, b, now)
+                    block.noRoom -> waitRoom(h, b, now)
+                    else -> halt(h, b, refusal(block.result), LogLine.Kind.ERROR)
+                }
+                false
+            }
+            if (started) return
+        }
+    }
+
+    /** hub 잠금 안에서 부른다. 지금은 자리가 없다: 조금 뒤 다시 보고, 너무 오래되면 멈춰 둔다 */
+    private fun waitRoom(h: AccountHub, b: SessionBox, now: Long) {
+        if (now - b.queuedAt > QUEUE_MAX_MS) {
+            val text = "접속할 자리가 없어 멈췄습니다. 자리가 나면 이어서 접속합니다"
+            b.queued = false
+            b.parked = true
+            addLine(h, b, LogLine(now, LogLine.Kind.ERROR, ChatText.of(text)))
+            setStatus(h, b, SessionStatus(SessionState.STOPPED, text, reconnectCount = b.status.reconnectCount, totalOnlineMs = b.status.totalOnlineMs))
+            return
+        }
+        b.notBefore = now + QUEUE_RETRY_MS
+        setStatus(h, b, SessionStatus(SessionState.WAITING_RECONNECT, WAIT_ROOM_TEXT, nextAttemptAtMs = b.notBefore,
+            reconnectCount = b.status.reconnectCount, totalOnlineMs = b.status.totalOnlineMs))
+    }
+
+    /** 기다리던 잠수를 시작할 수 없게 됐을 때 화면에 남길 문구 */
+    private fun refusal(r: StartResult): String = when (r) {
+        is StartResult.NotPremium -> "프리미엄 기간이 끝나 클라우드 잠수를 멈췄습니다"
+        is StartResult.InUse -> "${r.label}에서 이 서버에 접속 중이라 클라우드 잠수를 멈췄습니다"
+        is StartResult.Limit -> r.message
+        is StartResult.Bad -> r.message
+        else -> "잠수를 이어서 시작하지 못했습니다"
     }
 
     /** 계정의 잠수를 모두 끊는다 (프리미엄 만료·연결 해제). [why] 는 채팅에 남길 안내 */
@@ -605,6 +749,10 @@ class SessionManager(
         val h = hubs[uuid] ?: return
         synchronized(h) {
             for (b in h.boxes.values) {
+                if (b.queued || b.parked) {
+                    halt(h, b, why ?: "꺼짐", if (why != null) LogLine.Kind.ERROR else null)
+                    continue
+                }
                 if (!b.status.state.isActive()) continue
                 if (why != null) addLine(h, b, LogLine(System.currentTimeMillis(), LogLine.Kind.ERROR, ChatText.of(why)))
                 b.run?.stop()
@@ -620,6 +768,8 @@ class SessionManager(
                 b.gen = null
                 b.run?.shutdown()
                 b.run = null
+                b.queued = false
+                b.parked = false
                 moving.remove(b)
                 countActive(b, false)
             }
@@ -776,6 +926,7 @@ class SessionManager(
                     }
                 }
             }
+            placeQueued()
             if (ticks % 30 == 0L) for (uuid in presence.sweep()) presenceChanged(uuid)
             if (ticks % 5 == 0L) auth.sweepDevices()
             if (ticks % 300 == 0L) {
@@ -805,7 +956,10 @@ class SessionManager(
         }
     }
 
-    /** 서버 컴퓨터가 켜졌을 때: 잠수 중이던 서버들에 2초 간격으로 다시 접속한다 (한꺼번에 로그인하면 모장 요청 제한에 걸림) */
+    /**
+     * 서버 컴퓨터가 켜졌을 때: 잠수 중이던 서버들에 2초 간격으로 다시 접속한다 (한꺼번에 로그인하면 모장 요청 제한에 걸림).
+     * 아직 자리가 없으면(접속용 서버가 붙기 전 등) 자리를 기다리는 줄에 넣는다.
+     */
     fun resumeAtBoot() {
         val list = store.runningAtBoot()
         if (list.isEmpty()) return
@@ -815,11 +969,18 @@ class SessionManager(
             ticker.schedule({
                 try {
                     val acc = store.account(uuid) ?: return@schedule
-                    val r = start(acc, id, force = true, note = "클라우드 서버가 다시 켜져서 이어서 접속합니다")
-                    if (r !is StartResult.Ok) {
-                        // 프리미엄 만료 등으로 시작하지 못했으면 "잠수 중" 표시를 내린다
-                        val sf = store.servers(uuid)
-                        if (synchronized(sf) { sf.running.remove(id) }) store.saveServers(uuid)
+                    val note = "클라우드 서버가 다시 켜져서 이어서 접속합니다"
+                    val h = hub(uuid)
+                    synchronized(h) {
+                        val box = h.boxes[id] ?: return@schedule
+                        if (box.status.state.isActive()) return@schedule
+                        val block = startBlock(h, acc, box, force = true)
+                        when {
+                            block == null -> if (!launch(h, box, note)) enqueue(h, box, System.currentTimeMillis(), WAIT_ROOM_TEXT, note)
+                            block.noRoom -> enqueue(h, box, System.currentTimeMillis(), WAIT_ROOM_TEXT, note)
+                            // 프리미엄 만료 등으로 시작하지 못했으면 "잠수 중" 표시를 내린다
+                            else -> mark(h, box, false)
+                        }
                     }
                 } catch (t: Throwable) {
                     Log.w("이어서 접속 실패", t)
@@ -856,5 +1017,16 @@ class SessionManager(
         private const val LAPSED_KEEP_MS = 7L * 86_400_000
         /** 다른 클라이언트(PC 게임)에 밀려난 뒤 이 시간 동안은 "다른 곳에서 접속 중일 수 있음"으로 표시하고 확인을 받는다 */
         const val OTHER_HOLD_MS = 30 * 60_000L
+        private const val FULL_TEXT = "지금 클라우드 서버가 가득 찼습니다. 잠시 뒤 다시 시도해 주세요"
+        private const val WAIT_ROOM_TEXT = "접속할 자리를 기다리는 중…"
+
+        // 아래 시간 값은 시험에서 줄일 수 있게 실행 옵션(-Djamsu.…)으로도 받는다
+        /** 접속용 서버 연결이 끊긴 뒤 다른 곳에 다시 맡기기까지 기다리는 시간 (그쪽이 잠수를 끊을 시간) */
+        private val REPLACE_DELAY_MS = java.lang.Long.getLong("jamsu.replaceDelayMs", 30_000L)
+        /** 자리가 없을 때 다시 알아보는 간격, 이만큼 기다려도 없으면 멈춰 둔다 */
+        private val QUEUE_RETRY_MS = java.lang.Long.getLong("jamsu.queueRetryMs", 10_000L)
+        private val QUEUE_MAX_MS = java.lang.Long.getLong("jamsu.queueMaxMs", 600_000L)
+        /** 기다리던 잠수를 시작하는 간격 */
+        private const val PLACE_GAP_MS = 2_000L
     }
 }

@@ -136,6 +136,8 @@ class Proc(val name: String, installDir: File, val dir: File, args: List<String>
 
     fun waitLog(re: Regex, timeoutMs: Long): Boolean = waitFor(timeoutMs) { lines.any { re.containsMatchIn(it) } }
 
+    fun count(re: Regex): Int = lines.count { re.containsMatchIn(it) }
+
     fun kill() {
         p.destroyForcibly()
         p.waitFor(5, TimeUnit.SECONDS)
@@ -156,6 +158,19 @@ class NodeSeen : CloudStream.Listener {
     override fun onAuthLost() {}
     fun statuses(sid: String) = events.filter { it.first == "status" && it.second.get("sid")?.asString == sid }.map { Wire.parseStatus(it.second.getAsJsonObject("status")) }
     fun states(sid: String) = statuses(sid).map { it.state }
+
+    /** 지금 상태: 처음 받은 전체 상태(hello)와 그 뒤의 상태 소식 중 가장 나중 것 */
+    fun status(sid: String): SessionStatus? {
+        var last: SessionStatus? = null
+        for ((type, data) in events) {
+            if (type == "status" && data.get("sid")?.asString == sid) last = Wire.parseStatus(data.getAsJsonObject("status"))
+            if (type == "hello") {
+                data.getAsJsonArray("sessions")?.map { it.asJsonObject }?.firstOrNull { it.getAsJsonObject("entry")?.get("id")?.asString == sid }
+                    ?.let { last = Wire.parseStatus(it.getAsJsonObject("status")) }
+            }
+        }
+        return last
+    }
     fun lines(sid: String) = events.filter { it.first == "line" && it.second.get("sid")?.asString == sid }.map { Wire.parseLine(it.second).second.text.plain }
     fun pos(sid: String) = events.lastOrNull { it.first == "pos" && it.second.get("sid")?.asString == sid }?.let { Wire.parsePos(it.second.get("pos")) }
 }
@@ -217,10 +232,11 @@ fun cloudNodeTest(install: String, stayPort: String, walkPort: String): Boolean 
         master.lines.mapNotNull { Regex("\\[배정] $who/$sid → (\\S+)").find(it)?.groupValues?.get(1) }.lastOrNull()
 
     try {
-        val master = startMaster()
+        var master = startMaster()
         c.check("본 서버가 비밀키 파일을 만듦", waitFor(5000) { File(root, "master/data/worker.key").exists() })
-        startWorker("w1")
-        startWorker("w2")
+        val workers = HashMap<String, Proc>()
+        workers["w1"] = startWorker("w1")
+        workers["w2"] = startWorker("w2")
         c.check("워커 2개 연결", master.waitLog(Regex("\\[노드] 연결됨: w1"), 15000) && master.waitLog(Regex("\\[노드] 연결됨: w2"), 15000))
 
         val entry = CloudEntry(id = "h1", name = "노드 시험", address = "127.0.0.1:$stay", joinCommands = listOf("/잠수"))
@@ -326,7 +342,58 @@ fun cloudNodeTest(install: String, stayPort: String, walkPort: String): Boolean 
 
         a.app.deleteEntry("h1")
         c.check("서버 항목을 지우면 원격 접속도 끊김", waitFor(8000) { online(stay) == 0 })
-        a.close(); b.close(); third.close()
+
+        // ---------------- B: 끊겼을 때 (프로세스를 강제로 죽여 본다) ----------------
+        a.app.putEntry(entry)
+        a.app.start("h1")
+        b.app.start("h1")
+        val ready = waitFor(25000) { a.seen.status("h1")?.state == SessionState.ONLINE && b.seen.status("h1")?.state == SessionState.ONLINE } && waitFor(5000) { online(stay) == 2 }
+        val nodeA = placedOn(master, "Tester", "h1") ?: "w1"
+        val nodeB = placedOn(master, "Tester_B", "h1") ?: "w2"
+        c.check("준비: 두 계정이 서로 다른 노드에서 접속", ready && nodeA != nodeB)
+
+        val t0 = System.currentTimeMillis()
+        workers[nodeA]?.kill()
+        c.check("노드가 죽으면 대기 상태로", waitFor(10000) {
+            a.seen.status("h1").let { it?.state == SessionState.WAITING_RECONNECT && it.message.contains("접속용 서버 연결이 끊겨") }
+        })
+        c.check("죽은 직후 그 계정의 접속이 남아 있지 않음", waitFor(5000) { online(stay) == 1 })
+        val moved = waitFor(45000) { placedOn(master, "Tester", "h1") == nodeB }
+        val took = System.currentTimeMillis() - t0
+        println("        → 다시 배정까지 ${took / 1000}초")
+        c.check("다시 배정은 30초 뒤", moved && took >= 25000)
+        c.check("다른 노드에서 다시 접속", waitFor(25000) { a.seen.status("h1")?.state == SessionState.ONLINE } && waitFor(5000) { online(stay) == 2 })
+
+        workers[nodeB]?.kill()
+        val bothWaiting = waitFor(10000) { a.seen.status("h1")?.state == SessionState.WAITING_RECONNECT && b.seen.status("h1")?.state == SessionState.WAITING_RECONNECT }
+        val noSlot = waitFor(50000) { a.seen.status("h1")?.message?.contains("접속할 자리를 기다리는 중") == true }
+        a.app.putEntry(CloudEntry(id = "h9", name = "자리 없음", address = "127.0.0.1:$walkPort", walkOnJoin = false))
+        c.check("자리가 없으면: 직접 시작은 거절, 잠수 중이던 것은 대기", bothWaiting && noSlot && a.code { it.start("h9") } == "limit")
+        b.app.stop("h1")
+        c.check("대기 중인 잠수를 끊으면 멈춤", waitFor(5000) { b.seen.status("h1")?.state == SessionState.STOPPED })
+        workers["w1"] = startWorker("w1")
+        c.check("노드가 돌아오면 대기 중이던 것만 이어서 접속", waitFor(30000) { a.seen.status("h1")?.state == SessionState.ONLINE } &&
+            waitFor(5000) { online(stay) == 1 } && b.seen.status("h1")?.state == SessionState.STOPPED)
+
+        master.kill()
+        c.check("본 서버가 죽으면 접속용 서버가 잠수를 모두 끊음",
+            workers["w1"]!!.waitLog(Regex("본 서버 연결이 끊겨 잠수 1개를 끊었습니다"), 20000) && waitFor(5000) { online(stay) == 0 })
+        master = startMaster()
+        val a2 = NodeUser(base, "Tester")
+        c.check("본 서버를 다시 켜면 이어서 접속", waitFor(90000) { workers["w1"]!!.count(Regex("본 서버에 연결했습니다")) >= 2 } &&
+            waitFor(60000) { a2.seen.status("h1")?.state == SessionState.ONLINE } && waitFor(5000) { online(stay) == 1 })
+
+        workers["w1"]!!.kill()
+        master.kill()
+        master = startMaster(listOf("-Djamsu.queueMaxMs=15000", "-Djamsu.queueRetryMs=3000"))
+        val a3 = NodeUser(base, "Tester")
+        val parked = waitFor(40000) { a3.seen.status("h1").let { it?.state == SessionState.STOPPED && it.message.contains("접속할 자리가 없어 멈췄습니다") } }
+        workers["w1"] = startWorker("w1")
+        c.check("오래 자리가 없으면 보류, 노드가 붙으면 이어서", parked && waitFor(30000) { a3.seen.status("h1")?.state == SessionState.ONLINE })
+
+        a3.app.deleteAccount()
+        c.check("계정을 지우면 원격 접속도 끊김", waitFor(8000) { online(stay) == 0 })
+        a.close(); b.close(); third.close(); a2.close(); a3.close()
     } finally {
         for (p in Proc.all) p.kill()
     }
