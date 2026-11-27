@@ -163,10 +163,10 @@ class ChatPanel(
         val logCard = ui.card().apply { setPadding(ui.dp(12) + ui.cardPad, ui.dp(8) + ui.cardPad, ui.dp(12) + ui.cardPad, ui.dp(8) + ui.cardPad) }
         list = ListView(activity).apply {
             adapter = this@ChatPanel.adapter
-            // 줄을 길게 누르면: 이 줄의 그림 글자 구성 (칭호·배경 띠 문제 진단용, 복사해서 보낼 수 있음)
+            // 줄을 길게 누르면: 채팅 줄은 신고·숨기기·차단 메뉴, 그 밖의 줄은 그림 글자 구성(칭호·배경 띠 문제 진단용, 복사해서 보낼 수 있음)
             setOnItemLongClickListener { _, _, position, _ ->
                 val line = this@ChatPanel.adapter.getItem(position) as? LogLine ?: return@setOnItemLongClickListener false
-                showGlyphInfo(line)
+                if (line.kind == LogLine.Kind.CHAT) showLineMenu(line) else showGlyphInfo(line)
                 true
             }
             divider = null
@@ -196,6 +196,9 @@ class ChatPanel(
         playerPanel.onUnblock = { player ->
             BlockList.remove(player.name)
             playerPanel.show(SessionHub.players(serverId))
+        }
+        playerPanel.onReport = { player ->
+            Reports.show(activity, ui, serverId, player.name, player.uuid, null) { playerPanel.show(SessionHub.players(serverId)) }
         }
         invPanel = InventoryPanel(activity, ui, serverId)
         statusPanel = StatusPanel(activity, ui)
@@ -372,6 +375,71 @@ class ChatPanel(
     private fun selfName(): String? {
         val server = store.server(serverId) ?: return null
         return if (server.demo) kr.jamsuham.core.demo.DemoServer.NAME else AccountStore(activity).get(server.accountId)?.name
+    }
+
+    /** 채팅 줄을 길게 눌렀을 때: 신고 / 숨기기 / 쓴 사람 차단 / 그림 글자 정보 */
+    private fun showLineMenu(line: LogLine) {
+        val items = arrayOf(
+            tr("이 채팅 신고", "Report this message"),
+            tr("이 채팅 숨기기", "Hide this message"),
+            tr("쓴 사람 차단", "Block the sender"),
+            tr("그림 글자 정보", "Glyph info"),
+        )
+        android.app.AlertDialog.Builder(activity)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> {
+                        val sender = senders(line).singleOrNull()
+                        Reports.show(activity, ui, serverId, sender?.name, sender?.uuid, line.text.plain) { playerPanel.show(SessionHub.players(serverId)) }
+                    }
+                    1 -> SessionHub.hideLine(serverId, line)
+                    2 -> blockSender(line)
+                    3 -> showGlyphInfo(line)
+                }
+            }
+            .show()
+    }
+
+    /** 이 줄을 쓴 것으로 보이는 접속자 (나는 뺀다). 글자로 짐작하므로 없거나 여럿일 수 있다 */
+    private fun senders(line: LogLine): List<kr.jamsuham.core.PlayerInfo> {
+        val players = SessionHub.players(serverId).players
+        val me = selfName()
+        val names = kr.jamsuham.core.text.ChatAuthor.namesIn(line.text.plain, players.map { it.name })
+            .filter { !it.equals(me, ignoreCase = true) }
+        return names.mapNotNull { n -> players.firstOrNull { it.name == n } }.distinctBy { it.name }
+    }
+
+    private fun blockSender(line: LogLine) {
+        val found = senders(line)
+        when {
+            found.size == 1 -> confirmBlock(found[0].name, found[0].uuid)
+            found.size > 1 -> android.app.AlertDialog.Builder(activity)
+                .setTitle(tr("누구를 차단할까요?", "Who do you want to block?"))
+                .setItems(found.map { it.name }.toTypedArray()) { _, i -> confirmBlock(found[i].name, found[i].uuid) }
+                .setNegativeButton(tr("취소", "Cancel"), null)
+                .show()
+            else -> {
+                // 줄에서 접속자 이름을 찾지 못했다: 닉네임을 직접 적는다
+                val nameInput = ui.input(tr("차단할 닉네임", "Nickname to block"))
+                val box = ui.vertical().apply {
+                    setPadding(ui.dp(20), ui.dp(8), ui.dp(20), 0)
+                    addView(ui.hint(tr("이 줄에서 쓴 사람을 찾지 못했습니다. 차단할 닉네임을 적어 주세요.", "Couldn't tell who wrote this line. Enter the nickname to block.")))
+                    addView(nameInput, ui.gap(6))
+                }
+                android.app.AlertDialog.Builder(activity)
+                    .setTitle(tr("쓴 사람 차단", "Block the sender"))
+                    .setView(box)
+                    .setPositiveButton(tr("차단", "Block")) { _, _ ->
+                        val typed = nameInput.text.toString().trim()
+                        if (typed.isNotEmpty()) {
+                            BlockList.add(typed, null)
+                            playerPanel.show(SessionHub.players(serverId))
+                        }
+                    }
+                    .setNegativeButton(tr("취소", "Cancel"), null)
+                    .show()
+            }
+        }
     }
 
     /** 차단: 물어본 뒤 그 사람의 채팅을 숨긴다 (이미 화면에 있던 줄도) */
