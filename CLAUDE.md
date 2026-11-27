@@ -75,6 +75,9 @@
   빌드: `./gradlew -p tools/corebuild :cloud:installDist` → `cloud/build/install/jamsu-cloud/bin/jamsu-cloud <설정파일>`. 주의: 서버가 켜진 채 installDist 하면 jar 가 바뀌어 응답이 깨진다(끄고 빌드)
 - 실제 마이크로소프트 로그인(기기 코드·넘겨받기)은 이 환경에서 시험 못 함(MS 서버 막힘) → 사용자가 서버를 띄운 뒤 확인 필요
 - CI: `build.yml` 이 `:cloud:distZip` 을 릴리스에 `jamsu-cloud.zip` 으로 같이 올림. 앱 기본 주소는 저장소 변수 `CLOUD_URL`
+- **zip 안의 안내문 (v2.1.1)**: 원본은 `cloud/guide/README.txt`(처음 설치하는 운영자용 순서 안내 + 자주 겪는 문제)·`cloud/guide/ASK-CLAUDE.txt`(클로드에 붙여 넣는 질문지의 머리말).
+  `cloud/build.gradle.kts` 의 `writeGuide` 가 CRLF + UTF-8 BOM 으로 바꾸고(옛 메모장 대비) `@VERSION@` 을 채워 zip 에 `README.txt`·`ASK-CLAUDE.txt`(머리말 + README + docs/CLOUD.md 전문)·`docs/CLOUD.md` 로 넣는다.
+  README 는 로그·화면 문구를 그대로 인용하므로 **그 문구·명령·설정 이름을 바꾸면 `cloud/guide/README.txt` 도 같이 고칠 것** (docs/CLOUD.md 는 자동으로 따라 들어감)
 - **v1.7.1 로그인 버그(수정됨 v2.0.0)**: `JavaAuthManager.create(client).login(msaToken)` 에 `.msaApplicationConfig(msaConfig)` 를 안 넘겨 자체 client ID 토큰이 공식 런처 설정으로 처리됨 → 새 계정 추가 실패 가능. 지금은 넘김 (클라우드 `MsAuth` 도 동일)
 
 ## PC 모드 (tools/fastpack-mod)
@@ -126,7 +129,7 @@
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
-## 다음 세션에서 이어서 할 일 (2026-11-27 기준, 앱·클라우드 v2.1.0(2026-11-27 로컬 `main` 에 병합, 브랜치 `feature/cloud-multinode` 는 지움. 원격에 푸시해야 릴리스됨 — 푸시 전이면 올라가 있는 릴리스는 v2.0.1, `git status` 로 확인) / FastPack 0.3.0)
+## 다음 세션에서 이어서 할 일 (2026-11-27 기준, 앱·클라우드 v2.1.1 — v2.1.0(접속용 서버)은 빌드 #73 으로 릴리스됨, v2.1.1 은 zip 안내문 추가 / FastPack 0.3.0)
 - **접속용 서버 실사용 확인 (사용자)**: 본 서버에 `workerPort` 설정 → `data/worker.key` → 다른 컴퓨터에서 `jamsu-cloud worker` → 본 서버 로그 `[노드] 연결됨`·`[배정] … → 이름`, 접속용 서버를 껐을 때 30초 뒤 옮겨지는지
 - **클라우드 잠수 실사용 확인 (사용자)**: 서버 컴퓨터에 jamsu-cloud.zip 설치 → msClientId 입력 → 웹 기기 코드 로그인 / 앱 "연결"(v2.0.0 에서 새로 로그인한 계정) / 클라우드에서 시작·채팅·끊기 /
   폰 잠수 중 클라우드 시작 차단·반대 방향 차단이 실제 폰에서 되는지. HTTPS 공개(Cloudflare 터널 또는 Caddy), 저장소 변수 CLOUD_URL

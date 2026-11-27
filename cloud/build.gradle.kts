@@ -49,3 +49,33 @@ val writeVersion = tasks.register("writeVersion") {
     }
 }
 sourceSets.main { resources.srcDir(writeVersion) }
+
+// 압축 파일에 같이 넣는 안내문 (원본: cloud/guide/, docs/CLOUD.md).
+//   README.txt      처음 설치하는 사람이 차례로 따라 하는 안내
+//   docs/CLOUD.md   전체 설명서 (cloud.properties 의 설명 줄이 가리키는 그 경로)
+//   ASK-CLAUDE.txt  막혔을 때 통째로 클로드(claude.ai)에 붙여 넣는 질문지 = 머리말 + 위 두 문서 전문 (한 번만 붙여 넣으면 되게)
+// 옛 윈도우 메모장에서도 줄이 붙거나 글자가 깨지지 않게 CRLF + UTF-8 BOM 으로 바꿔 넣는다
+val guideOut = layout.buildDirectory.dir("generated/guide")
+val writeGuide = tasks.register("writeGuide") {
+    val readme = file("guide/README.txt")
+    val head = file("guide/ASK-CLAUDE.txt")
+    val manual = file("../docs/CLOUD.md")
+    val out = guideOut
+    val v = appVersion
+    inputs.files(readme, head, manual)
+    inputs.property("version", v)
+    outputs.dir(out)
+    doLast {
+        val bom = "﻿"
+        fun text(f: File) = f.readText(Charsets.UTF_8).removePrefix(bom).replace("\r\n", "\n").replace("@VERSION@", v).trimEnd() + "\n"
+        val dir = out.get().asFile
+        dir.deleteRecursively()
+        fun write(name: String, body: String) = File(dir, name).apply { parentFile.mkdirs() }.writeText(bom + body.replace("\n", "\r\n"), Charsets.UTF_8)
+        val r = text(readme)
+        val m = text(manual)
+        write("README.txt", r)
+        write("docs/CLOUD.md", m)
+        write("ASK-CLAUDE.txt", text(head) + "\n\n===== README.txt (설치 안내) =====\n\n" + r + "\n\n===== docs/CLOUD.md (전체 설명서) =====\n\n" + m)
+    }
+}
+distributions { main { contents { from(writeGuide) } } }

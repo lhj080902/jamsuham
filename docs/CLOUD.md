@@ -29,6 +29,9 @@ GitHub 릴리스(https://github.com/lhj080902/jamsuham/releases)의 최신 빌�
 
 ```
 jamsu-cloud/
+  README.txt             ← 처음 설치하는 사람이 차례로 따라 하는 안내 (자바 설치부터, 자주 겪는 문제 포함)
+  ASK-CLAUDE.txt         ← 막혔을 때 통째로 클로드(claude.ai)에 붙여 넣어 물어보는 질문지
+  docs/CLOUD.md          ← 이 문서
   bin/jamsu-cloud        ← 리눅스·맥 실행 파일
   bin/jamsu-cloud.bat    ← 윈도우 실행 파일
   lib/                   ← 프로그램
@@ -166,7 +169,7 @@ cloud.example.com {
 
 ## 11. 업데이트
 1. 서버를 끕니다 (Ctrl+C. 잠수 중이던 서버는 기억해 두었다가 다시 켜면 2초 간격으로 이어서 접속합니다)
-2. 새 `jamsu-cloud.zip` 을 풀어 **`bin`·`lib` 폴더를 덮어씁니다.** `cloud.properties` 와 `data/` 는 그대로 둡니다.
+2. 새 `jamsu-cloud.zip` 을 같은 자리에 **덮어 풉니다** (`bin`·`lib`·안내문이 바뀝니다). 압축 안에는 `cloud.properties` 와 `data/` 가 없으므로 설정과 데이터는 그대로 남습니다.
 3. 다시 켭니다.
 
 접속용 서버를 쓰고 있다면 **본 서버와 접속용 서버를 같은 버전으로** 맞춥니다. 본 서버를 먼저 바꾸고 접속용 서버를 하나씩 바꾸면 됩니다 (형식이 달라진 업데이트에서는 버전이 다른 접속용 서버를 본 서버가 받지 않고, 접속용 서버 로그에 그 이유가 찍힙니다).

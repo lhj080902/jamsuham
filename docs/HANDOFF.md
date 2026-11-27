@@ -10,8 +10,7 @@
 | 기본 브랜치 | `main` — 여기에 올리면 자동으로 빌드·릴리스됩니다 |
 | 이번 세션 작업 브랜치 | `claude/sharp-mayer-fqughq` (내용은 main 과 같음) |
 | 릴리스(다운로드) | https://github.com/lhj080902/jamsuham/releases — `jamsuham.apk`(앱), `jamsu-cloud.zip`(클라우드 서버) |
-| 지금 버전 | 앱·클라우드 **v2.0.1** (빌드 #71), PC 모드 FastPack **0.3.0** |
-| 준비된 다음 버전 | **v2.1.0** — 클라우드 접속용 서버. 2026-11-27 로컬 `main` 에 합침 (브랜치 `feature/cloud-multinode` 는 지움). **원격에는 아직 올리지 않음** → `git push` 하면 릴리스됨 |
+| 지금 버전 | 앱·클라우드 **v2.1.1**, PC 모드 FastPack **0.3.0** (v2.1.0 = 빌드 #73: 클라우드 접속용 서버 / v2.1.1: `jamsu-cloud.zip` 안에 설치 안내 `README.txt`·클로드 질문지 `ASK-CLAUDE.txt`) |
 | 패키지 이름 | `kr.jamsuham.app` (앱 이름은 "잠수크래프트", 코드 안 이름은 jamsuham 그대로) |
 | 연락 이메일(공개용) | limhj080902@naver.com |
 
