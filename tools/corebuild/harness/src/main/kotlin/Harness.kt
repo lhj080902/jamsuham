@@ -374,6 +374,7 @@ fun main(args: Array<String>) {
         "wire" -> ok = wireTest()
         "chatlimit" -> ok = chatLimitTest()
         "sched" -> ok = schedTest()
+        "linkcrypto" -> ok = linkCryptoTest()
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)
