@@ -241,9 +241,9 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             ServerInfos.icon(this, s.id)?.let { views.icon.setImageBitmap(it) }
             val info = ServerInfos.info(s.id)
             views.motd.setTextIfChanged(when {
-                info == null -> s.address
+                info == null -> s.addressLabel
                 info.motd.isNotBlank() -> info.motd.lines().joinToString(" ") { it.trim() } + tr("  ·  ${info.online}/${info.max}명", "  ·  ${info.online}/${info.max} online")
-                else -> tr("${s.address}  ·  ${info.online}/${info.max}명", "${s.address}  ·  ${info.online}/${info.max} online")
+                else -> tr("${s.addressLabel}  ·  ${info.online}/${info.max}명", "${s.addressLabel}  ·  ${info.online}/${info.max} online")
             })
             val st = SessionHub.status(s.id)
             val (label, color) = when (st.state) {
@@ -257,7 +257,8 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             if (st.state == SessionState.ONLINE) st.onlineSinceMs?.let { parts.add(Formats.minutes(now - it)) }
             if (st.state == SessionState.WAITING_RECONNECT) st.nextAttemptAtMs?.let { parts.add(tr("${((it - now).coerceAtLeast(0)) / 1000}초 뒤", "in ${((it - now).coerceAtLeast(0)) / 1000}s")) }
             if (st.reconnectCount > 0 && st.state.isActive()) parts.add(tr("재접속 ${st.reconnectCount}회", "${st.reconnectCount} reconnects"))
-            accounts.get(s.accountId)?.let { parts.add(it.name) } ?: parts.add(tr("계정 없음", "No account"))
+            if (s.demo) parts.add(tr("체험 · 로그인 필요 없음", "Demo · no sign-in needed"))
+            else accounts.get(s.accountId)?.let { parts.add(it.name) } ?: parts.add(tr("계정 없음", "No account"))
             // 클라우드 잠수용 서버 표시, 그리고 같은 서버가 다른 매체에서 돌고 있으면 알려 준다
             // (클라우드와 연결이 끊겨 있으면 보이는 상태가 마지막으로 받은 것이므로 그렇다고 표시)
             if (s.cloud) parts.add(0, tr("☁ 클라우드", "☁ Cloud") + (CloudHub.linkProblem(s.accountId)?.let { " ($it)" } ?: ""))
@@ -280,6 +281,12 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             empty.addView(ui.text(tr("아직 서버가 없습니다", "No servers yet"), 16f, bold = true))
             empty.addView(ui.text(tr("오른쪽 위 '+ 서버'를 눌러 잠수할 서버를 추가하세요", "Tap '+ Server' at the top right to add a server to AFK on"), 13f, ui.p.muted).apply { setPadding(0, ui.dp(6), 0, ui.dp(10)) })
             empty.addView(ui.button(tr("+ 서버 추가", "+ Add server"), "primary") { openEditor(null) }, ui.lp(Ui.WRAP, ui.dp(44)))
+            // 계정이 없어도 앱을 써 볼 수 있게: 앱 안 연습용 서버를 목록에 넣는다
+            empty.addView(ui.button(tr("로그인 없이 체험해 보기", "Try without signing in"), "plain") {
+                val demo = Demo.add(store)
+                if (isWide()) select(demo.id) else renderList()
+            }, ui.lp(Ui.WRAP, ui.dp(44)).apply { topMargin = ui.dp(8) })
+            empty.addView(ui.hint(tr("체험은 앱 안에서 도는 연습용 서버에 접속합니다. 실제 서버에 접속하려면 마인크래프트 자바 에디션이 있는 마이크로소프트 계정이 필요합니다.", "The demo connects to a practice server that runs inside the app. To join real servers you need a Microsoft account that owns Minecraft: Java Edition.")))
             listBox.addView(empty, ui.lp())
             return
         }
@@ -309,7 +316,7 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             nameRow.addView(dot, ui.lp(ui.dp(9), ui.dp(9)).apply { rightMargin = ui.dp(6) })
             nameRow.addView(ui.marquee(ui.text(s.displayName, 17f, bold = true)), ui.lp(0, Ui.WRAP, 1f))
             texts.addView(nameRow)
-            val motd = ui.marquee(ui.text(s.address, 12f, ui.p.muted))
+            val motd = ui.marquee(ui.text(s.addressLabel, 12f, ui.p.muted))
             texts.addView(motd)
             val detail = ui.marquee(ui.text("", 12f, ui.p.muted)).apply { setPadding(0, ui.dp(2), 0, 0) }
             texts.addView(detail)

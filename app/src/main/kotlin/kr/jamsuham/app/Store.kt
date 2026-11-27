@@ -35,8 +35,16 @@ data class ServerEntry(
     val walkOnJoin: Boolean = true,
     /** 클라우드에서 잠수 (폰을 꺼도 클라우드 서버가 계속 접속해 있음. 프리미엄, 계정을 클라우드에 연결해야 함) */
     val cloud: Boolean = false,
+    /** 앱 안 체험 서버 (로그인 없이 써 보기, [Demo]). 주소·계정이 없고 앱 안에서 켜지는 연습용 서버에 붙는다 */
+    val demo: Boolean = false,
 ) {
-    val displayName: String get() = name.ifBlank { address.ifBlank { tr("이름 없는 서버", "Unnamed server") } }
+    val displayName: String get() = name.ifBlank { if (demo) tr("체험 서버", "Demo server") else address.ifBlank { tr("이름 없는 서버", "Unnamed server") } }
+
+    /** 목록에 주소 대신 보일 글 (체험 서버는 주소가 없다) */
+    val addressLabel: String get() = if (demo) tr("앱 안 연습용 서버", "Practice server inside the app") else address
+
+    /** 실제로 접속할 주소. 체험 서버는 앱 안에서 켜지는 주소라 켤 때마다 포트가 바뀐다 (꺼져 있으면 여기서 켠다) */
+    val connectAddress: String get() = if (demo) kr.jamsuham.core.demo.DemoServer.address() else address
 
     /** 클라우드에 올리는 모양 (잠수에 필요한 설정만) */
     fun cloudEntry() = kr.jamsuham.core.cloud.CloudEntry(
@@ -54,11 +62,11 @@ data class ServerEntry(
     )
 
     fun sessionConfig() = SessionConfig(
-        address = address,
+        address = connectAddress,
         fixedVersion = fixedVersion,
         autoReconnect = autoReconnect,
         reconnectOnKick = reconnectOnKick,
-        joinCommands = joinCommands.map { it.trim() }.filter { it.isNotEmpty() }.take(10),
+        joinCommands = if (demo) listOf(tr("/잠수", "/afk")) else joinCommands.map { it.trim() }.filter { it.isNotEmpty() }.take(10),
         joinCommandDelaySec = joinDelaySec.coerceIn(0, 120),
         joinCommandIntervalSec = joinIntervalSec.coerceIn(0, 120),
         autoClickRules = (autoClickRules ?: emptyList()).mapNotNull { kr.jamsuham.core.AutoClickRule.parse(it) },

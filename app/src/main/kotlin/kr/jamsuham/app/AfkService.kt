@@ -16,9 +16,13 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import kr.jamsuham.core.CredentialsProvider
+import kr.jamsuham.core.JoinCredentials
 import kr.jamsuham.core.LogLine
+import kr.jamsuham.core.SessionConfig
 import kr.jamsuham.core.SessionState
 import kr.jamsuham.core.SessionStatus
+import kr.jamsuham.core.demo.DemoServer
 
 /**
  * 화면이 꺼져도 접속을 유지하는 포그라운드 서비스. 잠수 중인 서버가 하나라도 있으면 살아 있다.
@@ -137,14 +141,29 @@ class AfkService : Service() {
         val server = store.server(serverId) ?: return false
         // 클라우드에서 잠수하는 서버는 이 폰에서 접속하지 않는다 (예전 "이어서 잠수" 기록에 남아 있던 경우 등)
         if (server.cloud) return false
-        val accountId = server.accountId
-        if (accountId == null || accounts.get(accountId) == null) {
-            SessionHub.note(serverId, tr("이 서버에 사용할 계정이 없습니다. 서버 설정에서 계정을 골라 주세요", "No account set for this server. Please choose one in the server settings"), LogLine.Kind.ERROR)
-            return false
+        val credentials: CredentialsProvider
+        val config: SessionConfig
+        if (server.demo) {
+            // 체험 서버: 계정 없이 지어낸 이름으로 앱 안 연습용 서버에 붙는다. 비정품 이름은 여기서만 만든다 (실제 서버에는 쓰지 않는다)
+            credentials = CredentialsProvider { JoinCredentials.offline(DemoServer.NAME) }
+            config = try {
+                server.sessionConfig()
+            } catch (t: Throwable) {
+                SessionHub.note(serverId, tr("체험 서버를 켜지 못했습니다: ${t.message}", "Couldn't start the demo server: ${t.message}"), LogLine.Kind.ERROR)
+                return false
+            }
+        } else {
+            val accountId = server.accountId
+            if (accountId == null || accounts.get(accountId) == null) {
+                SessionHub.note(serverId, tr("이 서버에 사용할 계정이 없습니다. 서버 설정에서 계정을 골라 주세요", "No account set for this server. Please choose one in the server settings"), LogLine.Kind.ERROR)
+                return false
+            }
+            credentials = accounts.provider(accountId)
+            config = server.sessionConfig()
         }
         acquireLocks()
         registerNetwork()
-        SessionHub.start(this, serverId, server.sessionConfig(), accounts.provider(accountId))
+        SessionHub.start(this, serverId, config, credentials)
         store.setActive(SessionHub.activeIds())
         main.removeCallbacks(ticker)
         main.post(ticker)

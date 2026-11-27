@@ -52,6 +52,10 @@ class ServerEditActivity : BaseActivity() {
         store = Store(this)
         accounts = AccountStore(this)
         original = intent.getStringExtra(EXTRA_ID)?.let { store.server(it) }
+        original?.takeIf { it.demo }?.let {
+            buildDemoEditor(it)
+            return
+        }
         val s = (original ?: ServerEntry(
             packGlyphs = AppSettings.defaultPackGlyphs,
             packWifiOnly = AppSettings.defaultPackWifiOnly,
@@ -299,6 +303,36 @@ class ServerEditActivity : BaseActivity() {
         CloudHub.entrySaved(this, before, entry)
         if (SessionHub.isActive(entry.id)) toast(tr("저장했습니다. 바뀐 설정은 다음 접속부터 적용됩니다", "Saved. Changes apply from the next connection")) else toast(tr("저장했습니다", "Saved"))
         finish()
+    }
+
+    /** 체험 서버: 이름을 바꾸거나 지우는 것만 (주소·계정·자동 명령어는 정해져 있다) */
+    private fun buildDemoEditor(s: ServerEntry) {
+        val root = ui.vertical()
+        val header = ui.horizontal()
+        header.addView(ui.button("←", "ghost") { finish() }, ui.lp(ui.dp(48), ui.dp(44)))
+        header.addView(ui.title(tr("체험 서버", "Demo server")), ui.lp(0, Ui.WRAP, 1f))
+        header.addView(ui.button(tr("저장", "Save"), "primary") {
+            // 다른 값은 그대로 두고 이름만 바꾼다
+            store.saveServer(s.copy(name = nameInput.text.toString().trim()))
+            toast(tr("저장했습니다", "Saved"))
+            finish()
+        }, ui.lp(Ui.WRAP, ui.dp(42)))
+        root.addView(header)
+        val card = ui.card()
+        card.addView(ui.section(tr("서버", "Server")))
+        card.addView(ui.label(tr("이름 (목록에 보이는 이름)", "Name (shown in the list)")))
+        nameInput = ui.input(tr("체험 서버", "Demo server")).apply { setText(s.name) }
+        card.addView(nameInput, ui.lp())
+        card.addView(ui.hint(tr(
+            "앱 안에서 도는 연습용 서버입니다. 로그인 없이 채팅·지도·인벤토리·접속자·서버 메뉴 화면을 써 볼 수 있습니다. " +
+                "인터넷의 실제 서버가 아니며, 보이는 서버 이름과 닉네임은 모두 지어낸 것입니다.",
+            "A practice server that runs inside the app. You can try the chat, map, inventory, players and server menu screens without signing in. " +
+                "It isn't a real server on the internet, and every server name and nickname shown is made up.",
+        )))
+        root.addView(card, ui.lp().apply { topMargin = ui.dp(8) })
+        root.addView(ui.button(tr("이 서버 삭제", "Delete this server"), "danger") { confirmDelete() }, ui.gap(16))
+        setupWindow(root, ui.p)
+        setContentView(root)
     }
 
     private fun confirmDelete() {

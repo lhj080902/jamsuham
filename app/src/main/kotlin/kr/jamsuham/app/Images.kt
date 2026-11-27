@@ -137,11 +137,11 @@ object ServerInfos {
 
     /** 백그라운드에서 핑. 끝나면 onDone 을 메인 스레드에서 부른다 */
     fun refresh(context: Context, server: ServerEntry, onDone: () -> Unit) {
-        if (server.address.isBlank() || !running.add(server.id)) return
+        if ((server.address.isBlank() && !server.demo) || !running.add(server.id)) return
         val app = context.applicationContext
         pool.execute {
             try {
-                val target = AddressResolver.resolve(server.address, AndroidDns(app))
+                val target = AddressResolver.resolve(server.connectAddress, AndroidDns(app))
                 val ping = StatusPinger.ping(target, ViaSetup.NATIVE_PROTOCOL, 5000)
                 infos[server.id] = ServerInfo(ping.motd.plain.trim(), ping.online, ping.max, ping.versionName, System.currentTimeMillis())
                 ping.favicon?.let { bytes ->

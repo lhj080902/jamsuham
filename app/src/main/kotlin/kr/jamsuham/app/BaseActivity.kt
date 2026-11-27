@@ -36,6 +36,8 @@ abstract class BaseActivity : Activity(), Starter {
     private fun startServer(serverId: String, checkLimit: Boolean, cloudChecked: Boolean = false): Boolean {
         val store = Store(this)
         val server = store.server(serverId) ?: return false
+        // 체험 서버: 주소·계정·클라우드 확인 없이 바로 (동시 잠수 제한과 알림 권한은 같다)
+        if (server.demo) return startLocal(store, server, checkLimit)
         if (server.address.isBlank()) {
             toast(tr("서버 주소를 먼저 입력해 주세요", "Please enter the server address first"))
             openEditor(serverId)
@@ -81,6 +83,12 @@ abstract class BaseActivity : Activity(), Starter {
             if (!immediate) toast(tr("클라우드에서 실행 중인지 확인하는 중…", "Checking whether it's running in the cloud…"))
             if (!immediate || blocked) return false
         }
+        return startLocal(store, server, checkLimit)
+    }
+
+    /** 이 폰에서 잠수 시작: 동시 잠수 제한 → 알림 권한 → 서비스 */
+    private fun startLocal(store: Store, server: ServerEntry, checkLimit: Boolean): Boolean {
+        val serverId = server.id
         // 무료 버전: 동시에 잠수할 수 있는 서버 수 제한
         val others = SessionHub.activeIds() - serverId
         if (checkLimit && others.size >= Plan.maxConcurrent(this)) {

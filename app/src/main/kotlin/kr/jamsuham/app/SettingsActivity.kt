@@ -157,6 +157,14 @@ class SettingsActivity : BaseActivity() {
         app.addView(ui.section(tr("앱", "App")))
         app.addView(ui.text(tr("잠수크래프트 ", "Jamsucraft ") + Updater.versionLabel(this), 14f, p.muted))
         app.addView(ui.button(tr("정보 · 라이선스 · 개인정보처리방침", "About · Licenses · Privacy"), "plain") { AppInfo.show(this, ui) }, ui.gap(8).apply { height = ui.dp(44) })
+        // 체험 서버(로그인 없이 써 보기)를 지운 뒤 다시 넣을 수 있게
+        if (!Demo.exists(Store(this))) {
+            app.addView(ui.button(tr("체험 서버 추가", "Add demo server"), "plain") {
+                Demo.add(Store(this))
+                toast(tr("서버 목록에 체험 서버를 추가했습니다", "Added the demo server to the list"))
+                rebuild()
+            }, ui.gap(8).apply { height = ui.dp(44) })
+        }
         if (!Flavor.PLAY && Build.VERSION.SDK_INT >= 23) {
             app.addView(ui.button(tr("배터리 최적화 설정", "Battery optimization settings"), "plain") {
                 try {
@@ -255,7 +263,7 @@ class SettingsActivity : BaseActivity() {
 
     private fun applyToAll() {
         val store = Store(this)
-        val list = store.servers()
+        val list = store.servers().filter { !it.demo } // 체험 서버의 설정은 정해져 있다
         if (list.isEmpty()) {
             toast(tr("저장된 서버가 없습니다", "No saved servers"))
             return
