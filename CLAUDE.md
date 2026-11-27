@@ -80,6 +80,26 @@
   README 는 로그·화면 문구를 그대로 인용하므로 **그 문구·명령·설정 이름을 바꾸면 `cloud/guide/README.txt` 도 같이 고칠 것** (docs/CLOUD.md 는 자동으로 따라 들어감)
 - **v1.7.1 로그인 버그(수정됨 v2.0.0)**: `JavaAuthManager.create(client).login(msaToken)` 에 `.msaApplicationConfig(msaConfig)` 를 안 넘겨 자체 client ID 토큰이 공식 런처 설정으로 처리됨 → 새 계정 추가 실패 가능. 지금은 넘김 (클라우드 `MsAuth` 도 동일)
 
+## 체험 서버 · 약관 · 차단/신고 · 버리기 잠금 (v2.3.0, Play 심사 대비)
+설계 `docs/superpowers/specs/2026-11-27-play-review-readiness-design.md`. Play 심사자가 마이크로소프트 로그인(처음 보는 기기의 메일 코드, 끌 수 없음)에 막히지 않게 하고, 채팅 앱에 요구되는 약관 동의·차단·신고를 넣은 것.
+- **체험 서버**: `core/demo/DemoServer.kt` 가 앱 안에서 **127.0.0.1 의 임의 포트로만** 여는 네티 서버 (밖에서 못 붙음). `DemoScene.kt` 가 녹화해 둔 1.21.4 패킷
+  (`core/src/main/resources/jamsuham/demo/scene-ko.bin.gz`·`scene-en.bin.gz`)을 그대로 다시 보내고, 채팅 되돌림·`/메뉴`(`/menu`)·`/잠수`(`/afk`)·메뉴 누르기·아이템 버리기·사용만 그때그때 답한다. 언어는 접속할 때의 `Lang.english`.
+  앱: `Demo.kt`(서버 항목 id `demo`, `ServerEntry.demo`), 빈 목록의 "로그인 없이 체험해 보기"·설정의 "체험 서버 추가". **비정품 이름 접속은 `AfkService.begin` 의 체험 분기(이름 `Jamsu_Diver`)에서만** — 실제 서버에는 여전히 정품 계정만.
+  - 다시 녹화 (장면 `tools/test-server/showcase.js` 를 바꿨거나 앱이 말하는 프로토콜(지금 769)을 올렸을 때):
+    `cd tools/test-server && DEMO=1 [SCENE_LANG=en] SHOWCASE_MENU_FILE=<파일> node server.js 1.21.4 <포트> showcase` 를 띄우고 `node tools/demo/record.js <포트> <메뉴 파일> <출력.bin.gz>` (한국어·영어 한 번씩).
+    파일 형식: gzip 안에 `[구간 1바이트][기다릴 ms varint][길이 varint][패킷 번호 + 내용]` 반복, 구간 0 로그인·1 설정·2 플레이·3 메뉴·4 인벤토리 칸. `DEMO` 없이 띄운 showcase 는 스토어 스크린샷용 그대로다
+- **이용 약관**: `Terms.kt` (`VERSION`, prefs `jamsuham_settings` 의 `terms_accepted`), 글은 `assets/legal/terms.md`·`terms-en.md`. `BaseActivity` 가 모든 화면에서 동의 창을 띄우고(닫을 수 없음, 동의하지 않으면 앱 종료) 정보 화면에서 다시 볼 수 있다.
+  약관을 고치면 `Terms.VERSION` 을 올린다 → 모두 다시 동의. 스크린샷 모드는 자동 동의
+- **차단**: `BlockList.kt` (prefs `jamsuham_blocks`, 앱 전체에서 하나). 차단한 사람의 채팅 줄은 `SessionHub.publishLine`·`remoteLine` 에서 걸러 화면에도 채팅 기록 파일에도 남기지 않는다.
+  누가 쓴 줄인지는 글자로 판단 — `core/text/ChatAuthor.kt` (줄 앞쪽 "쓴 사람 자리"에 닉네임이 낱말로 있는지. 닉네임이 흔한 낱말이면 다른 줄도 숨는 한계가 있음). 접속자 탭 줄마다 [차단]·[신고] (내 줄 제외), 설정 → 차단한 사용자
+- **신고**: `Reports.kt` — 내용을 채운 **메일 작성 화면**을 연다 (`AppInfo.CONTACT_EMAIL`, 앱이 직접 보내는 것은 없음. 메일 앱이 없으면 복사 + 주소 안내). 채팅 줄 길게 누르기 = 이 채팅 신고 / 숨기기 / 쓴 사람 차단 / 그림 글자 정보
+- **아이템 버리기 잠금**: `DropLocks.kt` (prefs `jamsuham_locks`, 서버별). 열쇠 `ItemNames.lockKey` = 아이템 종류 + 서버가 붙인 이름 (기본 이름은 뺌 → 앱 언어를 바꿔도 유지). `SessionHub.dropItem` 에서도 막는다. 사용은 안 막음
+- **왕복형 이름**: `Ui.pingPong` (접속자 탭 이름만. 끝까지 갔다가 되돌아옴). 다른 곳은 `Ui.marquee` 그대로
+- **Play 판에는 클라우드 잠수가 없다**: `Flavor.PLAY` 면 설정의 클라우드 카드·서버 설정의 클라우드 카드를 넣지 않고 `CloudHub.onForeground()` 를 부르지 않는다 (GitHub 판은 그대로). 그래서 Play 데이터 보안 신고는 "수집 안 함". 다시 넣으면 신고를 바꿔야 함 (`docs/store-listing.md`)
+- 시험: 서버 없이 `harness demo`(12: 핑·접속·장면·채팅 되돌림·메뉴·버리기·다시 켜기·언어·127.0.0.1 만)·`harness blockmatch`(17)·`harness lockkey`(15).
+  앱 화면은 `.github/workflows/smoke.yml` (직접 실행 또는 `play-review` 브랜치에 푸시) → `tools/screenshots/smoke.sh` 가 **스크린샷 모드가 꺼진** Play 판 디버그 빌드를 에뮬레이터에서 눌러 본다
+  (약관 거절·동의 → 체험 → 잠금 → 차단 → 신고 → 화면 끄기). 아티팩트 `smoke-shots` 의 그림과 `log.txt`(`찾지 못함` 이 없어야 함, `isForeground=true`)
+
 ## PC 모드 (tools/fastpack-mod)
 - FastPack 0.3.0: ⓪ 게임을 다시 켜도 — `FastPackState` 가 마지막 서버 팩(UUID·경로·서버 주소)을 config/fastpack-lastpack.properties 에 저장,
   `DownloadedPackSource.<init>` TAIL 에서 그 팩을 packSource 에 넣어 첫 로딩에 포함 → 같은 서버 접속 시 건너뜀 (config/fastpack.properties keepAcrossRestart=false 로 끔)
@@ -119,7 +139,7 @@
   을 compileOnly 로 두고 Kotlin 컴파일만 확인 (APK 빌드는 GitHub Actions)
   - 앱 컴파일 확인: `./gradlew -p tools/corebuild :appcheck:compileKotlin -Pflavor=github` (그리고 `-Pflavor=play`). 출력이 없으면 성공
   - 시험 프로그램: `./gradlew -p tools/corebuild :harness:installDist` → `tools/corebuild/harness/build/install/harness/bin/harness <모드> [포트]`
-    모드: dupe, authkick, vitals, click, drop, walk, stick, miny, world, deathparse, packtest, packnet, overlay, report, prune, spaces, png, msa …
+    모드: dupe, authkick, vitals, click, drop, walk, stick, miny, world, deathparse, packtest, packnet, overlay, report, prune, spaces, png, msa, demo, blockmatch, lockkey …
     (테스트 서버를 먼저 띄움: `node tools/test-server/server.js 1.21.4 <포트> <시나리오>`, 팩은 `node tools/test-server/pack/serve.js <포트> <zip>`,
     시험 팩은 `cd tools/test-server/pack && python3 make.py`. `EN=1` 이면 영어 모드, 임시 폴더는 `HARNESS_TMP`)
 - 지원 버전 확인됨: 1.8.8, 1.12.2, 1.20.x, 1.21.4, 1.21.8, 26.1 (테스트 서버 기준)
@@ -134,7 +154,10 @@
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
-## 다음 세션에서 이어서 할 일 (2026-11-27 기준, 앱·클라우드 v2.1.1 — v2.1.0(접속용 서버)은 빌드 #73 으로 릴리스됨, v2.1.1(zip 안내문 추가)은 빌드 #74 로 릴리스됨 / FastPack 0.3.0)
+## 다음 세션에서 이어서 할 일 (2026-11-28 기준, 앱 v2.3.0(Play 심사 대비: 체험 서버·약관·차단/신고·버리기 잠금) — v2.1.0(접속용 서버)은 빌드 #73, v2.1.1(zip 안내문 추가)은 빌드 #74 로 릴리스됨 / FastPack 0.3.0)
+- **Play 심사 제출 (사용자, v2.3.0 을 올린 뒤)**: Play 판 AAB(`jamsuham-play-aab` 아티팩트)를 올리고, Play Console 의 로그인 세부정보 "기타 정보"를 체험 방법이 든 새 영어 글로,
+  콘텐츠 등급 설문의 차단·신고 항목을 "예"로, 데이터 보안("수집 안 함") 저장 — 글은 `docs/store-listing.md` 2번. 실제 폰에서 체험 서버 → 알림 → 화면 끄기 → 끊기 한 번.
+  이용 약관(`assets/legal/terms.md`)은 초안이라 사용자가 읽어 보고 고칠 수 있다 (고치면 `Terms.VERSION` 을 올림). 신고 메일 주소는 개인정보처리방침의 문의 주소(`AppInfo.CONTACT_EMAIL`)
 - **접속용 서버 실사용 확인 (사용자)**: 본 서버에 `workerPort` 설정 → `data/worker.key` → 다른 컴퓨터에서 `jamsu-cloud worker` → 본 서버 로그 `[노드] 연결됨`·`[배정] … → 이름`, 접속용 서버를 껐을 때 30초 뒤 옮겨지는지
 - **클라우드 잠수 실사용 확인 (사용자)**: 서버 컴퓨터에 jamsu-cloud.zip 설치 → msClientId 입력 → 웹 기기 코드 로그인 / 앱 "연결"(v2.0.0 에서 새로 로그인한 계정) / 클라우드에서 시작·채팅·끊기 /
   폰 잠수 중 클라우드 시작 차단·반대 방향 차단이 실제 폰에서 되는지. HTTPS 공개(Cloudflare 터널 또는 Caddy), 저장소 변수 CLOUD_URL

@@ -36,10 +36,14 @@
 · 채팅 기록 30일 보관 · 파일로 저장
 · 1.8 ~ 최신 버전 서버 지원, 정품(마이크로소프트) 계정으로 접속
 · 태블릿 두 칸 화면
+· 로그인 없이 써 보는 체험 서버 (앱 안의 연습용 서버)
+· 다른 사용자 차단·신고, 채팅 줄 숨기기
+· 실수로 버리지 않게 아이템별 버리기 잠금
 
 ■ 안내
 · 서버마다 잠수나 비공식 클라이언트에 대한 규칙이 다를 수 있습니다. 서버 규칙을 확인하고 사용해 주세요.
 · 로그인 정보·서버 목록·채팅 기록은 기기에만 저장되며 개발자에게 전송되지 않습니다.
+· 채팅은 접속한 서버의 다른 이용자가 쓴 글입니다. 불쾌한 이용자는 접속자 탭이나 채팅 줄을 길게 눌러 차단·신고할 수 있습니다.
 · 이 앱은 오픈소스(GPL-3.0)입니다: https://github.com/lhj080902/jamsuham
 
 NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
@@ -49,6 +53,7 @@ NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR 
 **카테고리**: 앱 → 도구 (또는 커뮤니케이션)
 **연락처 이메일**: limhj080902@naver.com
 **개인정보처리방침 URL**: `https://github.com/lhj080902/jamsuham/blob/main/app/src/main/assets/legal/privacy-policy.md`
+**이용 약관** (v2.3.0~, 앱 첫 실행 때 동의를 받음. 스토어에 따로 넣는 칸은 없고, 물어보면 이 주소): `https://github.com/lhj080902/jamsuham/blob/main/app/src/main/assets/legal/terms.md` (영어 `terms-en.md`)
 
 
 **그래픽**
@@ -62,17 +67,40 @@ NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR 
 
 **광고**: 광고 없음
 
-**앱 액세스 (심사자 로그인 안내)**: v1.7.1 부터 비정품 접속을 뺐으므로 서버 접속에는 **마인크래프트 자바 에디션을 산 마이크로소프트 계정**이 꼭 필요합니다.
-"모든 기능 또는 일부 기능이 제한됨"을 선택하고, 심사용 계정 정보(아이디·비밀번호)와 아래 안내를 적습니다.
-심사용 계정은 2단계 인증을 끄거나(또는 심사자가 받을 수 있는 방법을 적고), 본인 주 계정이 아닌 심사 전용 계정을 쓰는 것이 안전합니다.
+**앱 액세스 (로그인 세부정보, 심사자 안내)** (v2.3.0~): 실제 서버 접속에는 **마인크래프트 자바 에디션을 산 마이크로소프트 계정**이 필요하지만,
+마이크로소프트가 처음 보는 기기의 로그인에 메일 코드를 요구할 수 있어(끌 수 없음) 심사자가 막힐 수 있습니다. 그래서 **체험 서버**(로그인 없이 앱 안의 연습용 서버에 접속)를 넣었습니다 —
+심사자는 계정 없이도 채팅·지도·인벤·접속자·상태 화면과 알림(포그라운드 서비스)을 모두 볼 수 있습니다.
+"앱의 전체 또는 일부 기능이 제한됨"을 고르고, 심사용 계정(이름 `Minecraft test account`, 아이디·비밀번호)과 함께 "앱에 액세스하는 데 필요한 기타 정보" 칸에 아래 영어 글을 넣습니다.
+꺾쇠 두 곳(`<server address>`, `<YouTube link>`)만 실제 값으로 바꿉니다. 영상이 없으면 마지막 문장("Demo video …")만 지웁니다.
 ```
-1. 설정(⚙) → 계정 추가 → "마이크로소프트 계정으로 로그인" → 아래 심사용 계정으로 로그인
-2. 첫 화면 + 서버 → 서버 주소에 공개 마인크래프트 자바 서버 주소 입력 (예: <공개 서버 주소>)
-3. 시작 버튼 → 잠수 시작, 알림이 뜨고 화면을 꺼도 유지됩니다.
+This app is a chat/AFK client for Minecraft: Java Edition servers.
+
+A) Demo mode - no account needed (recommended for review)
+1. Open the app, read the Terms of Use and tap "Agree and start".
+2. On the empty server list tap "Try without signing in". A "Demo server" is added. It is a practice server that runs inside the app.
+3. Tap "Start" and allow notifications. A persistent notification appears and the connection is kept while the screen is off.
+4. All screens work: Chat (send a message, tap "[Open menu]"), Map, Inv (Use / Drop / Lock an item), Players (Block / Report next to each player), Status. Long-press a chat line to report or hide it or to block its sender.
+5. Tap "Disconnect" in the app or in the notification to stop.
+(If the server list is not empty: "Settings" > "Add demo server".)
+
+B) Real server with the test account above
+1. "Settings" > "Add account" > "Sign in with Microsoft" > sign in with the test account. 2-step verification is OFF on this account.
+2. First screen > "+ Server" > Address: <server address> > choose the account > "Save".
+3. Tap "Start".
+
+Note: Microsoft may ask for an extra verification code when this account signs in from a new device. This is Microsoft's automatic protection and we cannot turn it off. If that happens, please use the demo mode (A): it shows the same screens and features without signing in. Demo video of the real sign-in flow: <YouTube link>
 ```
-(심사자가 계정을 쓸 수 없을 때를 대비해 잠수 시작 → 화면 꺼짐 유지 → 채팅까지 찍은 시연 영상 링크도 함께 적어 두면 좋습니다.)
+칸에 글자 수 제한이 있어 위 글이 다 들어가지 않으면 아래 짧은 글을 씁니다 (500자 이내):
+```
+No account needed: open the app > "Agree and start" > "Try without signing in" > "Start" (allow notifications). This demo server runs inside the app and shows every screen: Chat, Map, Inv, Players (Block/Report), Status. "Disconnect" stops it. Real servers need the test account above ("Settings" > "Add account"); Microsoft may ask it for an email code on a new device, which we cannot turn off - please use the demo in that case.
+```
+맨 아래 "전체 액세스 권한을 제공합니다" 체크: Play 판에는 유료 기능도 클라우드 잠수도 없으므로(v2.3.0 에서 숨김) 체크해도 사실과 맞습니다.
 
 **콘텐츠 등급(IARC)**: 앱 종류 "기타/유틸리티". 다른 사용자와 채팅할 수 있으므로 "사용자 간 상호작용(채팅)"에 **예**. 폭력·성적 콘텐츠·도박 등은 앱 자체에 없음.
+- v2.3.0 부터 답이 바뀌는 항목: "사용자가 다른 사용자를 **차단**할 수 있나요?" → **예** (접속자 탭 [차단], 채팅 줄 길게 누르기 → 쓴 사람 차단),
+  "사용자가 다른 사용자나 콘텐츠를 **신고**할 수 있나요?" → **예** (접속자 탭 [신고], 채팅 줄 길게 누르기 → 이 채팅 신고. 신고는 개발자 메일로 감).
+- "앱(개발자)이 채팅을 **조정·검열**하나요?" 같은 질문 → **아니요** (채팅은 각 마인크래프트 서버의 것이고, 앱은 걸러 내지 않습니다. 이용자가 고른 사람·줄만 그 기기에서 숨깁니다).
+- 설문을 이미 냈다면 v2.3.0 을 올린 뒤 위 두 항목을 고쳐 다시 제출합니다.
 
 **타깃 연령층**: 13~15세 이상부터 (아동 포함 안 함). 아동을 포함하면 가족 정책 요건이 붙습니다.
 
@@ -81,8 +109,11 @@ NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR 
 - 데이터를 공유합니까? → **아니요**
 - 전송 중 암호화 → 예 (인증 서버 HTTPS). 서버 운영자가 정한 리소스팩 주소는 http 일 수 있으나 이용자 정보를 보내지 않음
 - 삭제 요청 방법 → 앱에서 계정·서버 삭제, 또는 앱 데이터 삭제
-- **클라우드 잠수를 연 뒤에는 위 답이 바뀝니다 (v2.0.0~, docs/CLOUD.md 14번)**: 사용자가 계정을 클라우드에 연결하면 로그인 토큰·닉네임·UUID·서버 목록이 운영자 서버에 보관되므로
-  "데이터를 수집합니까? → **예**" (선택 기능, 앱 기능 제공 목적, 전송 중 암호화 예, 삭제 요청 가능: 앱의 '해제 → 모두 지우기')로 신고해야 합니다. 클라우드 주소를 앱에 넣지 않은 빌드(기본 주소 없음)라도 기능이 들어 있으면 같게 신고하는 것이 안전합니다.
+- **Play 판에는 클라우드 잠수가 없습니다 (v2.3.0 에서 숨김)** → 위 답("아니요") 그대로. 차단 목록·아이템 잠금·약관 동의 기록도 기기에만 저장합니다.
+- 신고: 앱이 스스로 보내는 것은 없고, 이용자가 자기 메일 앱에서 직접 보내는 메일입니다(받는 주소는 개인정보처리방침의 문의 주소). 앱이 기기 밖으로 보내는 데이터가 아니라서 "수집"으로 신고하지 않았습니다 —
+  화면의 설명을 읽고 다르게 판단되면 "예 · 메시지(기타 인앱 메시지) · 선택 · 앱 기능(악용 방지)"로 답합니다. 개인정보처리방침에는 신고 메일의 내용·보관 기간(처리 후 삭제, 최대 1년)을 적어 두었습니다.
+- **클라우드 잠수를 Play 판에 다시 넣으면 답이 바뀝니다 (docs/CLOUD.md 14번)**: 사용자가 계정을 클라우드에 연결하면 로그인 토큰·닉네임·UUID·서버 목록이 운영자 서버에 보관되므로
+  "데이터를 수집합니까? → **예**" (선택 기능, 앱 기능 제공 목적, 전송 중 암호화 예, 삭제 요청 가능: 앱의 '해제 → 모두 지우기')로 신고해야 합니다.
 - 참고: 사용자가 입력한 마인크래프트 서버로 닉네임·채팅이 가는 것은 사용자가 직접 고른 서비스와의 통신이라 "공유"로 보지 않는 것이 일반적이지만, 화면의 설명을 읽고 판단하세요.
 
 **포그라운드 서비스 신고**

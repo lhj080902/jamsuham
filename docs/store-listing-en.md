@@ -32,10 +32,14 @@ Jamsucraft keeps you connected to Minecraft: Java Edition servers from your Andr
 · Saves 30 days of chat logs on your device and exports them as text files
 · Supports servers from 1.8 to the latest versions with your Microsoft (premium) account
 · Two-pane layout on tablets
+· Demo server you can try without signing in (a practice server inside the app)
+· Block and report other players, hide chat lines
+· Per-item drop lock so you don't throw things away by mistake
 
 ■ Notes
 · Rules about AFK and third-party clients differ between servers. Please check each server's rules before using.
 · Your login, server list and chat logs are stored only on your device and are never sent to the developer.
+· Chat is written by other players on the server you join. You can block or report a player from the Players tab or by long-pressing a chat line.
 · Open source (GPL-3.0): https://github.com/lhj080902/jamsuham
 
 NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
