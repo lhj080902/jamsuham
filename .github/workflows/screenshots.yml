@@ -1,0 +1,87 @@
+name: Store screenshots
+
+# 스토어(Play)에 올릴 스크린샷을 에뮬레이터에서 찍는다. 직접 실행할 때만 돈다 (릴리스와 무관).
+# 스크린샷 전용 빌드(JAMSUHAM_SCREENSHOTS=true → Screenshots.kt)를 시험 서버(tools/test-server, showcase 장면)에 붙여
+# tools/screenshots/shoot.sh 가 화면을 넘기며 찍는다. 결과는 아티팩트 store-screenshots-phone / -tablet
+on:
+  workflow_dispatch:
+  # screenshots 브랜치에 올리면 바로 돈다 (main 에 올리지 않고 고쳐 가며 시험할 때)
+  push:
+    branches: [screenshots]
+
+permissions:
+  contents: read
+
+jobs:
+  shoot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 폰: 1080×1920 (9:16 — Play 는 16:9 보다 길쭉한 그림을 받지 않는다)
+          - kind: phone
+            profile: pixel_2
+          # 태블릿: 2560×1600 (7인치·10인치 칸에 같이 쓴다)
+          - kind: tablet
+            profile: Nexus 10
+    env:
+      SHOWCASE_MENU_FILE: /tmp/showcase-menu
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build screenshot APK (Play 판 디버그, 스크린샷 모드)
+        env:
+          JAMSUHAM_SCREENSHOTS: "true"
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assemblePlayDebug
+
+      - name: Start test servers
+        working-directory: tools/test-server
+        run: |
+          npm ci
+          MOTD='§b바다마을 야생 §7· §f낚시와 잠수 보상' ONLINE=37 MAX_PLAYERS=100 nohup node server.js 1.21.4 25565 showcase > /tmp/srv1.log 2>&1 &
+          MOTD='§e하늘섬 경제 §7· §f섬 키우기' ONLINE=112 MAX_PLAYERS=300 nohup node server.js 1.21.4 25566 stay > /tmp/srv2.log 2>&1 &
+          MOTD='§d블록 미니게임 §7· §f매일 새 게임' ONLINE=58 MAX_PLAYERS=200 nohup node server.js 1.21.4 25567 stay > /tmp/srv3.log 2>&1 &
+          sleep 5
+          cat /tmp/srv1.log /tmp/srv2.log /tmp/srv3.log
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Shoot
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: ${{ matrix.profile }}
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash tools/screenshots/shoot.sh ${{ matrix.kind }}
+
+      - name: Server logs
+        if: always()
+        run: tail -n 60 /tmp/srv1.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: store-screenshots-${{ matrix.kind }}
+          path: shots/

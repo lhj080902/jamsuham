@@ -45,6 +45,7 @@ class AccountStore(context: Context) {
     @Volatile private var cachedList: List<Account> = emptyList()
 
     fun list(): List<Account> {
+        if (Screenshots.on) return listOf(Screenshots.account)
         migrateOld()
         val json = sp.getString("accounts", null) ?: return emptyList()
         if (json == cachedJson) return cachedList
@@ -146,6 +147,7 @@ class AccountStore(context: Context) {
     /** 접속 직전에 토큰을 확인(필요하면 갱신)해서 돌려준다 */
     @Throws(Exception::class)
     fun credentials(accountId: String, forceRefresh: Boolean): JoinCredentials {
+        if (Screenshots.on) return JoinCredentials.offline(Screenshots.NAME)
         val acc = get(accountId) ?: throw AuthException(tr("계정을 찾을 수 없습니다. 서버 설정에서 계정을 다시 골라 주세요", "Account not found. Please choose the account again in the server settings"))
         synchronized(LOCK) {
             val f = file(acc.id)

@@ -23,6 +23,8 @@ android {
         manifestPlaceholders["msClientId"] = System.getenv("JAMSUHAM_MS_CLIENT_ID")?.trim().orEmpty()
         // 클라우드 잠수 서버의 기본 주소 (없으면 설정 화면에서 직접 입력). GitHub 저장소 변수 CLOUD_URL → 환경 변수 JAMSUHAM_CLOUD_URL
         manifestPlaceholders["cloudUrl"] = System.getenv("JAMSUHAM_CLOUD_URL")?.trim().orEmpty()
+        // 스토어 스크린샷 전용 모드 (Screenshots.kt). screenshots.yml 만 켠다
+        manifestPlaceholders["screenshots"] = if (System.getenv("JAMSUHAM_SCREENSHOTS") == "true") "true" else "false"
     }
 
     signingConfigs {

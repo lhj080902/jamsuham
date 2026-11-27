@@ -29,6 +29,10 @@
         <meta-data
             android:name="kr.jamsuham.CLOUD_URL"
             android:value="${cloudUrl}" />
+        <!-- 스토어 스크린샷 전용 모드 (screenshots.yml 만 JAMSUHAM_SCREENSHOTS=true 로 켬. 배포판은 false) -->
+        <meta-data
+            android:name="kr.jamsuham.SCREENSHOTS"
+            android:value="${screenshots}" />
 
         <activity
             android:name=".MainActivity"

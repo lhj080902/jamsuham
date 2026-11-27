@@ -299,6 +299,35 @@ fun main(args: Array<String>) {
                 clicks[0].contains("window=0 slot=37 button=0 mode=4") && clicks[1].contains("window=0 slot=9 button=1 mode=4")
             s.stop(); Thread.sleep(500)
         }
+        "showcase" -> {
+            // 스토어 스크린샷 장면(showcase.js)이 앱 엔진에서 제대로 읽히는지: 채팅·접속자·인벤토리·지도 블록·메뉴(파일로 열기)
+            val lines = CopyOnWriteArrayList<LogLine>()
+            var players = PlayerList.EMPTY; var inv = Inventory.EMPTY; var menu: Menu? = null; var vit: Vitals? = null
+            val r2 = object : SessionListener {
+                override fun onLine(line: LogLine) { lines += line; println("[줄] ${line.text.plain}") }
+                override fun onPlayers(list: PlayerList) { players = list }
+                override fun onInventory(inventory: Inventory) { inv = inventory }
+                override fun onMenu(m: Menu?) { menu = m }
+                override fun onVitals(vitals: Vitals?) { if (vitals != null) vit = vitals }
+            }
+            val s = AfkSession(File("" + TMP + "/data"), SessionConfig("127.0.0.1:${args[1]}", walkOnJoin = false, joinCommands = listOf("/잠수"), joinCommandDelaySec = 2),
+                { JoinCredentials.offline("Jamsu_Diver") }, r2, log = CoreLog { _, _, _ -> }, dns = null)
+            s.start()
+            waitFor(20_000) { lines.any { it.text.plain.contains("잠수 걸어 뒀어요") } }
+            Thread.sleep(500)
+            val w = s.liveConnection?.world
+            fun st(x: Int, y: Int, z: Int) = w?.stateAt(x, y, z) ?: -2
+            val blocks = listOf(st(10, 63, -4), st(10, 64, -4), st(-8, 63, 14), st(20, 63, -12), st(16, 64, -12), st(-20, 64, -20), st(10, 63, -2), st(40, 63, 40))
+            val click = lines.any { l -> l.text.spans.any { it.click?.value == "/tpaccept" } }
+            val afk = lines.any { it.text.plain.contains("잠수 모드가 켜졌습니다") }
+            File(args[2]).writeText("open")
+            waitFor(8_000) { menu != null && menu!!.items.count { it.slot < 27 } == 6 }
+            val m = menu
+            println("RESULT showcase lines=${lines.size} click=$click afk=$afk players=${players.players.size} inv=${inv.slots.size} vitals=$vit blocks=$blocks menu=${m?.title?.plain} ${m?.items?.filter { it.slot < 27 }?.map { it.name.plain }}")
+            ok = click && afk && players.players.size == 8 && inv.slots.size == 18 && vit?.health == 17f &&
+                blocks == listOf(9, 0, 86, 15, 14, 4340, 13526, 9) && m?.title?.plain == "바다마을 메뉴" && m.items.count { it.slot < 27 } == 6
+            s.stop(); Thread.sleep(500)
+        }
         "clicknet" -> {
             val got = CopyOnWriteArrayList<LogLine>()
             val r2 = object : SessionListener { override fun onLine(line: LogLine) { got += line } }

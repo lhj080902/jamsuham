@@ -1,7 +1,7 @@
 // 테스트용 마인크래프트 서버 (node-minecraft-protocol)
 // node server.js <version> <port> [scenario]
 // scenario: full (기본) = 1번째 접속: "already connected" 킥 / 2번째: 소켓 강제 끊기 / 3번째: 밴 킥
-//           stay = 계속 유지 / dupe = 중복 로그인 킥 / authkick = 정품 인증 실패 킥 / vitals = 체력·사망 / click = 클릭 채팅 / pack = 그림 글자 채팅(PACK_URL)
+//           showcase = 스토어 스크린샷용 장면 (showcase.js) / stay = 계속 유지 / dupe = 중복 로그인 킥 / authkick = 정품 인증 실패 킥 / vitals = 체력·사망 / click = 클릭 채팅 / pack = 그림 글자 채팅(PACK_URL)
 const mc = require('minecraft-protocol')
 const nbt = require('prismarine-nbt')
 const crypto = require('crypto')
@@ -14,8 +14,10 @@ const server = mc.createServer({
   port: Number(portStr),
   version,
   compressionThreshold: 64,
-  motd: '§b잠수 테스트 서버',
-  maxPlayers: 20
+  motd: process.env.MOTD || '§b잠수 테스트 서버',
+  maxPlayers: Number(process.env.MAX_PLAYERS || 20),
+  // 서버 목록에 보일 접속자 수를 바꾼다 (스크린샷용, ONLINE=37 처럼)
+  beforePing: (res) => { if (process.env.ONLINE) res.players.online = Number(process.env.ONLINE); return res }
 })
 const mcData = require('minecraft-data')(server.version)
 const nbtChat = mcData.supportFeature('chatPacketsUseNbtComponents')
@@ -64,6 +66,11 @@ server.on('playerJoin', (client) => {
     safe(() => sendFlatChunks(client))
     client.on('position', (d) => log('pos', d.x.toFixed(2), d.y.toFixed(2), d.z.toFixed(2)))
     client.on('position_look', (d) => log('pos', d.x.toFixed(2), d.y.toFixed(2), d.z.toFixed(2)))
+    return
+  }
+  if (scenario === 'showcase') {
+    // 스토어 스크린샷용 장면 (showcase.js, 1.21.4 전용)
+    require('./showcase')({ mcData, nbt, text, sendChat, sendPosition, varint, safe, log })(client)
     return
   }
   if (scenario === 'drop') {
