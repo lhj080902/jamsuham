@@ -1,5 +1,9 @@
+// 클라우드 서버의 웹 화면 시험 (Playwright). 먼저 띄울 것: 시험 MC 서버 `node server.js 1.21.4 25570 stay`,
+// 클라우드 서버 (포트 18787, JAVA_OPTS=-Djamsu.devLogin=true, premiumMode=open, allowPrivateTargets=true)
+// 실행: node web-test.js <스크린샷 폴더> [walk 시나리오 MC 서버 포트 — 주면 이동도 시험]
 const { chromium } = require('playwright');
 const S = process.argv[2];
+const WALK_PORT = process.argv[3];
 (async () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'ko-KR', deviceScaleFactor: 1 });
@@ -45,6 +49,16 @@ const S = process.argv[2];
   await page.waitForSelector('.dialog .item');
   const items = await page.locator('.dialog .item').allInnerTexts();
   check('서버 메뉴 창에 아이템', items.length === 2 && items[1].includes('리소스팩 적용하기'));
+  // 메뉴 창에서 바로 자동 클릭 규칙 추가
+  await page.locator('.dialog .itemwrap', { hasText: '#13' }).locator('.auto').click();
+  await page.waitForSelector('.dialog h2:has-text("자동 클릭 규칙 추가")');
+  const ruleText = await page.innerText('.dialog p');
+  await page.click('.dialog .actions .primary');
+  await page.waitForFunction(() => !document.getElementById('toast').hidden && document.getElementById('toast').textContent.includes('추가했습니다'), null, { timeout: 8000 });
+  check('메뉴 창에서 자동 클릭 규칙 추가', ruleText.includes('리소스팩 적용 > 리소스팩 적용하기'));
+  await page.waitForSelector('#s-menu:not([hidden])');
+  await page.click('#btn-menu');
+  await page.waitForSelector('.dialog .item');
   await page.locator('.dialog .item', { hasText: '#13' }).first().click();
   await page.waitForFunction(() => document.getElementById('shade').hidden && document.getElementById('s-menu').hidden, null, { timeout: 8000 });
   check('메뉴 클릭 → 메뉴 닫힘', true);
@@ -59,7 +73,9 @@ const S = process.argv[2];
   await page.waitForSelector('.player');
   check('접속자 목록', (await page.locator('.player').count()) === 2);
   await page.click('[data-tab=status]');
-  check('상태 탭', (await page.innerText('#p-status')).includes('클라우드 (폰을 꺼도 유지됩니다)'));
+  const statusText = await page.innerText('#p-status');
+  check('상태 탭', statusText.includes('클라우드 (폰을 꺼도 유지됩니다)'));
+  check('상태 탭에 자동 재접속·자동 클릭 표시', statusText.includes('켜짐 (킥당해도 재접속)') && statusText.includes('규칙 1개'));
 
   // 계정 창: 다른 기기 로그아웃 버튼
   const ctx2 = await browser.newContext({ locale: 'ko-KR' });
@@ -80,6 +96,56 @@ const S = process.argv[2];
   check('로그아웃시킨 기기는 로그인 화면으로', true);
   await ctx2.close();
   await page.keyboard.press('Escape');
+
+  // 이동: 평평한 땅 시험 서버에서 키보드 D(동쪽)로 걷고, 떼면 멈추는지
+  if (WALK_PORT) {
+    await page.click('#btn-add');
+    await page.waitForSelector('.dialog input');
+    const f = page.locator('.dialog input:not([type=checkbox])');
+    await f.nth(0).fill('걷기 서버');
+    await f.nth(1).fill('127.0.0.1:' + WALK_PORT);
+    await page.locator('.dialog input[type=checkbox]').nth(2).uncheck(); // 들어가면 한두 걸음 걷기 끔
+    await page.click('.dialog .actions .primary');
+    await page.waitForFunction(() => document.getElementById('s-name').textContent === '걷기 서버', null, { timeout: 8000 });
+    await page.click('#btn-toggle');
+    await page.click('[data-tab=move]');
+    await page.waitForFunction(() => document.getElementById('pos').textContent.startsWith('X '), null, { timeout: 30000 });
+    const xOf = async () => parseFloat((await page.textContent('#pos')).split('·')[0].replace('X', ''));
+    const x0 = await xOf();
+    await page.keyboard.down('d');
+    await page.waitForTimeout(1300);
+    await page.screenshot({ path: S + '/shots/22-move.png' });
+    await page.keyboard.up('d');
+    await page.waitForTimeout(900);
+    const x1 = await xOf();
+    await page.waitForTimeout(1200);
+    const x2 = await xOf();
+    console.log('        x', x0, '→', x1, '→', x2);
+    check('키보드 D 로 동쪽으로 걸음', x1 - x0 > 3);
+    check('키를 떼면 멈춤', x1 === x2);
+    // 조이스틱: 위쪽(북)으로 끌기
+    const z0 = parseFloat((await page.textContent('#pos')).split('·')[2].replace('Z', ''));
+    const box = await page.locator('#stick').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + 8, { steps: 4 });
+    await page.waitForTimeout(1200);
+    await page.mouse.up();
+    await page.waitForTimeout(900);
+    const z1 = parseFloat((await page.textContent('#pos')).split('·')[2].replace('Z', ''));
+    console.log('        z', z0, '→', z1);
+    check('조이스틱 위로 끌면 북쪽으로 걸음', z0 - z1 > 3);
+    await page.click('#btn-toggle');
+    await page.click('.dialog .actions .primary');
+    await page.waitForFunction(() => document.getElementById('btn-toggle').textContent === '시작', null, { timeout: 10000 });
+    check('끊은 뒤 이동 탭은 안내만', (await page.textContent('#pos')).includes('접속하면'));
+    await page.click('#btn-edit');
+    await page.click('.dialog .actions .danger');
+    await page.click('.dialog .actions .danger');
+    await page.waitForFunction(() => document.querySelectorAll('.server').length === 1);
+    await page.click('.server');
+    await page.waitForSelector('#session:not([hidden])');
+  }
 
   // 끊기 → 삭제
   await page.click('#btn-toggle');

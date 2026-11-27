@@ -311,6 +311,26 @@ object Wire {
         return DeathInfo(o.long("at") ?: 0L, o.str("killer"), o.str("cause"), o.str("weapon"), o.str("message"))
     }
 
+    /** 내 캐릭터 위치 (클라우드 잠수에서 이동할 때 화면에 좌표를 보여 주려고) */
+    data class Pos(val x: Double, val y: Double, val z: Double, val world: String)
+
+    fun pos(p: Pos?): JsonElement {
+        if (p == null) return JsonNull.INSTANCE
+        fun r(v: Double) = if (v.isFinite()) Math.round(v * 10) / 10.0 else 0.0
+        val o = JsonObject()
+        o.addProperty("x", r(p.x))
+        o.addProperty("y", r(p.y))
+        o.addProperty("z", r(p.z))
+        o.addProperty("world", p.world.take(100))
+        return o
+    }
+
+    fun parsePos(e: JsonElement?): Pos? {
+        val o = e as? JsonObject ?: return null
+        fun d(k: String) = o.get(k)?.let { if (it.isJsonPrimitive && it.asJsonPrimitive.isNumber) it.asDouble else null } ?: 0.0
+        return Pos(d("x"), d("y"), d("z"), o.str("world") ?: "")
+    }
+
     // ------------------------------------------------------------ 서버 설정
 
     fun entry(e: CloudEntry): JsonObject {

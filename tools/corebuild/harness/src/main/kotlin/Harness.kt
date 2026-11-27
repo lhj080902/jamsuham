@@ -370,7 +370,7 @@ fun main(args: Array<String>) {
             ok = packs.isNotEmpty() && line != null && found != null && found.isNotEmpty() && found.all { it }
             s.stop(); Thread.sleep(500)
         }
-        "cloud" -> ok = cloudTest(args[1], args[2], args.getOrNull(3))
+        "cloud" -> ok = cloudTest(args[1], args[2], args.getOrNull(3), args.getOrNull(4))
         "wire" -> ok = wireTest()
         "chatlimit" -> ok = chatLimitTest()
         else -> error(mode)
@@ -385,9 +385,9 @@ fun writeVar(buf: io.netty.buffer.ByteBuf, v0: Int) { var v = v0; while (true) {
  * 클라우드 서버(cloud/) 시험: 앱이 쓰는 CloudClient 로 실제 서버에 붙어 본다.
  * 먼저 띄울 것: 시험 MC 서버 `node server.js 1.21.4 <mc포트> stay` (+ 중복 로그인 확인용 `<dupe포트> dupe`),
  * 클라우드 서버 (JAVA_OPTS=-Djamsu.devLogin=true, premiumMode=open, allowPrivateTargets=true, maxAccountsPerTarget=2)
- * 실행: harness cloud <클라우드 주소> <mc포트> [dupe포트]
+ * 실행: harness cloud <클라우드 주소> <mc포트> [dupe포트] [walk포트]   (walk포트 = `node server.js 1.21.4 <포트> walk`, 이동 시험)
  */
-fun cloudTest(base: String, mcPort: String, dupePort: String?): Boolean {
+fun cloudTest(base: String, mcPort: String, dupePort: String?, walkPort: String? = null): Boolean {
     val W = kr.jamsuham.core.cloud.Wire
     val results = ArrayList<Pair<String, Boolean>>()
     fun check(name: String, pass: Boolean) { results += name to pass; println((if (pass) "  통과  " else "  실패  ") + name) }
@@ -487,6 +487,39 @@ fun cloudTest(base: String, mcPort: String, dupePort: String?): Boolean {
         check("다시 시작하면 확인 요청(in_use/other, canForce)", other?.code == "in_use" && other?.data?.get("holder")?.asString == "other" && other?.data?.get("canForce")?.asBoolean == true)
         check("확인하고 시작(force)", codeOf { app.start("h2", force = true) } == null)
         app.stop("h2")
+    }
+
+    // 이동: 평평한 땅만 있는 시험 서버에서 동쪽으로 걷고, 입력을 끊으면 스스로 멈추는지
+    if (walkPort != null) {
+        val w = kr.jamsuham.core.cloud.CloudEntry(id = "h3", name = "걷기 서버", address = "127.0.0.1:$walkPort", walkOnJoin = false)
+        app.putEntry(w)
+        app.start("h3")
+        fun pos() = seen.events.lastOrNull { it.first == "pos" && it.second.get("sid")?.asString == "h3" }?.let { W.parsePos(it.second.get("pos")) }
+        check("걷기 서버 접속 + 위치 수신", waitFor(25000) { pos() != null })
+        val x0 = pos()?.x ?: 0.0
+        val z0 = pos()?.z ?: 0.0
+        // 1.6초 동안 동쪽(+X)으로: 누르고 있는 것처럼 0.4초마다 다시 보낸다
+        var sendErr: String? = null
+        repeat(4) { sendErr = sendErr ?: codeOf { app.move("h3", 1f, 0f) }; Thread.sleep(400) }
+        val x1 = pos()?.x ?: 0.0
+        println("        → x ${"%.1f".format(x0)} → ${"%.1f".format(x1)} (z ${"%.1f".format(z0)} → ${"%.1f".format(pos()?.z ?: 0.0)})")
+        check("동쪽으로 걸음 (x 가 4칸 이상 늘고 z 는 그대로)", sendErr == null && x1 - x0 > 4.0 && Math.abs((pos()?.z ?: 0.0) - z0) < 0.3)
+        // 손 뗌을 보내지 않고 그냥 둔다 → 1.5초 뒤 스스로 멈춰야 한다
+        Thread.sleep(2500)
+        val x2 = pos()?.x ?: 0.0
+        Thread.sleep(1500)
+        val x3 = pos()?.x ?: 0.0
+        println("        → 입력이 끊긴 뒤 x ${"%.1f".format(x2)} → ${"%.1f".format(x3)}")
+        check("입력이 끊기면 스스로 멈춤", x2 == x3 && x2 - x1 < 9.0)
+        // 북서쪽으로 걷다가 멈춤을 보내면 바로 멈춤
+        app.move("h3", -1f, -1f); Thread.sleep(400); app.move("h3", -1f, -1f); Thread.sleep(400)
+        app.move("h3", 0f, 0f)
+        Thread.sleep(700)
+        val p4 = pos(); Thread.sleep(800); val p5 = pos()
+        check("대각선 이동 뒤 멈춤 명령 → 멈춤", p4 != null && p4 == p5 && p4.x < x3 - 1.0 && p4.z < z0 - 1.0)
+        check("범위를 벗어난 값·숫자가 아닌 값도 받아 줌(잘라서)", codeOf { app.request("POST", "servers/h3/move", com.google.gson.JsonParser.parseString("""{"east":999,"south":"x","jump":"y"}""").asJsonObject) } == null && run { app.move("h3", 0f, 0f); true })
+        app.stop("h3")
+        check("끊은 서버에서는 이동 거절", waitFor(8000) { seen.states("h3").lastOrNull() == SessionState.STOPPED } && codeOf { app.move("h3", 1f, 0f) } == "not_sent")
     }
 
     app.stop("h1")

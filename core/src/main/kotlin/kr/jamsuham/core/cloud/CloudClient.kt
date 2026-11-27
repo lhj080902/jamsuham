@@ -149,6 +149,18 @@ class CloudClient(baseUrl: String, @Volatile var token: String? = null, private 
         request("POST", "servers/$id/menu/click", body)
     }
 
+    /**
+     * 이동 입력: [east] 동(+X)쪽, [south] 남(+Z)쪽 성분 (-1~1), [jump] 점프. 0, 0, false 면 멈춤.
+     * 누르고 있는 동안 0.5초마다 다시 보내야 한다 (1.5초 동안 소식이 없으면 클라우드가 스스로 멈춘다 — 연결이 끊겨 계속 걸어가는 일을 막음).
+     */
+    fun move(id: String, east: Float, south: Float, jump: Boolean = false) {
+        val body = JsonObject()
+        body.addProperty("east", east)
+        body.addProperty("south", south)
+        body.addProperty("jump", jump)
+        request("POST", "servers/$id/move", body, 8000)
+    }
+
     fun menuClose(id: String) {
         request("POST", "servers/$id/menu/close")
     }

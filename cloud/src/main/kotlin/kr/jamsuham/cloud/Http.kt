@@ -445,6 +445,14 @@ class HttpApi(
                 sessions.chat(uuid, id, body(ex).str("text") ?: "")?.let { throw ApiError(409, "not_sent", it) }
                 ok(ex)
             }
+            action == "move" && method == "POST" -> {
+                // 누르고 있는 동안 계속 다시 보내므로 넉넉하게 (1초에 20번까지)
+                limit("move:$uuid", 1200, 60)
+                val o = body(ex)
+                fun f(k: String) = o.get(k)?.let { if (it.isJsonPrimitive && it.asJsonPrimitive.isNumber) it.asFloat else null } ?: 0f
+                sessions.move(uuid, id, f("east"), f("south"), o.bool("jump") == true)?.let { throw ApiError(409, "not_sent", it) }
+                ok(ex)
+            }
             action == "menu" && sub == "click" && method == "POST" -> {
                 val slot = body(ex).int("slot") ?: throw ApiError(400, "bad_request", "칸 번호가 없습니다")
                 if (!sessions.menuClick(uuid, id, slot)) throw ApiError(409, "not_sent", "지금은 누를 수 없습니다 (메뉴가 닫혔거나 접속 중이 아님)")

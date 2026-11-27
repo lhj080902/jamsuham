@@ -118,6 +118,17 @@ label.check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .face { width: 24px; height: 24px; border-radius: 4px; background-color: var(--input); background-repeat: no-repeat; background-size: 800% 800%; background-position: 14.2857% 14.2857%; image-rendering: pixelated; flex: none; text-align: center; line-height: 24px; font-size: 12px; color: var(--muted); }
 .ping { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
+/* 이동 */
+#p-move { padding: 12px; align-items: center; justify-content: center; gap: 14px; overflow-y: auto; }
+.center { text-align: center; }
+.pos { font-variant-numeric: tabular-nums; font-size: 15px; text-align: center; min-height: 22px; }
+.pad-row { display: flex; align-items: center; justify-content: center; gap: 36px; flex-wrap: wrap; }
+.stick { width: 180px; height: 180px; border-radius: 50%; background: var(--input); border: 2px solid var(--divider); position: relative; touch-action: none; user-select: none; cursor: grab; flex: none; }
+.knob { width: 72px; height: 72px; border-radius: 50%; background: var(--accent); position: absolute; left: 54px; top: 54px; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+.stick.off, .jump:disabled { opacity: .45; }
+.jump { width: 96px; height: 96px; border-radius: 50%; font-weight: 700; font-size: 16px; touch-action: none; user-select: none; }
+.jump.on { background: var(--accent); color: var(--on-accent); }
+
 /* 상태 */
 .stat { margin: 10px 0 14px; }
 .stat .label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
@@ -137,6 +148,9 @@ label.check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .item { text-align: left; padding: 10px; font-size: 13px; }
 .item .lore { color: var(--muted); font-size: 12px; margin-top: 4px; white-space: pre-wrap; }
 .item .slot { color: var(--muted); font-size: 11px; float: right; }
+.itemwrap { display: flex; flex-direction: column; gap: 4px; }
+.itemwrap .item { flex: 1; }
+.itemwrap .auto { font-size: 12px; padding: 4px 6px; }
 .device { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--divider); font-size: 14px; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 99px; z-index: 20; max-width: 90%; font-size: 14px; }
 

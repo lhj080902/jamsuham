@@ -248,12 +248,13 @@ function startStream() {
   };
   on('hello', onHello);
   on('line', (d) => addLine(d));
-  on('status', (d) => { const s = state.sessions.get(d.sid); if (s) { s.status = d.status; renderList(); if (d.sid === state.selected) renderSessionHead(); if (state.tab === 'status') renderStatus(); } });
+  on('status', (d) => { const s = state.sessions.get(d.sid); if (s) { s.status = d.status; renderList(); if (d.sid === state.selected) { renderSessionHead(); if (state.tab === 'move') renderMove(); } if (state.tab === 'status') renderStatus(); } });
   on('players', (d) => { const s = state.sessions.get(d.sid); if (s) { s.players = d.players; if (d.sid === state.selected) { renderTabs(); if (state.tab === 'players') renderPlayers(); } } });
   on('vitals', (d) => { const s = state.sessions.get(d.sid); if (s) { s.vitals = d.vitals; if (d.sid === state.selected && state.tab === 'status') renderStatus(); } });
   on('traffic', (d) => { const s = state.sessions.get(d.sid); if (s) { s.traffic = d.traffic; if (d.sid === state.selected && state.tab === 'status') renderStatus(); } });
   on('menu', (d) => { const s = state.sessions.get(d.sid); if (s) { s.menu = d.menu; if (d.sid === state.selected) renderMenuNotice(); } });
   on('death', (d) => { const s = state.sessions.get(d.sid); if (s) { s.death = d.death; if (d.sid === state.selected) { renderDeath(); if (state.tab === 'status') renderStatus(); } } });
+  on('pos', (d) => { const s = state.sessions.get(d.sid); if (s) { s.pos = d.pos; if (d.sid === state.selected && state.tab === 'move') renderMove(); } });
   on('inventory', () => {});
   on('pack', () => {});
   on('entry', (d) => { upsertSession(d.session); renderList(); if (d.session.entry.id === state.selected) renderSessionHead(); });
@@ -273,6 +274,7 @@ function upsertSession(snap) {
   s.menu = snap.menu || null;
   s.death = snap.death || null;
   s.traffic = snap.traffic || s.traffic || null;
+  s.pos = snap.pos || null;
   state.sessions.set(snap.entry.id, s);
   return s;
 }
@@ -433,6 +435,7 @@ function renderList() {
 }
 
 function select(id) {
+  moveStop();
   state.selected = id;
   document.body.classList.toggle('viewing', !!id);
   renderList();
@@ -482,6 +485,9 @@ function showTab(name) {
   $('p-chat').hidden = name !== 'chat';
   $('p-players').hidden = name !== 'players';
   $('p-status').hidden = name !== 'status';
+  $('p-move').hidden = name !== 'move';
+  if (name !== 'move') moveStop();
+  if (name === 'move') renderMove();
   if (name === 'players') renderPlayers();
   if (name === 'status') renderStatus();
   if (name === 'chat') { const c = $('chat'); c.scrollTop = c.scrollHeight; }
@@ -545,6 +551,10 @@ function renderStatus() {
   if (s.traffic) add(t('데이터 (서버 컴퓨터)', 'Data (server side)'), bytes(s.traffic.rx + s.traffic.tx));
   if (s.death) add(t('마지막 사망', 'Last death'), hhmm(s.death.at) + ' · ' + deathText(s.death));
   add(t('실행 위치', 'Running on'), isActive(s) ? t('클라우드 (폰을 꺼도 유지됩니다)', 'Cloud (stays on when your phone is off)') : null);
+  const e = s.entry;
+  add(t('자동 재접속', 'Auto-reconnect'), e.autoReconnect ? (e.reconnectOnKick ? t('켜짐 (킥당해도 재접속)', 'On (also after kicks)') : t('켜짐', 'On')) : t('꺼짐', 'Off'));
+  add(t('접속 후 자동 실행', 'Run after joining'), e.joinCommands.length ? e.joinCommands.join(' → ') : t('없음', 'None'));
+  add(t('메뉴 자동 클릭', 'Menu auto-click'), e.autoClickRules.length ? t(`규칙 ${e.autoClickRules.length}개`, `${e.autoClickRules.length} rule(s)`) : t('없음', 'None'));
   box.append(kv);
 }
 
@@ -605,7 +615,13 @@ function openMenu() {
         b.append(lore);
       }
       b.onclick = () => act(() => api('POST', `servers/${sid}/menu/click`, { slot: it.slot }));
-      grid.append(b);
+      // 다음부터 이 메뉴가 열리면 자동으로 누르게 규칙에 넣는다 (앱에서 아이템을 길게 누르는 것과 같음)
+      const auto = el('button', 'ghost auto', t('＋ 자동 클릭에 추가', '+ Add to auto-click'));
+      auto.type = 'button';
+      auto.onclick = () => addRule(sid, m, it);
+      const wrap = el('div', 'itemwrap');
+      wrap.append(b, auto);
+      grid.append(wrap);
     }
     d.append(grid);
     actions(d,
@@ -614,6 +630,145 @@ function openMenu() {
   });
 }
 openMenu.sid = null;
+
+/** 메뉴 자동 클릭 규칙을 하나 추가한다: "메뉴 제목 > 아이템 이름" */
+function addRule(sid, menu, item) {
+  const s = state.sessions.get(sid);
+  if (!s) return;
+  const title = plain(menu.title).trim() || '*';
+  const name = plain(item.name).trim();
+  const rule = title + ' > ' + (name || '#' + item.slot);
+  confirmBox(t('자동 클릭 규칙 추가', 'Add auto-click rule'),
+    t(`다음부터 이 메뉴가 열리면 자동으로 누릅니다.\n\n${rule}\n\n(서버 설정에서 고치거나 지울 수 있습니다. 다음 접속부터 적용됩니다)`, `From now on this is clicked automatically when this menu opens.\n\n${rule}\n\n(Edit or delete it in the server settings. Applies from the next connection)`),
+    t('추가', 'Add'), async () => {
+      const rules = s.entry.autoClickRules.filter((r) => r !== rule).concat(rule).slice(-20);
+      const r = await act(() => api('PUT', 'servers/' + sid, { ...s.entry, autoClickRules: rules }));
+      if (r) toast(t('추가했습니다', 'Added'));
+    });
+}
+
+// ------------------------------------------------------------ 이동
+// 조이스틱·키보드로 정한 방향을 클라우드에 보낸다. 누르고 있는 동안 계속 다시 보내고(0.45초마다),
+// 클라우드는 1.5초 동안 소식이 없으면 스스로 멈춘다 (탭을 닫거나 연결이 끊겨도 혼자 계속 걸어가지 않게).
+const mv = { east: 0, south: 0, jump: false, sentKey: '0.00,0.00,false', sentAt: 0, loop: null, sid: null, stick: [0, 0], keys: new Set(), jumpHeld: false, pointer: null };
+const mvKey = () => mv.east.toFixed(2) + ',' + mv.south.toFixed(2) + ',' + mv.jump;
+const mvActive = () => mv.east !== 0 || mv.south !== 0 || mv.jump;
+
+async function mvSend(force) {
+  const key = mvKey();
+  const now = Date.now();
+  if (!mv.sid || (!force && key === mv.sentKey && now - mv.sentAt < 450)) return;
+  mv.sentKey = key;
+  mv.sentAt = now;
+  try {
+    await api('POST', `servers/${mv.sid}/move`, { east: mv.east, south: mv.south, jump: mv.jump });
+    $('move-msg').hidden = true;
+  } catch (e) {
+    if (e.status === 401) { showLogin(); return; }
+    $('move-msg').textContent = e.message;
+    $('move-msg').hidden = false;
+  }
+}
+
+/** 조이스틱·키보드·점프 버튼의 지금 상태를 하나로 합쳐 보낸다 */
+function mvApply() {
+  let east = mv.stick[0], south = mv.stick[1];
+  if (east === 0 && south === 0) {
+    const k = mv.keys;
+    east = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0);
+    south = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0);
+  }
+  const jump = mv.jumpHeld || mv.keys.has(' ');
+  const was = mvActive();
+  if (!was) mv.sid = state.selected;
+  mv.east = east; mv.south = south; mv.jump = jump;
+  const now = mvActive();
+  $('btn-jump').classList.toggle('on', jump);
+  if (now && !mv.loop) mv.loop = setInterval(() => mvSend(false), 120);
+  if (!now && mv.loop) { clearInterval(mv.loop); mv.loop = null; }
+  // 움직이기 시작할 때와 멈출 때는 바로 보낸다. 누른 채 방향만 바꾸는 것은 위의 반복이 0.12초 안에 보낸다
+  if (now !== was) mvSend(true);
+}
+
+function moveStop() {
+  if (!mvActive() && mv.keys.size === 0 && mv.pointer == null && !mv.jumpHeld) return;
+  mv.stick = [0, 0];
+  mv.keys.clear();
+  mv.jumpHeld = false;
+  mv.pointer = null;
+  $('knob').style.transform = '';
+  mvApply();
+}
+
+function renderMove() {
+  const s = state.sessions.get(state.selected);
+  const online = !!s && s.status.state === 'ONLINE';
+  $('stick').classList.toggle('off', !online);
+  $('btn-jump').disabled = !online;
+  const p = s && s.pos;
+  $('pos').textContent = !online ? t('서버에 접속하면 움직일 수 있습니다', 'Connect to the server to move')
+    : !p ? t('주변 지형을 받는 중… (잠시 뒤 움직일 수 있습니다)', 'Receiving terrain… (you can move in a moment)')
+      : `X ${p.x.toFixed(1)}  ·  Y ${p.y.toFixed(1)}  ·  Z ${p.z.toFixed(1)}` + (p.world ? '  ·  ' + p.world.replace(/^minecraft:/, '') : '');
+  if (!online) { $('move-msg').hidden = true; moveStop(); }
+}
+
+function wireMove() {
+  const stick = $('stick');
+  const at = (ev) => {
+    const r = stick.getBoundingClientRect();
+    const R = r.width / 2;
+    let dx = (ev.clientX - (r.left + R)) / R;
+    let dy = (ev.clientY - (r.top + R)) / R;
+    const len = Math.hypot(dx, dy);
+    if (len > 1) { dx /= len; dy /= len; }
+    $('knob').style.transform = `translate(${dx * R * 0.6}px, ${dy * R * 0.6}px)`;
+    // 가운데 근처는 멈춤. 화면 위쪽 = 북쪽(-Z), 오른쪽 = 동쪽(+X)
+    mv.stick = len < 0.2 ? [0, 0] : [Math.round(dx * 100) / 100, Math.round(dy * 100) / 100];
+    mvApply();
+  };
+  const end = (ev) => {
+    if (ev.pointerId !== mv.pointer) return;
+    mv.pointer = null;
+    mv.stick = [0, 0];
+    $('knob').style.transform = '';
+    mvApply();
+  };
+  stick.addEventListener('pointerdown', (ev) => {
+    if (stick.classList.contains('off')) return;
+    mv.pointer = ev.pointerId;
+    try { stick.setPointerCapture(ev.pointerId); } catch (_) { /* 잡지 못해도 움직임은 받는다 */ }
+    at(ev);
+    ev.preventDefault();
+  });
+  stick.addEventListener('pointermove', (ev) => { if (ev.pointerId === mv.pointer) at(ev); });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) stick.addEventListener(type, end);
+
+  const jump = $('btn-jump');
+  jump.addEventListener('pointerdown', (ev) => { if (jump.disabled) return; mv.jumpHeld = true; mvApply(); ev.preventDefault(); });
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) jump.addEventListener(type, () => { if (mv.jumpHeld) { mv.jumpHeld = false; mvApply(); } });
+
+  // 키보드 (이동 탭을 보고 있고, 글자를 입력하는 중이 아닐 때만)
+  const KEYS = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ']);
+  const usable = (ev) => state.tab === 'move' && !$('session').hidden && $('shade').hidden && !$('main').hidden &&
+    !['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target.tagName) && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+  document.addEventListener('keydown', (ev) => {
+    const k = ev.key.toLowerCase();
+    if (!KEYS.has(k) || !usable(ev)) return;
+    ev.preventDefault();
+    const s = state.sessions.get(state.selected);
+    if (!s || s.status.state !== 'ONLINE' || mv.keys.has(k)) return;
+    mv.keys.add(k);
+    mvApply();
+  });
+  document.addEventListener('keyup', (ev) => {
+    const k = ev.key.toLowerCase();
+    if (mv.keys.delete(k)) mvApply();
+  });
+  // 다른 창으로 가거나 탭이 가려지면 손을 뗀 것으로 본다 (키를 뗀 것을 못 받을 수 있다)
+  window.addEventListener('blur', moveStop);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) moveStop(); });
+  window.addEventListener('pagehide', moveStop);
+}
 
 // ------------------------------------------------------------ 동작
 async function toggle() {
@@ -757,6 +912,7 @@ async function accountDialog() {
 
 // ------------------------------------------------------------ 시작
 function wire() {
+  wireMove();
   $('btn-ms').onclick = startMsLogin;
   $('btn-cancel').onclick = () => showLogin();
   $('btn-copy').onclick = () => copyText($('user-code').textContent);

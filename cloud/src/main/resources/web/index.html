@@ -96,6 +96,7 @@
         <nav class="tabs">
           <button data-tab="chat" class="tab on" data-t="채팅|Chat"></button>
           <button data-tab="players" class="tab" id="tab-players"></button>
+          <button data-tab="move" class="tab" data-t="이동|Move"></button>
           <button data-tab="status" class="tab" data-t="상태|Status"></button>
         </nav>
         <div id="p-chat" class="panel">
@@ -105,6 +106,15 @@
             <input id="input" maxlength="256" autocomplete="off" enterkeyhint="send">
             <button class="primary" data-t="전송|Send"></button>
           </form>
+        </div>
+        <div id="p-move" class="panel" hidden>
+          <div id="pos" class="pos"></div>
+          <div class="pad-row">
+            <div id="stick" class="stick"><div id="knob" class="knob"></div></div>
+            <button id="btn-jump" class="jump" type="button" data-t="점프|Jump"></button>
+          </div>
+          <p class="hint center" data-t="조이스틱 위쪽 = 북쪽. 키보드: W A S D 또는 방향키로 이동, 스페이스로 점프|Joystick up = north. Keyboard: W A S D or arrow keys to move, Space to jump"></p>
+          <p id="move-msg" class="hint warn center" hidden></p>
         </div>
         <div id="p-players" class="panel" hidden></div>
         <div id="p-status" class="panel" hidden></div>

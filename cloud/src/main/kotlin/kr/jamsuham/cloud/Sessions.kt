@@ -94,6 +94,10 @@ class SessionBox(@Volatile var entry: CloudEntry) {
     var activeKey: String? = null
     /** 실제로 접속한 IP:포트 (자리 수를 세어 둔 것. 없으면 null) */
     @Volatile var ipKey: String? = null
+    /** 이동 입력이 유효한 시각 (이때까지 새 입력이 없으면 멈춘다) */
+    @Volatile var moveUntil = 0L
+    /** 마지막으로 내보낸 위치 (같으면 다시 내보내지 않는다) */
+    var lastPos: String? = null
 }
 
 class AccountHub(val uuid: String) {
@@ -189,8 +193,12 @@ class SessionManager(
 
     private val coreLog = CoreLog { level, message, error -> if (level >= CoreLog.WARN) Log.w("[엔진] $message", error) }
 
+    /** 지금 이동 입력이 들어와 있는 세션들 (위치를 자주 알리고, 입력이 끊기면 멈추려고 따로 본다) */
+    private val moving = ConcurrentHashMap<SessionBox, AccountHub>()
+
     init {
         ticker.scheduleWithFixedDelay({ tick() }, 1, 1, TimeUnit.SECONDS)
+        ticker.scheduleWithFixedDelay({ moveTick() }, 250, 250, TimeUnit.MILLISECONDS)
     }
 
     fun hub(uuid: String): AccountHub = hubs.getOrPut(uuid) {
@@ -279,6 +287,7 @@ class SessionManager(
             "death" to Wire.death(b.death),
             "packs" to packs,
             "traffic" to t?.let { jsonOf("rx" to it.received, "tx" to it.sent, "onlineMs" to it.onlineMs) },
+            "pos" to Wire.pos(position(b)),
             "duplicateAt" to b.duplicateAt.takeIf { it > 0 },
         )
     }
@@ -392,6 +401,7 @@ class SessionManager(
             box.gen = null
             box.session?.shutdown()
             box.session = null
+            moving.remove(box)
             countActive(box, false)
             synchronized(sf) {
                 sf.entries.remove(id)
@@ -576,6 +586,7 @@ class SessionManager(
                 b.gen = null
                 b.session?.shutdown()
                 b.session = null
+                moving.remove(b)
                 countActive(b, false)
             }
             for (s in h.subs) {
@@ -604,6 +615,71 @@ class SessionManager(
             if (box.status.state != SessionState.ONLINE || box.session?.sendChat(clean) != true) return "서버에 접속해 있을 때만 보낼 수 있습니다"
             box.sentAt.addLast(now)
             return null
+        }
+    }
+
+    // ------------------------------------------------------------ 이동
+
+    private fun position(b: SessionBox): Wire.Pos? {
+        if (b.status.state != SessionState.ONLINE) return null
+        val c = b.session?.liveConnection ?: return null
+        if (!c.canWalk) return null
+        return Wire.Pos(c.currentX, c.currentY, c.currentZ, c.worldName)
+    }
+
+    /** hub 잠금 안에서 부른다. 위치가 바뀌었으면 알린다 */
+    private fun publishPos(h: AccountHub, b: SessionBox) {
+        if (h.subs.isEmpty()) return
+        val json = Wire.pos(position(b)).toString()
+        if (json == b.lastPos) return
+        b.lastPos = json
+        publish(h, "pos", jsonOf("sid" to b.entry.id).also { it.add("pos", com.google.gson.JsonParser.parseString(json)) })
+    }
+
+    /**
+     * 이동 입력 (조이스틱 방향 + 점프). 실패하면 이유를 돌려준다.
+     * 입력은 [MOVE_HOLD_MS] 동안만 유효하다 → 화면이 누르고 있는 동안 계속 다시 보내야 하고,
+     * 브라우저를 닫거나 연결이 끊겨 "손 뗌"이 오지 않아도 캐릭터가 혼자 계속 걸어가지 않는다.
+     */
+    fun move(uuid: String, id: String, east: Float, south: Float, jump: Boolean): String? {
+        val h = hub(uuid)
+        synchronized(h) {
+            val box = h.boxes[id] ?: return "서버를 찾을 수 없습니다"
+            val s = box.session
+            val conn = s?.liveConnection
+            if (s == null || conn == null || box.status.state != SessionState.ONLINE) return "서버에 접속해 있을 때만 움직일 수 있습니다"
+            val e = if (east.isFinite()) east.coerceIn(-1f, 1f) else 0f
+            val so = if (south.isFinite()) south.coerceIn(-1f, 1f) else 0f
+            val stop = e == 0f && so == 0f && !jump
+            if (!stop && !conn.canWalk) return "아직 움직일 수 없습니다 (주변 지형을 받는 중입니다. 잠시 뒤 다시 해 주세요)"
+            s.setStick(e, so)
+            s.setMovement(if (jump) 16 else 0)
+            if (stop) {
+                box.moveUntil = 0
+            } else {
+                box.moveUntil = System.currentTimeMillis() + MOVE_HOLD_MS
+                moving[box] = h
+            }
+            return null
+        }
+    }
+
+    /** 0.25초마다: 움직이는 세션의 위치를 알리고, 입력이 끊긴 세션은 멈춘다 */
+    private fun moveTick() {
+        try {
+            val now = System.currentTimeMillis()
+            for ((box, h) in moving) {
+                synchronized(h) {
+                    if (now > box.moveUntil) {
+                        box.session?.setStick(0f, 0f)
+                        box.session?.setMovement(0)
+                        moving.remove(box)
+                    }
+                    publishPos(h, box)
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w("이동 처리 오류", t)
         }
     }
 
@@ -660,6 +736,7 @@ class SessionManager(
                             b.playersDirty = false
                             publish(h, "players", jsonOf("sid" to id).also { it.add("players", playersJson(b.players)) })
                         }
+                        publishPos(h, b)
                         if (ticks % 60 == 0L && b.status.state.isActive()) {
                             b.session?.traffic?.let { t ->
                                 publish(h, "traffic", jsonOf("sid" to id, "traffic" to jsonOf("rx" to t.received, "tx" to t.sent, "onlineMs" to t.onlineMs)))
@@ -742,6 +819,8 @@ class SessionManager(
         /** 이벤트 하나(JSON)의 최대 크기. 넘으면 내보내지 않는다 */
         private const val MAX_EVENT_CHARS = 600_000
         private const val MAX_PLAYERS_SENT = 500
+        /** 이동 입력 하나가 유효한 시간 (화면은 누르고 있는 동안 0.5초마다 다시 보낸다) */
+        private const val MOVE_HOLD_MS = 1500L
         /** 프리미엄이 끝난 뒤 로그인 정보를 남겨 두는 기간 (그 안에 다시 결제하면 그대로 이어 쓴다) */
         private const val LAPSED_KEEP_MS = 7L * 86_400_000
         /** 다른 클라이언트(PC 게임)에 밀려난 뒤 이 시간 동안은 "다른 곳에서 접속 중일 수 있음"으로 표시하고 확인을 받는다 */

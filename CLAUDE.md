@@ -45,10 +45,12 @@
   PC 게임 자체는 막을 수 없음(FastPack 이 접속 전에 클라우드에 묻게 하면 가능 — 미구현)
 - **같은 IP 문제**: 프록시로 계정마다 IP 를 바꾸는 우회는 만들지 않기로 함(서버 규칙 회피). 대신 `maxAccountsPerTarget`(기본 3)·`targetLimits` 로 서버별 계정 수를 제한하고, 운영진 허용을 받은 서버만 늘린다
 - 앱: `CloudHub`(연결 기록 prefs `jamsuham_cloud`, 계정별 SSE — 앱이 앞에 있을 때만, 이벤트 → `SessionHub.remote*`), `CloudSection`(설정 카드), `ServerEntry.cloud`.
-  `SessionHub.activeIds()/anyActive` 는 **폰 잠수만**(서비스·알림·이어서 잠수·무료 동시 제한), `isActive` 는 둘 다. 클라우드 잠수에서는 지도·이동·아이템 사용 불가(미구현)
+  `SessionHub.activeIds()/anyActive` 는 **폰 잠수만**(서비스·알림·이어서 잠수·무료 동시 제한), `isActive` 는 둘 다. 앱의 클라우드 잠수 화면에서는 지도·이동·아이템 사용 불가(미구현)
+- **웹 이동 (v2.0.1)**: `POST /api/servers/{id}/move {east, south, jump}` → `SessionManager.move` 가 `setStick`·`setMovement(16)`. 입력은 1.5초만 유효(`MOVE_HOLD_MS`) → 화면이 누르는 동안 0.45초마다 다시 보냄,
+  끊기면 `moveTick`(0.25초)이 멈춤. 위치는 `pos` 이벤트(`Wire.Pos`, 소수 1자리). 웹은 이동 탭(조이스틱·점프·WASD), 메뉴 창의 "＋ 자동 클릭에 추가"(`addRule`). 앱 쪽은 `CloudClient.move` 만 있고 화면에는 안 붙임
 - 시험: 시험 MC 서버 2개(`stay`, `dupe`) + 클라우드 서버(`JAVA_OPTS=-Djamsu.devLogin=true`, 설정 `premiumMode=open allowPrivateTargets=true maxAccountsPerTarget=2`)를 띄우고
-  `harness cloud http://127.0.0.1:<포트> <stay포트> <dupe포트>` (32개 항목), 서버 없이 `harness wire`(JSON 왕복 15개)·`harness chatlimit`(악의적 채팅 한도 10개).
-  웹은 `node tools/test-server/cloud/web-test.js <스크린샷 폴더>` (Playwright, 주소 127.0.0.1:18787 고정, 닉네임 시험 로그인 — `-Djamsu.devLogin=true` 일 때만 보임. 17개 항목).
+  `harness cloud http://127.0.0.1:<포트> <stay포트> <dupe포트> [walk포트]` (walk 까지 주면 38개 항목), 서버 없이 `harness wire`(JSON 왕복 15개)·`harness chatlimit`(악의적 채팅 한도 10개).
+  웹은 `node tools/test-server/cloud/web-test.js <스크린샷 폴더> [walk포트]` (Playwright, 주소 127.0.0.1:18787 고정, 닉네임 시험 로그인 — `-Djamsu.devLogin=true` 일 때만 보임. walk 까지 23개 항목).
 - 보안 검토(2026-11-27, 별도 에이전트)에서 고친 것: 채팅 해석 한도(`ChatText` Budget: 노드 2만·글자 6만·깊이 48, 400KB 넘는 JSON 은 해석 안 함), 메뉴 칸 256·접속자 2000·청크 상한(`World.maxChunks`, 클라우드는 200),
   줄 24KB·이벤트 600KB 상한, 접속자 IP 는 설정한 헤더 하나만(`clientIpHeader`, IPv6 는 /64 로 묶음), 기기 코드 로그인은 시작한 브라우저에 쿠키로 묶고 결과 확인을 POST 로,
   안 쓰는 로그인 요청 45초 뒤 정리, 실시간 연결 깨우기·강제 닫기·전체 450개 상한, 로그인 정보 넘겨받을 때 갱신 토큰부터 전체 재발급 + 접속 때 UUID 대조, 새 기기 알림·기기별 로그아웃,
@@ -108,10 +110,10 @@
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
-## 다음 세션에서 이어서 할 일 (2026-11-27 기준, 앱·클라우드 v2.0.0 / FastPack 0.3.0)
+## 다음 세션에서 이어서 할 일 (2026-11-27 기준, 앱·클라우드 v2.0.1 / FastPack 0.3.0)
 - **클라우드 잠수 실사용 확인 (사용자)**: 서버 컴퓨터에 jamsu-cloud.zip 설치 → msClientId 입력 → 웹 기기 코드 로그인 / 앱 "연결"(v2.0.0 에서 새로 로그인한 계정) / 클라우드에서 시작·채팅·끊기 /
   폰 잠수 중 클라우드 시작 차단·반대 방향 차단이 실제 폰에서 되는지. HTTPS 공개(Cloudflare 터널 또는 Caddy), 저장소 변수 CLOUD_URL
-- 클라우드 다음 작업 후보: 클라우드 잠수의 지도·이동·아이템 사용, 웹의 리소스팩 그림 글자, 앱이 뒤에 있을 때 사망·메뉴 푸시 알림, 결제 연동(지금은 premium.txt 수동), 운영자용 관리 화면,
+- 클라우드 다음 작업 후보: 앱의 클라우드 화면에 이동 붙이기(서버 API 는 있음), 웹·앱의 클라우드 지도, 아이템 사용, 웹의 리소스팩 그림 글자, 앱이 뒤에 있을 때 사망·메뉴 푸시 알림, 결제 연동(지금은 premium.txt 수동), 운영자용 관리 화면,
   FastPack 이 PC 접속 전에 클라우드에 묻기, 도스온라인 운영진에게 보낼 공유 IP 허용 요청 글
 - v2.0.0 새 로그인(자체 client ID) 확인: 계정 추가 → 주소가 login.microsoftonline.com/consumers → 로그인·서버 접속 (v1.7.1 은 버그로 실패했을 수 있음)
 - (완료 2026-11-23) **업로드 서명 키**: 사용자가 upload.jks 를 만들고 Secrets 4개 등록 → 시험 빌드에서 `jamsuham-play-aab`(서명됨) 확인
