@@ -116,6 +116,17 @@ class Ui(val ctx: Context) {
         isSelected = true
     }
 
+    /**
+     * 한 줄에 다 안 들어가는 글씨를 왕복시킨다: 잠깐 멈춤 → 끝까지 → 잠깐 멈춤 → 처음으로 되돌아옴.
+     * (마키처럼 한 방향으로 돌지 않아서 이름의 앞·뒤를 번갈아 읽을 수 있다.) 다 들어가면 가만히 둔다.
+     */
+    fun pingPong(tv: TextView): TextView = tv.apply {
+        setSingleLine(true)
+        ellipsize = null
+        setHorizontallyScrolling(true)
+        PingPong(this, dp(40).toFloat())
+    }
+
     fun title(s: String) = text(s, 22f, p.text, bold = true)
     fun section(s: String) = text(s, 15f, p.accent, bold = true).apply { setPadding(0, 0, 0, dp(8)) }
     fun label(s: String) = text(s, 13f, p.muted).apply { setPadding(0, dp(12), 0, dp(4)) }
@@ -265,4 +276,72 @@ fun Activity.setupWindow(root: View, palette: Palette, basePadDp: Int = 12) {
 /** 글씨가 바뀔 때만 바꾼다 (같은 글씨로 다시 넣으면 흐르던 글씨가 처음으로 돌아가서) */
 fun TextView.setTextIfChanged(value: CharSequence) {
     if (text?.toString() != value.toString()) text = value
+}
+
+/**
+ * [Ui.pingPong] 의 움직임: 글이 칸보다 길 때만 가로로 밀었다가 되돌린다.
+ * 1.2초 멈춤 → 초당 [pxPerSec] 로 끝까지 → 1.2초 멈춤 → 같은 빠르기로 처음까지, 되풀이.
+ * 글이 바뀌면 처음부터 다시 하고, 화면에서 떨어지면 멈춘다.
+ */
+private class PingPong(private val tv: TextView, private val pxPerSec: Float) :
+    View.OnLayoutChangeListener, View.OnAttachStateChangeListener, android.text.TextWatcher {
+
+    private var animator: android.animation.ValueAnimator? = null
+
+    /** 지금 움직이는 거리 (글 폭 - 칸 폭). -1 = 아직 재지 않음 */
+    private var range = -1
+
+    init {
+        tv.addOnLayoutChangeListener(this)
+        tv.addOnAttachStateChangeListener(this)
+        tv.addTextChangedListener(this)
+    }
+
+    override fun onLayoutChange(v: View?, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) = restart()
+    override fun onViewAttachedToWindow(v: View) = restart()
+    override fun onViewDetachedFromWindow(v: View) = stop()
+    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+    override fun afterTextChanged(s: android.text.Editable?) {
+        // 글이 바뀌었으니 처음부터 (새 글의 폭은 배치가 끝난 뒤에 잰다)
+        stop()
+        tv.post { restart() }
+    }
+
+    private fun stop() {
+        animator?.cancel()
+        animator = null
+        range = -1
+        tv.scrollTo(0, 0)
+    }
+
+    private fun restart() {
+        val layout = tv.layout
+        val box = tv.width - tv.compoundPaddingLeft - tv.compoundPaddingRight
+        val text = if (layout == null || layout.lineCount == 0) 0 else Math.ceil(layout.getLineWidth(0).toDouble()).toInt()
+        val wanted = if (box <= 0) 0 else (text - box).coerceAtLeast(0)
+        if (wanted == range && (animator != null || wanted == 0)) return // 달라진 것이 없으면 하던 대로
+        stop()
+        range = wanted
+        if (wanted == 0 || !tv.isAttachedToWindow) return
+        val pause = 1200f
+        val travel = (wanted / pxPerSec * 1000f).coerceAtLeast(300f)
+        val total = pause + travel + pause + travel
+        animator = android.animation.ValueAnimator.ofFloat(0f, total).apply {
+            duration = total.toLong()
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            interpolator = android.view.animation.LinearInterpolator()
+            addUpdateListener { a ->
+                val at = a.animatedValue as Float
+                val x = when {
+                    at < pause -> 0f
+                    at < pause + travel -> (at - pause) / travel
+                    at < pause + travel + pause -> 1f
+                    else -> 1f - (at - pause - travel - pause) / travel
+                }
+                tv.scrollTo((x.coerceIn(0f, 1f) * wanted).toInt(), 0)
+            }
+            start()
+        }
+    }
 }
