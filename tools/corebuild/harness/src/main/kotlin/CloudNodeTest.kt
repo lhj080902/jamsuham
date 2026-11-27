@@ -127,12 +127,35 @@ fun linkNetTest(): Boolean {
     val psk = LinkCrypto.randomNonce()
     val server = LinkNet.serve("127.0.0.1", 0, psk, group) { _, peer ->
         object : LinkHandler {
-            // 받은 것을 그대로 돌려준다
-            override fun onMessage(msg: JsonObject) = peer.send(msg)
+            // 받은 것을 그대로 돌려준다 ("boom" 은 처리하다 오류가 난 경우를 흉내 낸다)
+            override fun onMessage(msg: JsonObject) {
+                if (msg.get("t")?.asString == "boom") throw IllegalStateException("시험용 오류")
+                peer.send(msg)
+            }
             override fun onClosed() {}
         }
     }
     val port = (server.localAddress() as java.net.InetSocketAddress).port
+
+    /** 소켓으로 직접 인증까지만 마친다 (그 뒤 아무것도 보내지 않는 상대를 흉내 낸다). 실패하면 null */
+    fun rawHandshake(name: String): Socket? {
+        val s = Socket("127.0.0.1", port)
+        s.soTimeout = 25000
+        val out = DataOutputStream(s.getOutputStream())
+        val din = DataInputStream(s.getInputStream())
+        fun write(o: JsonObject) = o.toString().toByteArray(Charsets.UTF_8).let { out.writeInt(it.size); out.write(it); out.flush() }
+        fun read(): JsonObject = JsonParser.parseString(String(ByteArray(din.readInt()).also { din.readFully(it) }, Charsets.UTF_8)).asJsonObject
+        val nonceW = LinkCrypto.randomNonce()
+        write(JsonObject().apply {
+            addProperty("t", "hello"); addProperty("ver", LinkCrypto.LINK_VERSION); addProperty("api", Wire.API); addProperty("version", "test")
+            addProperty("name", name); addProperty("capacity", 1); addProperty("nonce", Base64.getEncoder().encodeToString(nonceW))
+        })
+        val challenge = read()
+        if (challenge.get("t")?.asString != "challenge") return null
+        val nonceM = Base64.getDecoder().decode(challenge.get("nonce").asString)
+        write(JsonObject().apply { addProperty("t", "auth"); addProperty("mac", Base64.getEncoder().encodeToString(LinkCrypto.workerMac(psk, nonceW, nonceM, name))) })
+        return if (read().get("t")?.asString == "welcome") s else null
+    }
 
     /** 정상 접속을 해 본다: (연결된 상대, 받은 것들, 실패 사유) */
     class Dial {
@@ -173,7 +196,28 @@ fun linkNetTest(): Boolean {
         val big = "가".repeat(300_000)
         d.peer?.send(JsonObject().apply { addProperty("t", "echo"); addProperty("text", big) })
         c.check("인증 뒤에는 큰 내용도 오감 (약 900KB)", waitFor(5000) { d.got.any { it.get("text")?.asString == big } })
+        // 내용 하나를 처리하다 오류가 나도 그 연결(= 그 접속용 서버의 모든 잠수)은 살아 있어야 한다
+        d.peer?.send(JsonObject().apply { addProperty("t", "boom") })
+        d.peer?.send(JsonObject().apply { addProperty("t", "echo"); addProperty("text", "오류 뒤") })
+        c.check("내용 하나를 처리하다 난 오류로 연결을 끊지 않음", waitFor(3000) { d.got.any { it.get("text")?.asString == "오류 뒤" } } && d.peer?.alive == true)
         d.peer?.close()
+
+        // 인증까지 하고 조용해진 상대(연결만 남고 죽은 접속용 서버)는 15초 뒤에 끊는다 — 다시 배정을 30초 뒤에 하는 근거
+        val silent = rawHandshake("silent")
+        val t0 = System.currentTimeMillis()
+        val closed = silent != null && try {
+            val ins = silent.getInputStream()
+            while (ins.read() != -1) { /* 서버가 보내는 ping 은 읽고 버린다 */ }
+            true
+        } catch (_: java.net.SocketTimeoutException) {
+            false
+        } catch (_: java.io.IOException) {
+            true
+        }
+        val took = System.currentTimeMillis() - t0
+        println("        → 조용한 상대를 끊기까지 ${took / 1000}초")
+        c.check("인증 뒤 15초 동안 조용한 상대는 끊음", closed && took in 12000..20000)
+        silent?.close()
 
         // 인증 전에는 "1MB 를 보내겠다"는 머리말만으로 바로 끊어야 한다 (다 올 때까지 메모리에 쌓아 두지 않는다)
         c.check("인증 전의 큰 프레임(1MB 예고)은 바로 끊음", closes(byteArrayOf(0x00, 0x10, 0x00, 0x00, 1, 2, 3), 2000))
@@ -187,6 +231,35 @@ fun linkNetTest(): Boolean {
         val d3 = Dial()
         c.check("잘못된 접속이 이어지면 그 IP 를 받지 않음", d3.peer == null && closes(ByteArray(0), 2000))
         d3.peer?.close()
+
+        // 버전이 다른 접속도 잘못된 접속으로 센다 (비밀키 없이 올 수 있는 길이라, 본 서버의 거절 로그를 끝없이 쌓지 못하게)
+        val server2 = LinkNet.serve("127.0.0.1", 0, psk, group) { _, _ ->
+            object : LinkHandler {
+                override fun onMessage(msg: JsonObject) {}
+                override fun onClosed() {}
+            }
+        }
+        val port2 = (server2.localAddress() as java.net.InetSocketAddress).port
+
+        /** 버전을 틀리게 적은 hello 를 보내고 답의 종류를 본다 (받아 주지 않으면 null) */
+        fun wrongVersion(): String? = try {
+            Socket("127.0.0.1", port2).use { s ->
+                s.soTimeout = 3000
+                val hello = JsonObject().apply {
+                    addProperty("t", "hello"); addProperty("ver", LinkCrypto.LINK_VERSION + 99); addProperty("api", Wire.API); addProperty("version", "9.9.9")
+                    addProperty("name", "old"); addProperty("capacity", 1); addProperty("nonce", Base64.getEncoder().encodeToString(LinkCrypto.randomNonce()))
+                }.toString().toByteArray(Charsets.UTF_8)
+                DataOutputStream(s.getOutputStream()).apply { writeInt(hello.size); write(hello); flush() }
+                val din = DataInputStream(s.getInputStream())
+                JsonParser.parseString(String(ByteArray(din.readInt()).also { din.readFully(it) }, Charsets.UTF_8)).asJsonObject.get("t")?.asString
+            }
+        } catch (_: java.io.IOException) {
+            null
+        }
+        val replies = (1..12).map { wrongVersion() }
+        println("        → 버전이 다른 접속 12번: 거절 답 ${replies.count { it == "reject" }}번, 받지 않음 ${replies.count { it == null }}번")
+        c.check("버전이 다른 접속이 이어지면 그 IP 를 받지 않음", replies.first() == "reject" && replies.last() == null)
+        server2.close()
     } finally {
         server.close()
         group.shutdownGracefully()
@@ -364,6 +437,7 @@ fun cloudNodeTest(install: String, stayPort: String, walkPort: String): Boolean 
 
         val bad = startWorker("w3", secret = Base64.getEncoder().encodeToString(ByteArray(32) { 7 }))
         c.check("틀린 비밀키는 거절", bad.waitLog(Regex("본 서버가 거절했습니다: 비밀키가 맞지 않습니다"), 15000) && CloudClient(base).info().get("api").asInt == Wire.API)
+        c.check("거절은 본 서버 로그에도 남음", master.waitLog(Regex("\\[노드] 거절.*w3.*비밀키가 맞지 않습니다"), 5000))
         bad.kill()
         val dup = startWorker("w1", dirName = "w1dup")
         c.check("같은 이름의 워커는 거절", dup.waitLog(Regex("본 서버가 거절했습니다: 같은 이름의"), 15000) && a.seen.states("h1").last() == SessionState.ONLINE)

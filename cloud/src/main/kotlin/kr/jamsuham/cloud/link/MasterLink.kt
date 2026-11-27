@@ -76,7 +76,13 @@ class MasterLink(
             Log.w("[노드] 끊김: $name" + if (graceful) " (그쪽에서 종료)" else "")
             onLost(name, graceful)
         }
-        onAttached(name)
+        try {
+            onAttached(name)
+        } catch (t: Throwable) {
+            // 붙이다 실패하면 실행기 목록에 남기지 않는다 (남으면 그 이름으로 다시 붙지 못하고, 연결도 없는 실행기에 잠수가 배정된다)
+            scheduler.remove(name)
+            throw t
+        }
         return runner
     }
 
@@ -109,8 +115,9 @@ private class RemoteRunner(
 
     override fun onMessage(msg: JsonObject) {
         when (msg.str("t")) {
-            // 자기에게 배정된 실행의 소식만 받는다 (모르는 실행은 무시)
-            "ev" -> runs[msg.str("run") ?: return]?.event(msg.str("k") ?: return, msg.get("v"))
+            // 자기에게 배정된 실행의 소식만 받는다 (모르는 실행은 무시).
+            // 끄겠다고 알린 뒤의 소식도 받지 않는다: 꺼지면서 내는 "끊었습니다" 를 사용자가 끊은 것으로 알면 다른 곳으로 옮기지 못한다
+            "ev" -> if (!gotBye) runs[msg.str("run") ?: return]?.event(msg.str("k") ?: return, msg.get("v"))
             "credsQ" -> {
                 val rid = msg.long("rid") ?: return
                 val h = runs[msg.str("run") ?: ""]

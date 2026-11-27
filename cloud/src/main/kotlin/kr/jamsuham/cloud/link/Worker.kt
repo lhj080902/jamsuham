@@ -11,6 +11,7 @@ import kr.jamsuham.cloud.LaunchRequest
 import kr.jamsuham.cloud.LocalRunner
 import kr.jamsuham.cloud.Log
 import kr.jamsuham.cloud.RunHandle
+import kr.jamsuham.cloud.Runner
 import kr.jamsuham.cloud.cloudCoreLog
 import kr.jamsuham.cloud.jsonOf
 import kr.jamsuham.core.AuthException
@@ -42,9 +43,12 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.system.exitProcess
 
+/** 윈도우 메모장이 파일 맨 앞에 붙이는 표시 */
+private val BOM = 0xFEFF.toChar().toString()
+
 /** 접속용 서버 설정 (worker.properties) */
 class WorkerConfig(val file: File) {
-    private val p = Properties().also { it.load(java.io.StringReader(file.readText(Charsets.UTF_8).removePrefix("﻿"))) }
+    private val p = Properties().also { it.load(java.io.StringReader(file.readText(Charsets.UTF_8).removePrefix(BOM))) }
 
     private fun str(key: String, def: String) = (p.getProperty(key) ?: def).trim()
 
@@ -130,14 +134,25 @@ fun workerMain(configFile: File) {
  * 본 서버와의 연결을 잃으면 돌리던 잠수를 모두 끊는다 — 본 서버가 같은 계정을 다른 곳에서 다시 접속시키므로,
  * 여기서 계속 붙어 있으면 한 계정이 두 곳에서 접속해 서로 튕겨 내게 된다.
  */
-class Worker(private val cfg: WorkerConfig, private val psk: ByteArray) {
+class Worker(private val cfg: WorkerConfig, private val psk: ByteArray, runner: Runner? = null) {
     private val group = NioEventLoopGroup(1, DefaultThreadFactory("jamsu-link", true))
     private val timer = Executors.newSingleThreadScheduledExecutor(DefaultThreadFactory("jamsu-worker-tick", true))
-    private val runner = LocalRunner(cfg.name, cfg.capacity, File(cfg.dataDir, "engine"), cfg.allowPrivateTargets, cloudCoreLog)
+    /** 잠수를 실제로 돌리는 곳 (시험에서는 가짜 실행기를 넣는다) */
+    private val runner: Runner = runner ?: LocalRunner(cfg.name, cfg.capacity, File(cfg.dataDir, "engine"), cfg.allowPrivateTargets, cloudCoreLog)
 
     /** 실행 번호 → 돌고 있는 잠수 */
     private val runs = ConcurrentHashMap<String, RunHandle>()
     private val lastPos = ConcurrentHashMap<String, String>()
+
+    /**
+     * 자주 바뀌는 상태(접속자·체력·인벤토리)는 올 때마다 보내지 않고, 실행마다 가장 최근 값만 모아 두었다가 주기적으로 보낸다
+     * (접속자 목록은 서버에 따라 1초에도 몇 번씩 통째로 온다): 실행 번호 → 종류 → 보낼 내용
+     */
+    private val snaps = ConcurrentHashMap<String, ConcurrentHashMap<String, () -> JsonElement?>>()
+
+    /** 모아 둔 것을 꺼내 보내는 동안의 잠금 (모아 둔 것이 상태 소식보다 늦게 나가지 않게 순서를 지킨다) */
+    private val flushLock = Any()
+    private var snapTicks = 0L
 
     /** 본 서버에 되물어 놓고 답을 기다리는 것 */
     private val asks = ConcurrentHashMap<Long, CompletableFuture<JsonObject>>()
@@ -150,6 +165,7 @@ class Worker(private val cfg: WorkerConfig, private val psk: ByteArray) {
         cfg.dataDir.mkdirs()
         connect()
         timer.scheduleWithFixedDelay({ quietly { posTick() } }, 250, 250, TimeUnit.MILLISECONDS)
+        timer.scheduleWithFixedDelay({ quietly { snapTick() } }, 1, 1, TimeUnit.SECONDS)
         timer.scheduleWithFixedDelay({ quietly { trafficTick() } }, 60, 60, TimeUnit.SECONDS)
         timer.scheduleWithFixedDelay({
             quietly {
@@ -205,6 +221,7 @@ class Worker(private val cfg: WorkerConfig, private val psk: ByteArray) {
         for (h in runs.values) h.shutdown()
         runs.clear()
         lastPos.clear()
+        snaps.clear()
         for (f in asks.values) f.completeExceptionally(IOException("본 서버 연결이 끊겼습니다"))
         asks.clear()
         if (!stopping) Log.w("[노드] 본 서버 연결이 끊겨 잠수 ${n}개를 끊었습니다")
@@ -240,6 +257,7 @@ class Worker(private val cfg: WorkerConfig, private val psk: ByteArray) {
             "shutdown" -> {
                 runs.remove(runId)
                 lastPos.remove(runId)
+                snaps.remove(runId)
                 h.shutdown()
             }
             "chat" -> h.sendChat(msg.str("text") ?: return)
@@ -265,19 +283,31 @@ class Worker(private val cfg: WorkerConfig, private val psk: ByteArray) {
         val uuid = msg.str("uuid") ?: return
         val entry = msg.obj("entry")?.let { Wire.parseEntry(it) } ?: return
         runs.remove(runId)?.shutdown()
+        snaps.remove(runId)
 
         fun ev(kind: String, v: JsonElement?) {
-            // 이 실행을 시킨 연결이 살아 있을 때만 (연결이 바뀐 뒤 늦게 온 소식은 버린다)
-            if (peer !== p) return
+            // 이 실행을 시킨 연결이 살아 있을 때만 (연결이 바뀐 뒤 늦게 온 소식은 버린다).
+            // 끄는 중에 엔진이 알리는 "끊었습니다" 도 보내지 않는다 — 보내면 본 서버가 사용자가 끊은 것으로 알고 다른 곳으로 옮기지 않는다
+            if (stopping || peer !== p) return
             p.send(jsonOf("t" to "ev", "run" to runId, "k" to kind, "v" to v))
         }
+
+        /** 가장 최근 값만 남겨 둔다 (보내는 것은 snapTick) */
+        fun snap(kind: String, json: () -> JsonElement?) {
+            if (stopping || peer !== p) return
+            snaps.getOrPut(runId) { ConcurrentHashMap() }[kind] = json
+        }
         val listener = object : SessionListener {
-            override fun onStatus(status: SessionStatus) = ev("status", Wire.status(status))
+            override fun onStatus(status: SessionStatus) = synchronized(flushLock) {
+                // 모아 둔 접속자·체력을 먼저 보낸다 (끊긴 뒤에 예전 값이 뒤늦게 가서 화면에 남지 않게)
+                flush(p, runId, SNAP_KINDS)
+                ev("status", Wire.status(status))
+            }
             override fun onLine(line: LogLine) = ev("line", Wire.line(line, 0))
-            override fun onPlayers(list: PlayerList) = ev("players", Wire.players(list))
+            override fun onPlayers(list: PlayerList) = snap("players") { Wire.players(list) }
             override fun onMenu(menu: Menu?) = ev("menu", Wire.menu(menu))
-            override fun onInventory(inventory: Inventory) = ev("inventory", Wire.inventory(inventory))
-            override fun onVitals(vitals: Vitals?) = ev("vitals", Wire.vitals(vitals))
+            override fun onInventory(inventory: Inventory) = snap("inventory") { Wire.inventory(inventory) }
+            override fun onVitals(vitals: Vitals?) = snap("vitals") { Wire.vitals(vitals) }
             override fun onDeath(death: DeathInfo) = ev("death", Wire.death(death))
             override fun onResourcePack(url: String, hash: String) = ev("pack", jsonOf("url" to url, "hash" to hash))
             override fun onDuplicateLogin() = ev("dup", null)
@@ -291,11 +321,21 @@ class Worker(private val cfg: WorkerConfig, private val psk: ByteArray) {
             }
 
             override fun claimTarget(connectHost: String, connectPort: Int) {
+                // 본 서버의 접속용 서버 포트는 마인크래프트 서버가 아니다. 사용자가 그 주소를 적어 여기서 접속을 시도하게 두면,
+                // 본 서버가 잘못된 접속으로 세어 이 컴퓨터의 IP 를 한동안 받지 않는다
+                if (connectPort == cfg.masterPort && isMasterHost(connectHost)) throw IllegalArgumentException("이 주소로는 클라우드에서 접속할 수 없습니다")
                 val r = ask(p, jsonOf("t" to "claimQ", "run" to runId, "host" to connectHost, "port" to connectPort))
                 r.str("error")?.let { throw IllegalArgumentException(it) }
             }
         }
         runs[runId] = runner.launch(LaunchRequest(runId, uuid, entry), listener, hooks)
+    }
+
+    private fun isMasterHost(host: String): Boolean = try {
+        val target = java.net.InetAddress.getByName(host)
+        java.net.InetAddress.getAllByName(cfg.masterHost).any { it == target }
+    } catch (_: Exception) {
+        false
     }
 
     /** 본 서버에 묻고 답을 기다린다 (잠수 스레드에서 부른다) */
@@ -319,6 +359,29 @@ class Worker(private val cfg: WorkerConfig, private val psk: ByteArray) {
 
     // ------------------------------------------------------------ 주기적으로 알리는 것
 
+    /** [flushLock] 을 든 채 부른다. 그 실행의 모아 둔 상태 중 [kinds] 를 보낸다 */
+    private fun flush(p: LinkPeer, runId: String, kinds: List<String>) {
+        if (stopping || peer !== p) return
+        val m = snaps[runId] ?: return
+        for (k in kinds) {
+            val json = m.remove(k) ?: continue
+            p.send(jsonOf("t" to "ev", "run" to runId, "k" to k, "v" to json()))
+        }
+    }
+
+    /** 모아 둔 상태를 보낸다 (1초마다. 접속자 목록은 본 서버가 화면에 내보내는 주기에 맞춰 2초마다) */
+    private fun snapTick() {
+        val p = peer ?: return
+        val kinds = if (++snapTicks % 2 == 0L) SNAP_KINDS else SNAP_FAST
+        synchronized(flushLock) {
+            for ((runId, m) in snaps) {
+                flush(p, runId, kinds)
+                // 끝난 실행의 빈 자리는 치운다
+                if (m.isEmpty() && !runs.containsKey(runId)) snaps.remove(runId, m)
+            }
+        }
+    }
+
     /** 위치가 바뀐 잠수만 알린다 (0.25초마다) */
     private fun posTick() {
         val p = peer ?: return
@@ -340,5 +403,7 @@ class Worker(private val cfg: WorkerConfig, private val psk: ByteArray) {
     companion object {
         private val RETRY_SEC = intArrayOf(5, 10, 30, 60)
         private const val ASK_TIMEOUT_SEC = 20L
+        private val SNAP_KINDS = listOf("players", "vitals", "inventory")
+        private val SNAP_FAST = listOf("vitals", "inventory")
     }
 }

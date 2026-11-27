@@ -2,8 +2,10 @@ package kr.jamsuham.cloud
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import kr.jamsuham.core.AuthException
 import kr.jamsuham.core.DeathInfo
 import kr.jamsuham.core.Inventory
+import kr.jamsuham.core.JoinCredentials
 import kr.jamsuham.core.LogLine
 import kr.jamsuham.core.Menu
 import kr.jamsuham.core.PlayerList
@@ -114,6 +116,8 @@ class SessionBox(@Volatile var entry: CloudEntry) {
     var parked = false
     /** 다른 실행기로 다시 배정한 횟수 제한 */
     val replaces = ReplaceBudget()
+    /** 이번 실행에 끊으라고 시켰다 (접속용 서버와의 연결이 죽어 있으면 그 말이 닿지 않았을 수 있다) */
+    var stopAsked = false
 }
 
 class AccountHub(val uuid: String) {
@@ -528,7 +532,13 @@ class SessionManager(
             override fun onDuplicateLogin() = mine { box.duplicateAt = System.currentTimeMillis() }
         }
         val hooks = object : LaunchHooks {
-            override fun credentials(forceRefresh: Boolean) = auth.credentials(uuid, forceRefresh)
+            override fun credentials(forceRefresh: Boolean): JoinCredentials {
+                // 지금 돌고 있는 실행에만 준다 (끊었거나 다른 곳으로 옮긴 잠수를 맡았던 접속용 서버가 토큰을 계속 받아 가지 못하게).
+                // 계정 잠금을 잡고 확인한다: 시작 직후에는 "준비 중" 상태가 적히기 전일 수 있다
+                val live = synchronized(h) { box.gen === gen && box.status.state.isActive() }
+                if (!live) throw AuthException("이미 끝난 잠수입니다", needsRelogin = false)
+                return auth.credentials(uuid, forceRefresh)
+            }
             override fun claimTarget(connectHost: String, connectPort: Int) {
                 if (box.gen === gen) claimIp(box, "$connectHost:$connectPort", config.targetLimit(Wire.addressKey(box.entry.address)))
             }
@@ -545,6 +555,7 @@ class SessionManager(
         box.queued = false
         box.parked = false
         box.queueNote = null
+        box.stopAsked = false
         lastLaunchAt = System.currentTimeMillis()
         Log.i("[배정] ${store.account(uuid)?.name ?: uuid.take(8)}/$id → ${runner.id}")
         setStatus(h, box, SessionStatus(SessionState.PREPARING, "준비 중…"))
@@ -616,6 +627,7 @@ class SessionManager(
             if (s == null || !box.status.state.isActive()) {
                 if (box.status.state != SessionState.STOPPED) setStatus(h, box, box.status.copy(state = SessionState.STOPPED, message = "꺼짐", onlineSinceMs = null))
             } else {
+                box.stopAsked = true
                 s.stop()
             }
             return true
@@ -671,22 +683,38 @@ class SessionManager(
             synchronized(h) {
                 for (b in h.boxes.values) {
                     if (b.runner != runnerId || b.run == null) continue
-                    b.gen = null
-                    b.run = null
-                    moving.remove(b)
-                    if (!b.status.state.isActive()) continue
-                    if (!b.replaces.tryUse(now)) {
-                        halt(h, b, "접속용 서버가 자주 끊겨 잠수를 멈췄습니다", LogLine.Kind.ERROR)
-                        continue
+                    // 잠수 하나를 정리하다 오류가 나도(저장 실패 등) 나머지는 계속 정리한다 — 건너뛰면 실행기도 없이 "접속 중" 으로 남는다
+                    try {
+                        lostRun(h, b, graceful, now)
+                    } catch (e: Exception) {
+                        Log.w("[노드] 끊긴 잠수를 정리하지 못했습니다 (${h.uuid.take(8)}/${b.entry.id})", e)
                     }
-                    val text = "접속용 서버 연결이 끊겨 다른 곳에서 다시 접속합니다"
-                    // 엔진이 재접속을 미루고 있었다면(모장 요청 제한 등) 그 시각보다 앞당기지 않는다
-                    val at = maxOf(if (graceful) now else now + REPLACE_DELAY_MS, b.status.nextAttemptAtMs ?: 0)
-                    addLine(h, b, LogLine(now, LogLine.Kind.SYSTEM, ChatText.of(text)))
-                    enqueue(h, b, at, text, "다른 접속용 서버에서 이어서 접속합니다")
                 }
             }
         }
+    }
+
+    /** hub 잠금 안에서 부른다. 이 잠수를 돌리던 접속용 서버가 끊겼다 */
+    private fun lostRun(h: AccountHub, b: SessionBox, graceful: Boolean, now: Long) {
+        b.gen = null
+        b.run = null
+        moving.remove(b)
+        if (!b.status.state.isActive()) return
+        if (b.stopAsked) {
+            // 끊으라고 시켰는데 그 말이 닿기 전에 연결이 끊겼다: 다른 곳에서 되살리지 않고 그대로 멈춘다
+            halt(h, b, "연결을 끊었습니다", null)
+            return
+        }
+        // 접속용 서버를 정상 종료(업데이트 등)한 것은 횟수에 세지 않는다
+        if (!graceful && !b.replaces.tryUse(now)) {
+            halt(h, b, "접속용 서버가 자주 끊겨 잠수를 멈췄습니다", LogLine.Kind.ERROR)
+            return
+        }
+        val text = "접속용 서버 연결이 끊겨 다른 곳에서 다시 접속합니다"
+        // 엔진이 재접속을 미루고 있었다면(모장 요청 제한 등) 그 시각보다 앞당기지 않는다
+        val at = maxOf(if (graceful) now else now + REPLACE_DELAY_MS, b.status.nextAttemptAtMs ?: 0)
+        addLine(h, b, LogLine(now, LogLine.Kind.SYSTEM, ChatText.of(text)))
+        enqueue(h, b, at, text, "다른 접속용 서버에서 이어서 접속합니다")
     }
 
     /** 자리를 기다리는 잠수를 맡겨 본다 (1초마다). 한꺼번에 로그인하지 않게 [PLACE_GAP_MS] 에 하나씩만 시작한다 */
@@ -755,6 +783,7 @@ class SessionManager(
                 }
                 if (!b.status.state.isActive()) continue
                 if (why != null) addLine(h, b, LogLine(System.currentTimeMillis(), LogLine.Kind.ERROR, ChatText.of(why)))
+                b.stopAsked = true
                 b.run?.stop()
             }
         }

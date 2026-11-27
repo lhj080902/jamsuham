@@ -166,7 +166,12 @@ object LinkNet {
             }
             val msg = parse(p.open(ByteArray(buf.readableBytes()).also { buf.readBytes(it) }))
             if (msg.str("t") == "ping") return
-            handler?.onMessage(msg)
+            // 내용 하나를 처리하다 난 오류로 연결(= 그 접속용 서버의 모든 잠수)을 끊지 않는다. 끊는 것은 풀 수 없는 프레임(위)뿐이다
+            try {
+                handler?.onMessage(msg)
+            } catch (e: Exception) {
+                Log.w("[연결] 받은 내용(${msg.str("t")})을 처리하지 못했습니다", e)
+            }
         }
 
         override fun userEventTriggered(ctx: ChannelHandlerContext, evt: Any) {
@@ -234,7 +239,9 @@ object LinkNet {
                             ctx.executor().schedule({ if (peer == null && ctx.channel().isActive) failed(ctx, "시간 초과") }, HANDSHAKE_MS, TimeUnit.MILLISECONDS)
                         }
 
-                        private fun reject(ctx: ChannelHandlerContext, code: String, reason: String) {
+                        /** 사유를 알려 주고 닫는다. 본 서버 로그에도 남긴다 ([name] 은 아직 확인되지 않은 값일 수 있어 글자를 걸러 찍는다) */
+                        private fun reject(ctx: ChannelHandlerContext, code: String, reason: String, name: String) {
+                            Log.w("[노드] 거절: ${name.filter { !it.isISOControl() }.take(64)} ($ip) — $reason")
                             plain(ctx.channel(), jsonOf("t" to "reject", "code" to code, "reason" to reason)).addListener { ctx.close() }
                         }
 
@@ -249,8 +256,11 @@ object LinkNet {
                             if (h == null) {
                                 if (msg.str("t") != "hello") return failed(ctx, "hello 가 아님")
                                 if (msg.int("ver") != LinkCrypto.LINK_VERSION || msg.int("api") != Wire.API) {
-                                    val theirs = (msg.str("version") ?: "?").take(20)
-                                    return reject(ctx, "version", "본 서버와 접속용 서버의 버전이 다릅니다 (본 서버 v${kr.jamsuham.cloud.CLOUD_VERSION}, 접속용 v$theirs)")
+                                    val theirs = (msg.str("version") ?: "?").filter { !it.isISOControl() }.take(20)
+                                    // 잘못된 접속으로 센다 (비밀키 없이도 올 수 있는 길이라, 거절 로그를 끝없이 쌓게 두지 않는다.
+                                    // 버전이 다른 접속용 서버는 1분에 한 번만 다시 붙어 보므로 이것으로 막히지 않는다)
+                                    failure(ip)
+                                    return reject(ctx, "version", "본 서버와 접속용 서버의 버전이 다릅니다 (본 서버 v${kr.jamsuham.cloud.CLOUD_VERSION}, 접속용 v$theirs)", msg.str("name") ?: "?")
                                 }
                                 nonceW = b64(msg, "nonce", LinkCrypto.NONCE_BYTES)
                                 hello = Hello((msg.str("name") ?: "").take(100), (msg.int("capacity") ?: 0).coerceIn(1, 5000), (msg.str("version") ?: "?").take(20))
@@ -260,13 +270,16 @@ object LinkNet {
                             if (msg.str("t") != "auth") return failed(ctx, "auth 가 아님")
                             if (!LinkCrypto.macEquals(b64(msg, "mac", 32), LinkCrypto.workerMac(psk, nonceW, nonceM, h.name))) {
                                 failure(ip)
-                                return reject(ctx, "auth", "비밀키가 맞지 않습니다")
+                                return reject(ctx, "auth", "비밀키가 맞지 않습니다", h.name)
                             }
                             val p = LinkPeer(ctx.channel(), FrameCipher(psk, nonceW, nonceM, isWorker = false))
                             val accepted = try {
                                 accept(h, p)
                             } catch (r: Reject) {
-                                return reject(ctx, r.code, r.message ?: "받을 수 없습니다")
+                                return reject(ctx, r.code, r.message ?: "받을 수 없습니다", h.name)
+                            } catch (e: Exception) {
+                                Log.w("[노드] 접속용 서버를 받는 중 오류", e)
+                                return reject(ctx, "error", "본 서버 오류로 받지 못했습니다", h.name)
                             }
                             // welcome 이 먼저 나가야 한다: accept 안에서 보낸 것들은 이 함수가 끝난 뒤에 나간다 (LinkPeer.send 가 뒤로 미룸)
                             plain(ctx.channel(), jsonOf("t" to "welcome", "mac" to b64(LinkCrypto.masterMac(psk, nonceW, nonceM))))
