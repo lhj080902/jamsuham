@@ -49,6 +49,11 @@ sleep 4
 shot "01b-terms-again"
 tap "Agree and start"
 sleep 3
+# 약관에 동의한 뒤에 알림 권한을 묻는다 (안드로이드 13+)
+shot "01c-notification-permission"
+maybe "Allow"
+adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2> /dev/null
+sleep 2
 
 # ---------------------------------------------------------------- 2. 체험 서버
 shot "02-empty"
@@ -56,11 +61,7 @@ tap "Try without signing in"
 sleep 5 # 서버 목록의 서버 정보(이름·접속자 수) 받기
 shot "03-list"
 tap "Start"
-sleep 3
-# 알림 권한을 묻는 창 (안드로이드 13+)
-maybe "Allow"
-adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2> /dev/null
-sleep 15 # 접속 + 채팅이 다 올라올 때까지
+sleep 18 # 접속 + 채팅이 다 올라올 때까지
 
 # ---------------------------------------------------------------- 3. 포그라운드 서비스로 돌고 있는지
 note "잠수 서비스: $(service | tr '\n' ' ')"

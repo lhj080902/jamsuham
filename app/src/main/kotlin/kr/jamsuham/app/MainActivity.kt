@@ -60,7 +60,14 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
         setupWindow(root, ui.p)
         arrange()
         setContentView(root)
-        // 잠수 중 상단 고정 알림(끊기/앱 열기 버튼)을 띄우려면 알림 권한이 필요하다
+        // 알림 권한은 이용 약관에 동의한 뒤에 묻는다 (첫 실행 때 권한 창이 약관 창을 덮지 않게)
+        if (Terms.accepted(this)) askNotificationPermission()
+    }
+
+    override fun onTermsAccepted() = askNotificationPermission()
+
+    /** 잠수 중 상단 고정 알림(끊기/앱 열기 버튼)을 띄우려면 알림 권한이 필요하다 */
+    private fun askNotificationPermission() {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {

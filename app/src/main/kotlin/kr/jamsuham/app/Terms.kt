@@ -28,7 +28,7 @@ object Terms {
      * 아직 동의하지 않았으면 닫을 수 없는 동의 창을 띄우고 그 창을 돌려준다 (동의했으면 null).
      * 거절하면 앱의 화면을 모두 닫는다. 다음에 열면 다시 묻는다.
      */
-    fun gate(activity: Activity): AlertDialog? {
+    fun gate(activity: Activity, onAccepted: () -> Unit = {}): AlertDialog? {
         if (accepted(activity)) return null
         val ui = Ui(activity)
         val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
@@ -56,6 +56,7 @@ object Terms {
             .setCancelable(false)
             .setPositiveButton(tr("동의하고 시작", "Agree and start")) { _, _ ->
                 activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY, VERSION).apply()
+                onAccepted()
             }
             .setNegativeButton(tr("동의하지 않음", "Decline")) { _, _ -> activity.finishAffinity() }
             .show()

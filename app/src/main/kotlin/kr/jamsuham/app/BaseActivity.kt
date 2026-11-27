@@ -22,8 +22,11 @@ abstract class BaseActivity : Activity(), Starter {
         settingsVersion = AppSettings.version
         super.onCreate(savedInstanceState)
         // 이용 약관에 동의하기 전에는 어느 화면도 쓸 수 없다
-        termsDialog = Terms.gate(this)
+        termsDialog = Terms.gate(this) { onTermsAccepted() }
     }
+
+    /** 이 화면에서 이용 약관에 방금 동의했을 때 (동의 전에는 미뤄 둔 일을 여기서 한다) */
+    protected open fun onTermsAccepted() {}
 
     override fun onDestroy() {
         termsDialog?.dismiss()
