@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="dark light">
+<title>잠수크래프트 클라우드</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 로그인 화면 -->
+<section id="login" hidden>
+  <div class="login-card">
+    <img class="banner" src="banner.webp" alt="">
+    <h1 data-t="잠수크래프트 클라우드|Jamsucraft Cloud"></h1>
+    <p class="muted" data-t="폰을 꺼도 서버 컴퓨터가 대신 잠수합니다. 웹과 앱에서 같은 화면을 봅니다.|The server keeps you AFK even when your phone is off. Web and app show the same session."></p>
+
+    <div id="login-start">
+      <button id="btn-ms" class="primary big" data-t="마이크로소프트 계정으로 로그인|Sign in with Microsoft"></button>
+      <p class="hint" data-t="마인크래프트 자바 에디션을 구매한 계정으로 로그인해 주세요. 비밀번호는 마이크로소프트 사이트에만 입력합니다.|Sign in with an account that owns Minecraft: Java Edition. Your password is entered only on Microsoft's site."></p>
+    </div>
+
+    <div id="login-code" hidden>
+      <p data-t="① 아래 코드를 복사하고 ② 마이크로소프트 페이지에 붙여 넣은 뒤 로그인해 주세요.|① Copy the code below, ② paste it on the Microsoft page and sign in."></p>
+      <div class="code-row">
+        <span id="user-code" class="code"></span>
+        <button id="btn-copy" class="plain" data-t="복사|Copy"></button>
+      </div>
+      <a id="btn-open" class="button primary big" target="_blank" rel="noopener noreferrer" data-t="마이크로소프트 페이지 열기|Open the Microsoft page"></a>
+      <p id="code-wait" class="hint"></p>
+      <button id="btn-cancel" class="ghost" data-t="취소|Cancel"></button>
+    </div>
+
+    <div id="login-dev" hidden>
+      <p class="warn" data-t="시험 모드 (닉네임 로그인)|Test mode (nickname login)"></p>
+      <div class="row">
+        <input id="dev-name" maxlength="16" autocomplete="off" placeholder="Tester">
+        <button id="btn-dev" class="plain" data-t="시험 로그인|Test login"></button>
+      </div>
+    </div>
+
+    <p id="login-error" class="error" hidden></p>
+    <p class="fine" data-t="마인크래프트 공식 제품이 아니며 Mojang·Microsoft 와 관련이 없습니다.|Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft."></p>
+  </div>
+</section>
+
+<!-- 본 화면 -->
+<section id="main" hidden>
+  <header class="top">
+    <img src="icon.png" alt="" class="logo">
+    <div class="title">
+      <b data-t="잠수크래프트 클라우드|Jamsucraft Cloud"></b>
+      <span id="acct" class="muted"></span>
+    </div>
+    <span id="conn" class="pill" hidden></span>
+    <button id="btn-lang" class="ghost small">EN</button>
+    <button id="btn-account" class="ghost small" data-t="계정|Account"></button>
+  </header>
+
+  <div class="layout">
+    <aside id="list-pane">
+      <div class="pane-head">
+        <b data-t="서버|Servers"></b>
+        <button id="btn-add" class="plain small" data-t="+ 서버|+ Server"></button>
+      </div>
+      <div id="servers"></div>
+      <p id="no-servers" class="muted pad" hidden data-t="아직 서버가 없습니다. ‘+ 서버’로 추가하거나 앱에서 서버를 클라우드로 보내 주세요.|No servers yet. Add one with “+ Server”, or send a server to the cloud from the app."></p>
+    </aside>
+
+    <main id="session-pane">
+      <div id="empty" class="muted pad" data-t="왼쪽에서 서버를 골라 주세요.|Choose a server on the left."></div>
+      <div id="session" hidden>
+        <div class="sess-head">
+          <button id="btn-back" class="ghost small back">←</button>
+          <span id="s-dot" class="dot"></span>
+          <div class="grow">
+            <b id="s-name"></b>
+            <div id="s-status" class="muted small-text"></div>
+          </div>
+          <button id="btn-edit" class="ghost small" data-t="설정|Settings"></button>
+          <button id="btn-toggle" class="primary small"></button>
+        </div>
+        <div id="s-presence" class="notice" hidden></div>
+        <div id="s-death" class="notice death" hidden>
+          <span id="s-death-text" class="grow"></span>
+          <button id="btn-death" class="ghost small">✕</button>
+        </div>
+        <div id="s-menu" class="notice menu" hidden>
+          <span id="s-menu-text" class="grow"></span>
+          <button id="btn-menu" class="plain small" data-t="열기|Open"></button>
+        </div>
+        <nav class="tabs">
+          <button data-tab="chat" class="tab on" data-t="채팅|Chat"></button>
+          <button data-tab="players" class="tab" id="tab-players"></button>
+          <button data-tab="status" class="tab" data-t="상태|Status"></button>
+        </nav>
+        <div id="p-chat" class="panel">
+          <div id="chat" class="chat"></div>
+          <div id="suggest" class="suggest" hidden></div>
+          <form id="send" class="send">
+            <input id="input" maxlength="256" autocomplete="off" enterkeyhint="send">
+            <button class="primary" data-t="전송|Send"></button>
+          </form>
+        </div>
+        <div id="p-players" class="panel" hidden></div>
+        <div id="p-status" class="panel" hidden></div>
+      </div>
+    </main>
+  </div>
+</section>
+
+<!-- 대화상자 -->
+<div id="shade" class="shade" hidden>
+  <div id="dialog" class="dialog" role="dialog" aria-modal="true"></div>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

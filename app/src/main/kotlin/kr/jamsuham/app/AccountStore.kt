@@ -127,7 +127,8 @@ class AccountStore(context: Context) {
     fun finishMicrosoftLogin(authCode: String): Account {
         val client = http()
         val msaToken = client.executeAndHandle(MsaAuthCodeTokenRequest(msaConfig, authCode))
-        val manager = JavaAuthManager.create(client).login(msaToken)
+        // 로그인에 쓴 설정(client ID)을 그대로 넘겨야 한다. 안 넘기면 공식 런처 설정으로 처리돼 자체 client ID 토큰은 Xbox 인증에서 실패한다
+        val manager = JavaAuthManager.create(client).msaApplicationConfig(msaConfig).login(msaToken)
         val profile = try {
             manager.minecraftProfile.upToDate
         } catch (e: IOException) {
@@ -170,6 +171,21 @@ class AccountStore(context: Context) {
                 if (looksRevoked(msg)) throw AuthException(tr("${acc.name} 계정의 로그인이 만료됐습니다. 계정 관리에서 다시 로그인해 주세요", "The sign-in for ${acc.name} has expired. Please sign in again in account management"), true, e)
                 throw IOException(tr("마이크로소프트 인증 서버에 연결하지 못했습니다: $msg", "Couldn't connect to the Microsoft authentication server: $msg"), e)
             }
+        }
+    }
+
+    /**
+     * 클라우드 연결용: 이 계정의 저장된 로그인 정보(JSON). 사용자가 "클라우드에 연결"을 눌러 동의했을 때만 부른다.
+     * 클라우드 서버가 이 정보로 토큰을 새로 받아 계정을 확인한다.
+     */
+    @Throws(Exception::class)
+    fun exportAuth(accountId: String): com.google.gson.JsonObject {
+        val acc = get(accountId) ?: throw AuthException(tr("계정을 찾을 수 없습니다", "Account not found"))
+        synchronized(LOCK) {
+            val f = file(acc.id)
+            if (!f.exists()) throw AuthException(tr("${acc.name} 계정에 다시 로그인해 주세요", "Please sign in to ${acc.name} again"))
+            val text = TokenCrypto.open(f.readText()) { tokenKey() ?: throw IllegalStateException(tr("암호화 키를 찾을 수 없습니다", "Encryption key not found")) }
+            return JsonParser.parseString(text).asJsonObject
         }
     }
 
@@ -219,6 +235,20 @@ class AccountStore(context: Context) {
     companion object {
         private val LOCK = Any()
         private const val KEY_ALIAS = "jamsuham_tokens"
+
+        /** 작은 비밀 값(클라우드 접속 토큰)을 Keystore 키로 암호화한다. Keystore 를 쓸 수 없는 기기면 그대로 */
+        fun sealSecret(plain: String): String = try {
+            tokenKey()?.let { TokenCrypto.seal(plain, it) } ?: plain
+        } catch (_: Throwable) {
+            plain
+        }
+
+        /** [sealSecret] 으로 저장한 값을 연다. 열 수 없으면 null */
+        fun openSecret(stored: String): String? = try {
+            TokenCrypto.open(stored) { tokenKey() ?: throw IllegalStateException() }
+        } catch (_: Throwable) {
+            null
+        }
 
         /**
          * 토큰 파일을 암호화하는 AES 키. 안드로이드 Keystore 안에 만들어져 앱 밖으로 꺼낼 수 없다.

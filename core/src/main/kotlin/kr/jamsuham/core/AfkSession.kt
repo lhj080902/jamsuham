@@ -61,6 +61,11 @@ class AfkSession(
     private val listener: SessionListener,
     private val log: CoreLog = CoreLog.STDOUT,
     private val dns: RawDnsQuery? = AddressResolver.UdpDns(listOf("1.1.1.1", "8.8.8.8")),
+    /**
+     * 접속할 주소를 마지막으로 검사·고치는 곳 (클라우드 서버가 내부망 주소로 접속하지 못하게 막는 데 쓴다).
+     * 안 되는 주소면 IllegalArgumentException 을 던진다 → 세션이 그 메시지로 멈춘다. 서버가 옮기라고 한 주소(transfer)에도 적용된다.
+     */
+    private val targetFilter: ((ResolvedTarget) -> ResolvedTarget)? = null,
 ) {
     private val exec: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "jamsuham-session").apply { isDaemon = true }
@@ -221,13 +226,14 @@ class AfkSession(
             }
 
             val transfer = transferTo
-            val target = if (transfer != null) {
+            val rawTarget = if (transfer != null) {
                 // 서버가 정해 준 주소·포트를 그대로 쓴다 ("주소:포트" 글자로 합쳤다 다시 나누면 IPv6 주소에서 포트가 사라진다)
                 ResolvedTarget(transfer.first, transfer.second, transfer.first, transfer.second)
             } else {
                 setStatus(SessionState.PREPARING, tr("서버 주소 확인 중…", "Resolving server address…"))
                 AddressResolver.resolve(config.address, dns)
             }
+            val target = targetFilter?.invoke(rawTarget) ?: rawTarget
             if (userStopped) return
 
             val version = resolveVersion(target) ?: return
@@ -545,6 +551,7 @@ class AfkSession(
                 val plain = reason.text.plain
                 if (isDuplicateLogin(plain)) {
                     // PC 등에서 같은 계정으로 들어간 것: 다시 들어가면 그쪽을 튕겨 내므로 멈춘다
+                    listener.onDuplicateLogin()
                     stopWithError(tr("다른 곳(PC 등)에서 같은 계정으로 접속해서 잠수를 멈췄습니다. 다시 잠수하려면 시작을 눌러 주세요", "AFK stopped because the same account joined from somewhere else (e.g. a PC). Tap Start to AFK again"))
                     return
                 }

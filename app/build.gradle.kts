@@ -21,6 +21,8 @@ android {
         // 정품 로그인용 자체 Azure 앱 client ID (Mojang 의 Minecraft API 승인을 받은 것).
         // 비어 있으면 앱은 공식 런처 ID 로 로그인한다. GitHub 저장소 변수/Secret MS_CLIENT_ID → 환경 변수 JAMSUHAM_MS_CLIENT_ID
         manifestPlaceholders["msClientId"] = System.getenv("JAMSUHAM_MS_CLIENT_ID")?.trim().orEmpty()
+        // 클라우드 잠수 서버의 기본 주소 (없으면 설정 화면에서 직접 입력). GitHub 저장소 변수 CLOUD_URL → 환경 변수 JAMSUHAM_CLOUD_URL
+        manifestPlaceholders["cloudUrl"] = System.getenv("JAMSUHAM_CLOUD_URL")?.trim().orEmpty()
     }
 
     signingConfigs {

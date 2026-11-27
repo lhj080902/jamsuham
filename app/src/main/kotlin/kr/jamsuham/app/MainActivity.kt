@@ -258,6 +258,9 @@ class MainActivity : BaseActivity(), SessionHub.Observer {
             if (st.state == SessionState.WAITING_RECONNECT) st.nextAttemptAtMs?.let { parts.add(tr("${((it - now).coerceAtLeast(0)) / 1000}초 뒤", "in ${((it - now).coerceAtLeast(0)) / 1000}s")) }
             if (st.reconnectCount > 0 && st.state.isActive()) parts.add(tr("재접속 ${st.reconnectCount}회", "${st.reconnectCount} reconnects"))
             accounts.get(s.accountId)?.let { parts.add(it.name) } ?: parts.add(tr("계정 없음", "No account"))
+            // 클라우드 잠수용 서버 표시, 그리고 같은 서버가 다른 매체에서 돌고 있으면 알려 준다
+            if (s.cloud) parts.add(0, tr("☁ 클라우드", "☁ Cloud"))
+            CloudHub.elsewhereLabel(s)?.let { parts.add(it) }
             detail.setTextIfChanged(parts.joinToString(" · "))
             val active = st.state.isActive()
             val label2 = if (active) tr("끊기", "Disconnect") else tr("시작", "Start")

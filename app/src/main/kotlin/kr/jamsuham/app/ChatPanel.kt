@@ -487,7 +487,10 @@ class ChatPanel(
         }
         if (backDialog?.isShowing == true) return
         val box = ui.vertical().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(4)) }
-        box.addView(ui.hint(tr("잠수를 유지하면 화면을 나가도 알림 줄에서 계속 접속해 있습니다.", "If you keep AFK, you stay connected from the notification even after leaving this screen.")))
+        box.addView(ui.hint(
+            if (SessionHub.isRemote(serverId)) tr("클라우드 잠수는 화면을 나가거나 폰을 꺼도 클라우드에서 계속 접속해 있습니다.", "Cloud AFK stays connected in the cloud even if you leave this screen or turn off your phone.")
+            else tr("잠수를 유지하면 화면을 나가도 알림 줄에서 계속 접속해 있습니다.", "If you keep AFK, you stay connected from the notification even after leaving this screen."),
+        ))
         val dialog = android.app.AlertDialog.Builder(activity)
             .setTitle(tr("서버 목록으로 나갈까요?", "Back to the server list?"))
             .setView(box)

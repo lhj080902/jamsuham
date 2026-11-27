@@ -13,3 +13,9 @@ captures/
 # 테스트 서버 의존성 (npm install 로 받음)
 tools/test-server/node_modules/
 tools/test-server/package-lock.json
+
+# 클라우드 서버를 저장소 폴더에서 바로 돌렸을 때 생기는 설정·데이터 (계정 토큰·암호화 키가 들어 있으므로 절대 올리지 않는다)
+/cloud.properties
+/data/
+cloud/cloud.properties
+cloud/data/

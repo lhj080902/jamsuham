@@ -16,6 +16,8 @@ jobs:
       HAS_UPLOAD_KEY: ${{ secrets.UPLOAD_KEYSTORE_BASE64 != '' }}
       # 정품 로그인 자체 client ID (Mojang 승인 후 저장소 Variables 또는 Secrets 에 MS_CLIENT_ID 로 등록. 없으면 공식 런처 ID)
       JAMSUHAM_MS_CLIENT_ID: ${{ vars.MS_CLIENT_ID || secrets.MS_CLIENT_ID }}
+      # 클라우드 잠수 서버의 기본 주소 (저장소 Variables 에 CLOUD_URL 로 등록. 없으면 앱 설정에서 직접 입력. docs/CLOUD.md)
+      JAMSUHAM_CLOUD_URL: ${{ vars.CLOUD_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +60,18 @@ jobs:
           name: ${{ env.HAS_UPLOAD_KEY == 'true' && 'jamsuham-play-aab' || 'jamsuham-play-aab-UNSIGNED-debugkey' }}
           path: app/build/outputs/bundle/playRelease/*.aab
 
+      - name: Build cloud server (클라우드 서버)
+        # 앱과 같은 엔진·같은 버전의 서버용 프로그램 (docs/CLOUD.md). 자바 17 만 있으면 실행된다
+        run: |
+          ./gradlew --no-daemon --stacktrace :cloud:distZip
+          cp cloud/build/distributions/jamsu-cloud.zip jamsu-cloud.zip
+
+      - name: Upload artifact (클라우드 서버)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jamsu-cloud
+          path: jamsu-cloud.zip
+
       - name: Publish to Releases
         # 다른 브랜치에서 수동 실행했을 때 폰들이 그 빌드로 업데이트되지 않도록 main 에서만 게시
         if: github.ref == 'refs/heads/main'
@@ -68,7 +82,9 @@ jobs:
           TAG="build-${{ github.run_number }}"
           # 보이는 버전(주.부.수)은 gradle.properties 의 jamsuham.version
           VERSION=$(grep '^jamsuham.version=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')
-          gh release create "$TAG" jamsuham.apk \
+          gh release create "$TAG" jamsuham.apk jamsu-cloud.zip \
             --target "${{ github.sha }}" \
             --title "잠수크래프트 v$VERSION (빌드 #${{ github.run_number }})" \
-            --notes "폰에서 아래 jamsuham.apk 를 눌러 받은 뒤 설치하세요. (처음 설치할 때 '출처를 알 수 없는 앱 설치'를 허용해야 합니다)"
+            --notes "폰에서 아래 jamsuham.apk 를 눌러 받은 뒤 설치하세요. (처음 설치할 때 '출처를 알 수 없는 앱 설치'를 허용해야 합니다)
+
+          jamsu-cloud.zip 은 클라우드 잠수 서버 운영자용 파일입니다 (일반 사용자는 받지 않아도 됩니다)."

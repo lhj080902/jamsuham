@@ -33,6 +33,26 @@
     데이터 사용량은 `SessionHub.ratePerHour`(AfkService 가 1분마다 refreshRates) 하나를 알림과 상태 탭이 같이 씀,
     `AccountStore`(MS 토큰은 files/accounts/ 에 Keystore AES-GCM 으로 암호화 저장 `TokenCrypto`, 예전 평문도 읽음. 백업·기기 이전에서 제외 `res/xml/data_extraction_rules.xml`), `Plan`(무료 동시 잠수 1개 / 프리미엄), `Updater`(GitHub 릴리스로 앱 안 업데이트)
 
+## 클라우드 잠수 (cloud/, v2.0.0~)
+- 구조: **`cloud/`** = 서버 컴퓨터에서 도는 JVM 프로그램(core 의 `AfkSession` 을 그대로 씀) + 웹 화면(`cloud/src/main/resources/web/` index.html·app.js·style.css, 빌드 도구 없는 순수 JS).
+  웹·앱은 REST + SSE(`/api/events`)로 같은 잠수를 보고 조작한다. 웹 서버는 자바 기본 `com.sun.net.httpserver` (추가 라이브러리 없음 — Jetty 는 이 환경에서 메이븐 429 로 못 받았음). 설치·운영 문서 `docs/CLOUD.md`
+- 주고받는 JSON 은 **`core/cloud/Wire.kt`** 하나로 서버가 만들고 앱이 읽는다(웹 app.js 는 같은 키를 손으로 맞춤 — 키를 바꾸면 함께 고칠 것, `Wire.API` 번호).
+  앱 쪽 통신은 `core/cloud/CloudClient.kt`(`CloudStream` 재연결 포함) → PC 하네스 `cloud` 모드로 실제 서버에 붙여 검증한다 (앱은 이 환경에서 못 돌리므로)
+- 서버 파일: `Http.kt`(라우팅·인증: 웹=HttpOnly 쿠키+`X-Jamsu` 헤더, 앱=Bearer / SSE / 정적 파일), `Sessions.kt`(계정별 `AccountHub`·`SessionBox`, 시작·끊기·재시작 시 이어 접속, `Presence`),
+  `MsAuth.kt`(웹=기기 코드 로그인, 앱=로그인 정보 넘겨받기 `login/transfer`, 접속 때 토큰 갱신), `DataStore.kt`(JSON 파일·`Premium` = data/premium.txt 허용 목록), `NetGuard.kt`(내부망 주소 차단), `Util.kt`(`Vault` AES-GCM)
+- **중복 접속 규칙** (계정 UUID + `Wire.addressKey(주소)` 기준): 클라우드 잠수 중 → 폰 직접 잠수 차단(앱 `BaseActivity.startServer` 가 `CloudHub.elsewhere` 확인) /
+  폰 직접 잠수 중(`AfkService` 가 1분마다 `CloudHub.reportLocal`, TTL 150초) → 클라우드 시작 409 `in_use` / PC 게임이 들어와 밀려남(`SessionListener.onDuplicateLogin`) → 30분 동안 "other" 표시, 다시 시작하면 확인(`force`).
+  PC 게임 자체는 막을 수 없음(FastPack 이 접속 전에 클라우드에 묻게 하면 가능 — 미구현)
+- **같은 IP 문제**: 프록시로 계정마다 IP 를 바꾸는 우회는 만들지 않기로 함(서버 규칙 회피). 대신 `maxAccountsPerTarget`(기본 3)·`targetLimits` 로 서버별 계정 수를 제한하고, 운영진 허용을 받은 서버만 늘린다
+- 앱: `CloudHub`(연결 기록 prefs `jamsuham_cloud`, 계정별 SSE — 앱이 앞에 있을 때만, 이벤트 → `SessionHub.remote*`), `CloudSection`(설정 카드), `ServerEntry.cloud`.
+  `SessionHub.activeIds()/anyActive` 는 **폰 잠수만**(서비스·알림·이어서 잠수·무료 동시 제한), `isActive` 는 둘 다. 클라우드 잠수에서는 지도·이동·아이템 사용 불가(미구현)
+- 시험: 시험 MC 서버 2개(`stay`, `dupe`) + 클라우드 서버(`JAVA_OPTS=-Djamsu.devLogin=true`, 설정 `premiumMode=open allowPrivateTargets=true maxAccountsPerTarget=2`)를 띄우고
+  `harness cloud http://127.0.0.1:<포트> <stay포트> <dupe포트>` (32개 항목). 웹은 Playwright 로 닉네임 시험 로그인(`-Djamsu.devLogin=true` 일 때만 보임)해서 확인.
+  빌드: `./gradlew -p tools/corebuild :cloud:installDist` → `cloud/build/install/jamsu-cloud/bin/jamsu-cloud <설정파일>`. 주의: 서버가 켜진 채 installDist 하면 jar 가 바뀌어 응답이 깨진다(끄고 빌드)
+- 실제 마이크로소프트 로그인(기기 코드·넘겨받기)은 이 환경에서 시험 못 함(MS 서버 막힘) → 사용자가 서버를 띄운 뒤 확인 필요
+- CI: `build.yml` 이 `:cloud:distZip` 을 릴리스에 `jamsu-cloud.zip` 으로 같이 올림. 앱 기본 주소는 저장소 변수 `CLOUD_URL`
+- **v1.7.1 로그인 버그(수정됨 v2.0.0)**: `JavaAuthManager.create(client).login(msaToken)` 에 `.msaApplicationConfig(msaConfig)` 를 안 넘겨 자체 client ID 토큰이 공식 런처 설정으로 처리됨 → 새 계정 추가 실패 가능. 지금은 넘김 (클라우드 `MsAuth` 도 동일)
+
 ## PC 모드 (tools/fastpack-mod)
 - FastPack 0.3.0: ⓪ 게임을 다시 켜도 — `FastPackState` 가 마지막 서버 팩(UUID·경로·서버 주소)을 config/fastpack-lastpack.properties 에 저장,
   `DownloadedPackSource.<init>` TAIL 에서 그 팩을 packSource 에 넣어 첫 로딩에 포함 → 같은 서버 접속 시 건너뜀 (config/fastpack.properties keepAcrossRestart=false 로 끔)
@@ -47,7 +67,7 @@
 - 빌드 종류(productFlavors): **github**(GitHub 릴리스 배포, 앱 안 업데이트·배터리 예외 직접 요청·프리미엄 테스트 토글 있음)
   / **play**(Google Play 용, 위 기능 없음). 판별은 `Flavor.PLAY` (`app/src/<flavor>/kotlin/.../Flavor.kt`),
   github 전용 권한·UpdateReceiver 는 `app/src/github/AndroidManifest.xml`
-- `main` 에 푸시하면 GitHub Actions(`.github/workflows/build.yml`)가 GitHub 판 APK 를 릴리스 `build-N` 으로 올리고(main 에서만),
+- `main` 에 푸시하면 GitHub Actions(`.github/workflows/build.yml`)가 GitHub 판 APK 와 클라우드 서버(`jamsu-cloud.zip`)를 릴리스 `build-N` 으로 올리고(main 에서만),
   Play 판 AAB 는 아티팩트로 만든다. versionCode = 실행 번호. 다른 브랜치는 workflow_dispatch 로 빌드만 시험 가능(릴리스 게시 안 함)
 - **버전 규칙(주.부.수)**: 보이는 버전은 `gradle.properties` 의 `jamsuham.version` 을 직접 고친다. 변경을 올릴 때 함께 올릴 것
   - 주(맨 앞): 엔진·구조 변경 / 부(가운데): 큰 기능·대규모 패치(수는 0) / 수(맨 뒤): 버그 수정·작은 변경
@@ -82,7 +102,12 @@
 - 접속할 때마다(서버 설정 '들어가면 한두 걸음', 기본 켜짐) 발밑 청크가 오고 메뉴가 닫히면 북쪽 0.35초 → 남쪽 0.35초 걸어 제자리 (`scheduleJoinWalk`)
 - 일반 킥이 8번 넘게 이어지면 최소 3분 대기 (수백 번 로그인해 429 를 부르지 않도록). 연속 횟수는 1분 이상 버텨야 초기화
 
-## 다음 세션에서 이어서 할 일 (2026-11-23 기준, 앱 v1.7.0 / FastPack 0.3.0)
+## 다음 세션에서 이어서 할 일 (2026-11-27 기준, 앱·클라우드 v2.0.0 / FastPack 0.3.0)
+- **클라우드 잠수 실사용 확인 (사용자)**: 서버 컴퓨터에 jamsu-cloud.zip 설치 → msClientId 입력 → 웹 기기 코드 로그인 / 앱 "연결"(v2.0.0 에서 새로 로그인한 계정) / 클라우드에서 시작·채팅·끊기 /
+  폰 잠수 중 클라우드 시작 차단·반대 방향 차단이 실제 폰에서 되는지. HTTPS 공개(Cloudflare 터널 또는 Caddy), 저장소 변수 CLOUD_URL
+- 클라우드 다음 작업 후보: 클라우드 잠수의 지도·이동·아이템 사용, 웹의 리소스팩 그림 글자, 앱이 뒤에 있을 때 사망·메뉴 푸시 알림, 결제 연동(지금은 premium.txt 수동), 운영자용 관리 화면,
+  FastPack 이 PC 접속 전에 클라우드에 묻기, 도스온라인 운영진에게 보낼 공유 IP 허용 요청 글
+- v2.0.0 새 로그인(자체 client ID) 확인: 계정 추가 → 주소가 login.microsoftonline.com/consumers → 로그인·서버 접속 (v1.7.1 은 버그로 실패했을 수 있음)
 - (완료 2026-11-23) **업로드 서명 키**: 사용자가 upload.jks 를 만들고 Secrets 4개 등록 → 시험 빌드에서 `jamsuham-play-aab`(서명됨) 확인
 - **FastPack 다음 작업 (사용자 요청, 다음 세션 첫 작업)**:
   ① 게임 안 설정 창 — Mod Menu 연동(루나 모드 목록에 modmenu 있음, maven.terraformersmc.com 의 com.terraformersmc:modmenu 1.21.4용을 compileOnly,

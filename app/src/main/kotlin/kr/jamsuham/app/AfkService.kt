@@ -42,6 +42,8 @@ class AfkService : Service() {
     private val observer = object : SessionHub.Observer {
         override fun onStatus(serverId: String, status: SessionStatus) {
             store.setActive(SessionHub.activeIds())
+            // 이 폰에서 잠수 중인 서버가 바뀌었으면 클라우드에 알린다 (연결한 계정이 있을 때만. 웹에 "앱에서 실행 중"으로 보임)
+            CloudHub.reportLocal(this@AfkService)
             if (!SessionHub.anyActive) shutdown() else updateNotification()
         }
 
@@ -52,6 +54,7 @@ class AfkService : Service() {
         override fun run() {
             SessionHub.refreshRates()
             updateNotification()
+            CloudHub.reportLocal(this@AfkService)
             main.postDelayed(this, 60_000)
         }
     }
@@ -232,7 +235,10 @@ class AfkService : Service() {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                main.post { SessionHub.onNetworkAvailable() }
+                main.post {
+                    SessionHub.onNetworkAvailable()
+                    CloudHub.onNetworkAvailable()
+                }
             }
         }
         try {
@@ -363,6 +369,12 @@ class AfkService : Service() {
         }
 
         fun stop(context: Context, serverId: String) {
+            // 클라우드 잠수는 이 서비스가 아니라 클라우드에 끊어 달라고 한다
+            if (SessionHub.isRemote(serverId)) {
+                CloudHub.init(context)
+                SessionHub.stop(serverId)
+                return
+            }
             context.startService(Intent(context, AfkService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_SERVER, serverId))
         }
     }

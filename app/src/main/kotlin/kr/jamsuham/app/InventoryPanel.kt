@@ -90,7 +90,12 @@ class InventoryPanel(private val activity: Activity, private val ui: Ui, private
                     SessionHub.note(serverId, tr("아이템 사용: ${item.name.plain}", "Used item: ${item.name.plain}"))
                     android.widget.Toast.makeText(activity, tr("'${item.name.plain}' 사용", "Used '${item.name.plain}'"), android.widget.Toast.LENGTH_SHORT).show()
                 } else {
-                    android.widget.Toast.makeText(activity, tr("접속 중일 때만 쓸 수 있습니다", "Only available while connected"), android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(
+                        activity,
+                        if (SessionHub.isRemote(serverId)) tr("클라우드 잠수에서는 아직 아이템을 쓸 수 없습니다", "Using items isn't available for cloud AFK yet")
+                        else tr("접속 중일 때만 쓸 수 있습니다", "Only available while connected"),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
                 }
             }, ui.lp(Ui.WRAP, ui.dp(38)).apply { topMargin = ui.dp(6) })
         }

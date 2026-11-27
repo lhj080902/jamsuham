@@ -370,9 +370,134 @@ fun main(args: Array<String>) {
             ok = packs.isNotEmpty() && line != null && found != null && found.isNotEmpty() && found.all { it }
             s.stop(); Thread.sleep(500)
         }
+        "cloud" -> ok = cloudTest(args[1], args[2], args.getOrNull(3))
         else -> error(mode)
     }
     System.exit(if (ok) 0 else 1)
 }
 
 fun writeVar(buf: io.netty.buffer.ByteBuf, v0: Int) { var v = v0; while (true) { if (v and 0x7F.inv() == 0) { buf.writeByte(v); return }; buf.writeByte((v and 0x7F) or 0x80); v = v ushr 7 } }
+
+
+/**
+ * 클라우드 서버(cloud/) 시험: 앱이 쓰는 CloudClient 로 실제 서버에 붙어 본다.
+ * 먼저 띄울 것: 시험 MC 서버 `node server.js 1.21.4 <mc포트> stay` (+ 중복 로그인 확인용 `<dupe포트> dupe`),
+ * 클라우드 서버 (JAVA_OPTS=-Djamsu.devLogin=true, premiumMode=open, allowPrivateTargets=true, maxAccountsPerTarget=2)
+ * 실행: harness cloud <클라우드 주소> <mc포트> [dupe포트]
+ */
+fun cloudTest(base: String, mcPort: String, dupePort: String?): Boolean {
+    val W = kr.jamsuham.core.cloud.Wire
+    val results = ArrayList<Pair<String, Boolean>>()
+    fun check(name: String, pass: Boolean) { results += name to pass; println((if (pass) "  통과  " else "  실패  ") + name) }
+    fun codeOf(block: () -> Unit): String? = try { block(); null } catch (e: kr.jamsuham.core.cloud.CloudException) { e.code }
+
+    class Seen : kr.jamsuham.core.cloud.CloudStream.Listener {
+        val events = CopyOnWriteArrayList<Pair<String, com.google.gson.JsonObject>>()
+        @Volatile var lastSeq = 0L
+        @Volatile var authLost = false
+        @Volatile var connected = false
+        override fun onConnection(connected: Boolean, error: String?) { this.connected = connected }
+        override fun onEvent(type: String, data: com.google.gson.JsonObject, id: Long?) { events += type to data; if (id != null) lastSeq = id }
+        override fun onAuthLost() { authLost = true }
+        fun states(sid: String) = events.filter { it.first == "status" && it.second.get("sid")?.asString == sid }.map { W.parseStatus(it.second.getAsJsonObject("status")).state }
+        fun lines(sid: String) = events.filter { it.first == "line" && it.second.get("sid")?.asString == sid }.map { W.parseLine(it.second).second.text.plain }
+        fun presence(): List<kr.jamsuham.core.cloud.CloudClient.Holder> = events.lastOrNull { it.first == "presence" || it.first == "hello" }?.let { kr.jamsuham.core.cloud.CloudClient.parseHolders(it.second) } ?: emptyList()
+    }
+
+    val address = "127.0.0.1:$mcPort"
+    // 주소 정리 규칙
+    check("https 가 아닌 공개 주소는 거절", try { kr.jamsuham.core.cloud.CloudClient("http://example.com"); false } catch (_: IllegalArgumentException) { true })
+    check("주소 키: 대소문자·기본 포트 무시", W.addressKey("Play.Example.KR:25565") == "play.example.kr")
+
+    val app = kr.jamsuham.core.cloud.CloudClient(base)
+    check("서버 확인(info)", app.info().get("api").asInt == W.API)
+    check("로그인 전에는 거절(401)", codeOf { app.me() } == "login_required")
+    val login = app.loginDev("Tester", "시험폰")
+    check("시험 로그인 → 토큰", login.token.length > 30 && login.account.get("name").asString == "Tester")
+
+    val seen = Seen()
+    val stream = kr.jamsuham.core.cloud.CloudStream(app, { seen.lastSeq.takeIf { it > 0 } }, seen)
+    stream.start()
+    check("실시간 연결: hello 수신", waitFor(5000) { seen.events.any { it.first == "hello" } })
+
+    val entry = kr.jamsuham.core.cloud.CloudEntry(id = "h1", name = "하네스 서버", address = address, joinCommands = listOf("/잠수"))
+    app.putEntry(entry)
+    check("서버 올리기 → entry 이벤트", waitFor(3000) { seen.events.any { it.first == "entry" && W.parseEntry(it.second.getAsJsonObject("session").getAsJsonObject("entry")) == entry } })
+
+    // 폰 앱이 같은 서버에 직접 잠수 중이라고 알리면 클라우드 시작이 막혀야 한다
+    val held = app.reportPresence(listOf(address to "ONLINE"))
+    check("앱 잠수 알림 → 목록에 app", held.any { it.holder == "app" && it.key == W.addressKey(address) && it.label.contains("시험폰") })
+    var inUse: kr.jamsuham.core.cloud.CloudException? = null
+    try { app.start("h1") } catch (e: kr.jamsuham.core.cloud.CloudException) { inUse = e }
+    println("        → ${inUse?.message}")
+    check("앱에서 잠수 중이면 클라우드 시작 차단(in_use/app)", inUse?.code == "in_use" && inUse?.data?.get("holder")?.asString == "app" && inUse?.data?.get("canForce")?.asBoolean == false)
+    check("강제로도 시작 안 됨", codeOf { app.start("h1", force = true) } == "in_use")
+    app.reportPresence(emptyList())
+    check("앱 잠수 끝 알림 → 목록에서 빠짐", waitFor(3000) { seen.presence().none { it.holder == "app" } })
+
+    app.start("h1")
+    check("클라우드 시작 → ONLINE", waitFor(20000) { SessionState.ONLINE in seen.states("h1") })
+    check("채팅 줄 수신", waitFor(5000) { seen.lines("h1").any { it.contains("반가워요") } })
+    check("목록에 cloud 표시", waitFor(3000) { seen.presence().any { it.holder == "cloud" && it.sid == "h1" } })
+    check("같은 주소의 다른 서버는 차단(in_use/cloud)", run {
+        app.putEntry(entry.copy(id = "h1b", name = "같은 주소"))
+        val c = codeOf { app.start("h1b") }
+        app.deleteEntry("h1b")
+        c == "in_use"
+    })
+    check("채팅 보내기", codeOf { app.chat("h1", "하네스에서 보낸 채팅") } == null)
+    check("메뉴 수신", waitFor(5000) { seen.events.any { it.first == "menu" && W.parseMenu(it.second.get("menu"))?.title?.plain == "리소스팩 적용" } })
+    check("메뉴 클릭", codeOf { app.menuClick("h1", 13) } == null && waitFor(5000) { seen.events.last { it.first == "menu" }.second.get("menu").isJsonNull })
+    check("자동완성", app.suggest("h1", "/s")?.matches == listOf("spawn", "server"))
+    check("접속자 수신", waitFor(5000) { seen.events.any { it.first == "players" && W.parsePlayers(it.second.getAsJsonObject("players")).players.size == 2 } })
+
+    // 다른 기기(웹)에서 같은 계정으로 들어오면 같은 상태가 보여야 한다. 끊겼다 붙으면 놓친 줄만 이어 받아야 한다
+    val web = kr.jamsuham.core.cloud.CloudClient(base)
+    web.loginDev("Tester", "다른기기")
+    val seen2 = Seen()
+    val seqBefore = seen.lastSeq
+    val t2 = Thread { try { web.stream(seqBefore - 1, {}, { true }) { t, d, id -> seen2.onEvent(t, d, id) } } catch (_: Exception) {} }.apply { isDaemon = true; start() }
+    check("다른 기기: hello 에 ONLINE 세션", waitFor(5000) { seen2.events.firstOrNull { it.first == "hello" }?.second?.getAsJsonArray("sessions")?.any { W.parseStatus(it.asJsonObject.getAsJsonObject("status")).state == SessionState.ONLINE } == true })
+    check("다른 기기: since 뒤의 줄만 이어 받음", waitFor(3000) { seen2.events.any { it.first == "ready" } } && seen2.events.count { it.first == "line" } == 1)
+    web.closeStream(); t2.join(2000)
+
+    // 한 서버에 들어갈 수 있는 계정 수 제한 (maxAccountsPerTarget=2): 세 번째 계정은 자리 없음
+    val b = kr.jamsuham.core.cloud.CloudClient(base).also { it.loginDev("Tester_B", "B") }
+    val c = kr.jamsuham.core.cloud.CloudClient(base).also { it.loginDev("Tester_C", "C") }
+    b.putEntry(entry); c.putEntry(entry)
+    val bStart = codeOf { b.start("h1") }
+    var capErr: kr.jamsuham.core.cloud.CloudException? = null
+    try { c.start("h1") } catch (e: kr.jamsuham.core.cloud.CloudException) { capErr = e }
+    println("        → ${capErr?.message}")
+    check("서버별 계정 수 제한: 둘째는 시작, 셋째는 자리 없음(limit)", bStart == null && capErr?.code == "limit")
+    b.stop("h1"); b.deleteAccount(); c.deleteAccount()
+
+    // 다른 클라이언트(PC 게임)가 들어와 밀려난 경우 → 표시 + 다시 시작할 때 확인
+    if (dupePort != null) {
+        val d = kr.jamsuham.core.cloud.CloudEntry(id = "h2", name = "중복 로그인 서버", address = "127.0.0.1:$dupePort", walkOnJoin = false)
+        app.putEntry(d)
+        app.start("h2")
+        check("중복 로그인 킥 → 멈춤", waitFor(25000) { seen.states("h2").let { SessionState.ONLINE in it && it.last() == SessionState.STOPPED } })
+        check("목록에 other(PC 게임 등) 표시", waitFor(3000) { seen.presence().any { it.holder == "other" && it.sid == "h2" } })
+        var other: kr.jamsuham.core.cloud.CloudException? = null
+        try { app.start("h2") } catch (e: kr.jamsuham.core.cloud.CloudException) { other = e }
+        println("        → ${other?.message}")
+        check("다시 시작하면 확인 요청(in_use/other, canForce)", other?.code == "in_use" && other?.data?.get("holder")?.asString == "other" && other?.data?.get("canForce")?.asBoolean == true)
+        check("확인하고 시작(force)", codeOf { app.start("h2", force = true) } == null)
+        app.stop("h2")
+    }
+
+    app.stop("h1")
+    check("끊기 → STOPPED", waitFor(8000) { seen.states("h1").lastOrNull() == SessionState.STOPPED })
+    check("끊은 뒤 목록에서 cloud 빠짐", waitFor(3000) { seen.presence().none { it.holder == "cloud" && it.sid == "h1" } })
+    check("꺼진 서버에 채팅 → 거절", codeOf { app.chat("h1", "안 가야 함") } == "not_sent")
+
+    app.deleteAccount()
+    check("연결 해제 → bye 받고 로그인 풀림", waitFor(5000) { seen.events.any { it.first == "bye" } } && codeOf { app.me() } == "login_required")
+    check("연결 해제 뒤 실시간 연결은 다시 붙지 않음", waitFor(20000) { seen.authLost })
+    stream.stop()
+
+    val failed = results.filter { !it.second }
+    println("RESULT cloud ${results.size - failed.size}/${results.size}" + if (failed.isEmpty()) "" else " 실패: ${failed.map { it.first }}")
+    return failed.isEmpty()
+}

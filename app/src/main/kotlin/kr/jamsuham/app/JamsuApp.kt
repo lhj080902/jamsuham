@@ -18,6 +18,7 @@ class JamsuApp : Application() {
         System.setProperty("io.netty.transport.noNative", "true")
         ChatLog.init(this)
         AppSettings.init(this)
+        CloudHub.init(this)
         // 화면이 하나라도 보이는지 (메뉴 알림을 띄울지 판단용)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(a: Activity) {
@@ -25,6 +26,8 @@ class JamsuApp : Application() {
                     // 앱을 다시 열었다: 내려 둔 리소스팩 그림 글자를 다시 읽는다
                     main.removeCallbacks(release)
                     SessionHub.restoreGlyphs()
+                    // 클라우드 잠수의 상태·채팅을 다시 받기 시작한다
+                    CloudHub.onForeground()
                 }
             }
             override fun onActivityStopped(a: Activity) {
@@ -41,7 +44,13 @@ class JamsuApp : Application() {
     }
 
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
-    private val release = Runnable { if (!inForeground) SessionHub.releaseGlyphs() }
+    private val release = Runnable {
+        if (!inForeground) {
+            SessionHub.releaseGlyphs()
+            // 앱을 안 보는 동안은 클라우드와의 실시간 연결을 끊는다 (잠수는 클라우드에서 계속 돈다)
+            CloudHub.onBackground()
+        }
+    }
 
     companion object {
         private var started = 0

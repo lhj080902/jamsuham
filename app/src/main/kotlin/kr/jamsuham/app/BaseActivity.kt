@@ -51,6 +51,22 @@ abstract class BaseActivity : Activity(), Starter {
                 .show()
             return false
         }
+        // 클라우드 잠수: 폰의 잠수 서비스·알림 권한·동시 잠수 제한과 상관없이 클라우드에 요청한다
+        if (server.cloud) return CloudHub.start(this, server)
+        // 같은 계정이 같은 서버에 클라우드로 들어가 있으면 폰에서 또 들어가지 않는다 (서로 튕겨 냄)
+        CloudHub.elsewhere(server)?.takeIf { it.holder == "cloud" }?.let { holder ->
+            AlertDialog.Builder(this)
+                .setTitle(tr("이미 실행 중입니다", "Already running"))
+                .setMessage(tr("이미 클라우드에서 실행 중입니다. 그쪽 연결을 해제하고 다시 시도해 주세요.", "Already running in the cloud. Disconnect it there and try again."))
+                .setPositiveButton(tr("클라우드 연결 끊기", "Disconnect the cloud")) { _, _ ->
+                    CloudHub.stopHolder(server, holder) { error ->
+                        toast(error ?: tr("클라우드 연결을 끊었습니다. 다시 시작을 눌러 주세요", "Cloud disconnected. Tap Start again"))
+                    }
+                }
+                .setNegativeButton(tr("취소", "Cancel"), null)
+                .show()
+            return false
+        }
         // 무료 버전: 동시에 잠수할 수 있는 서버 수 제한
         val others = SessionHub.activeIds() - serverId
         if (checkLimit && others.size >= Plan.maxConcurrent(this)) {

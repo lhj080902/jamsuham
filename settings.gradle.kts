@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Jamsuham"
-include(":core", ":app")
+include(":core", ":app", ":cloud")

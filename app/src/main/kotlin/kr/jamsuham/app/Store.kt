@@ -33,8 +33,25 @@ data class ServerEntry(
     val packWifiOnly: Boolean = true,
     /** 들어가면 한두 걸음 걸었다가 돌아오기 (움직여야 채팅이 되는 서버용) */
     val walkOnJoin: Boolean = true,
+    /** 클라우드에서 잠수 (폰을 꺼도 클라우드 서버가 계속 접속해 있음. 프리미엄, 계정을 클라우드에 연결해야 함) */
+    val cloud: Boolean = false,
 ) {
     val displayName: String get() = name.ifBlank { address.ifBlank { tr("이름 없는 서버", "Unnamed server") } }
+
+    /** 클라우드에 올리는 모양 (잠수에 필요한 설정만) */
+    fun cloudEntry() = kr.jamsuham.core.cloud.CloudEntry(
+        id = id,
+        name = name,
+        address = address,
+        fixedVersion = fixedVersion,
+        joinCommands = joinCommands.map { it.trim() }.filter { it.isNotEmpty() }.take(10),
+        joinDelaySec = joinDelaySec.coerceIn(0, 120),
+        joinIntervalSec = joinIntervalSec.coerceIn(0, 120),
+        autoReconnect = autoReconnect,
+        reconnectOnKick = reconnectOnKick,
+        autoClickRules = (autoClickRules ?: emptyList()).take(20),
+        walkOnJoin = walkOnJoin,
+    )
 
     fun sessionConfig() = SessionConfig(
         address = address,

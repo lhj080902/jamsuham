@@ -43,6 +43,10 @@ object SessionHub {
     private class Entry {
         var session: AfkSession? = null
         var token: Any? = null
+        /** 클라우드에서 도는 잠수 (이 폰에는 세션이 없고, 상태·채팅을 클라우드에서 받아 보여 준다) */
+        var remote = false
+        /** 클라우드가 알려 준 데이터 사용량 (클라우드 쪽 컴퓨터가 쓴 양) */
+        var remoteTraffic: kr.jamsuham.core.Traffic? = null
         var status = SessionStatus(SessionState.IDLE, tr("꺼짐", "Off"))
         val lines = ArrayDeque<LogLine>()
         var players: PlayerList = PlayerList.EMPTY
@@ -108,12 +112,22 @@ object SessionHub {
 
     fun menu(serverId: String): Menu? = entries[serverId]?.menu
 
-    fun clickMenu(serverId: String, slot: Int): Boolean = entries[serverId]?.session?.clickMenu(slot) ?: false
+    fun clickMenu(serverId: String, slot: Int): Boolean {
+        val e = entries[serverId] ?: return false
+        if (e.remote) return e.menu != null && CloudHub.clickMenu(serverId, slot)
+        return e.session?.clickMenu(slot) ?: false
+    }
 
-    fun useItem(serverId: String, slot: Int): Boolean = entries[serverId]?.session?.useItem(slot) ?: false
+    /** 인벤토리 아이템 사용 (클라우드 잠수에서는 아직 지원하지 않는다) */
+    fun useItem(serverId: String, slot: Int): Boolean {
+        val e = entries[serverId] ?: return false
+        if (e.remote) return false
+        return e.session?.useItem(slot) ?: false
+    }
 
     fun closeMenu(serverId: String) {
-        entries[serverId]?.session?.closeMenu()
+        val e = entries[serverId] ?: return
+        if (e.remote) CloudHub.closeMenu(serverId) else e.session?.closeMenu()
     }
 
     fun inventory(serverId: String): Inventory = entries[serverId]?.inventory ?: Inventory.EMPTY
@@ -123,7 +137,7 @@ object SessionHub {
     fun vitals(serverId: String): Vitals? = entries[serverId]?.vitals
 
     /** 이 서버 잠수를 시작한 뒤의 데이터 사용량 (시작한 적 없으면 null) */
-    fun traffic(serverId: String): kr.jamsuham.core.Traffic? = entries[serverId]?.session?.traffic
+    fun traffic(serverId: String): kr.jamsuham.core.Traffic? = entries[serverId]?.let { if (it.remote) it.remoteTraffic else it.session?.traffic }
 
     /**
      * 시간당 데이터 사용량 (접속해 있던 시간 기준 평균). 알림과 상태 탭이 똑같이 보이도록 [refreshRates] 를 부를 때(1분마다)만 바뀐다.
@@ -134,7 +148,7 @@ object SessionHub {
     /** 서비스가 1분마다 부른다 */
     fun refreshRates() {
         for ((id, e) in entries) {
-            val r = e.session?.traffic?.perHour
+            val r = (if (e.remote) e.remoteTraffic else e.session?.traffic)?.perHour
             if (r == null) rates.remove(id) else rates[id] = r
         }
     }
@@ -210,7 +224,7 @@ object SessionHub {
     fun restoreGlyphs() {
         if (!::appContext.isInitialized) return
         for ((id, e) in entries) {
-            if (!e.status.state.isActive() && e.session == null) continue
+            if (!e.status.state.isActive() && e.session == null && !e.remote) continue
             for (url in e.packUrls.toList()) {
                 val st = e.packStates[url]
                 if (e.glyphs == null && st != null && !st.skipped && (st.deferred || st.glyphs != null)) loadPack(id, e, url, announce = false)
@@ -227,12 +241,21 @@ object SessionHub {
         val e = entries[serverId] ?: return
         if (e.lastDeath == null) return
         e.lastDeath = null
+        if (e.remote) CloudHub.clearDeath(serverId)
         for (o in observers.toList()) o.onDeath(serverId, null)
     }
 
+    /** 잠수 중인지 (이 폰에서든 클라우드에서든) */
     fun isActive(serverId: String): Boolean = status(serverId).state.isActive()
 
-    fun activeIds(): Set<String> = entries.filter { it.value.status.state.isActive() }.keys.toSet()
+    /** 클라우드에서 도는 잠수인지 */
+    fun isRemote(serverId: String): Boolean = entries[serverId]?.remote == true
+
+    /**
+     * 이 폰에서 직접 잠수 중인 서버들. 알림·서비스 유지·동시 잠수 제한·"이어서 잠수"는 이것만 본다
+     * (클라우드 잠수는 폰이 꺼져도 클라우드에서 계속 돌므로 여기 들어가지 않는다).
+     */
+    fun activeIds(): Set<String> = entries.filter { !it.value.remote && it.value.status.state.isActive() }.keys.toSet()
 
     val anyActive: Boolean get() = activeIds().isNotEmpty()
 
@@ -243,6 +266,8 @@ object SessionHub {
         val myToken = Any()
         e.token = myToken
         e.session?.shutdown()
+        e.remote = false
+        e.remoteTraffic = null
         e.lines.clear()
         // 새 접속에서 서버가 리소스팩을 다시 보내면 그 순서대로 다시 겹친다 (그림 글자는 받기 전까지 이전 것을 그대로 씀)
         e.packUrls.clear()
@@ -352,6 +377,10 @@ object SessionHub {
     /** 사용자가 끊기 (재접속 안 함) */
     fun stop(serverId: String) {
         val e = entries[serverId] ?: return
+        if (e.remote) {
+            CloudHub.stop(serverId)
+            return
+        }
         val s = e.session
         if (s == null || !e.status.state.isActive()) {
             publishStatus(serverId, e.status.copy(state = SessionState.STOPPED, message = tr("꺼짐", "Off"), onlineSinceMs = null))
@@ -363,6 +392,7 @@ object SessionHub {
     /** 서비스가 사라질 때 모든 세션 정리 */
     fun releaseAll() {
         for ((id, e) in entries) {
+            if (e.remote) continue
             e.token = null
             e.session?.shutdown()
             e.session = null
@@ -391,12 +421,142 @@ object SessionHub {
         return e.session?.liveConnection
     }
 
-    fun sendChat(serverId: String, text: String): Boolean = entries[serverId]?.session?.sendChat(text) ?: false
+    fun sendChat(serverId: String, text: String): Boolean {
+        val e = entries[serverId] ?: return false
+        if (e.remote) return CloudHub.sendChat(serverId, text)
+        return e.session?.sendChat(text) ?: false
+    }
 
     /** 자동완성 후보 요청. 결과는 메인 스레드로 */
     fun requestSuggestions(serverId: String, text: String, callback: (CommandSuggestions?) -> Unit): Boolean {
-        val s = entries[serverId]?.session ?: return false
+        val e = entries[serverId] ?: return false
+        if (e.remote) return CloudHub.requestSuggestions(serverId, text) { result -> main.post { callback(result) } }
+        val s = e.session ?: return false
         return s.requestSuggestions(text) { result -> main.post { callback(result) } }
+    }
+
+    // ------------------------------------------------------------ 클라우드 잠수 (CloudHub 가 메인 스레드에서 부른다)
+
+    /**
+     * 이 서버를 클라우드 잠수로 표시한다 (이 폰의 세션이 있었으면 정리). 처음 표시할 때는 화면의 예전 내용을 비운다.
+     */
+    fun remoteBegin(context: Context, serverId: String) {
+        appContext = context.applicationContext
+        val e = entry(serverId)
+        if (e.remote) return
+        e.token = Any()
+        e.session?.shutdown()
+        e.session = null
+        e.remote = true
+        e.remoteTraffic = null
+        e.lines.clear()
+        e.packUrls.clear()
+        e.packHashes.clear()
+        e.packStates.clear()
+        rates.remove(serverId)
+    }
+
+    /** 클라우드 잠수 표시를 내린다 (이 폰에서 잠수하도록 바꿨거나 클라우드 연결을 해제했을 때) */
+    fun remoteEnd(serverId: String, message: String = tr("꺼짐", "Off")) {
+        val e = entries[serverId] ?: return
+        if (!e.remote) return
+        e.remote = false
+        e.remoteTraffic = null
+        e.token = Any()
+        remoteState(serverId, PlayerList.EMPTY, null, null, Inventory.EMPTY)
+        publishStatus(serverId, SessionStatus(SessionState.STOPPED, message))
+    }
+
+    fun remoteStatus(serverId: String, status: SessionStatus) {
+        val e = entries[serverId] ?: return
+        if (e.remote) publishStatus(serverId, status)
+    }
+
+    /** [save] 채팅 기록 파일에도 남길지 (이미 남긴 줄을 다시 받아 화면에만 채울 때는 false) */
+    fun remoteLine(serverId: String, line: LogLine, save: Boolean) {
+        val e = entries[serverId] ?: return
+        if (!e.remote) return
+        val buf = e.lines
+        buf.addLast(line)
+        while (buf.size > MAX_LINES) buf.removeFirst()
+        if (save) ChatLog.append(serverId, line)
+        for (o in observers.toList()) o.onLine(serverId, line)
+    }
+
+    /** 접속자·체력·메뉴·인벤토리를 한꺼번에 맞춘다 (바뀌지 않은 것은 그대로 두려면 remotePlayers 등 개별 함수를 쓴다) */
+    fun remoteState(serverId: String, players: PlayerList, vitals: Vitals?, menu: Menu?, inventory: Inventory) {
+        remotePlayers(serverId, players)
+        remoteVitals(serverId, vitals)
+        remoteMenu(serverId, menu)
+        remoteInventory(serverId, inventory)
+    }
+
+    fun remotePlayers(serverId: String, list: PlayerList) {
+        val e = entries[serverId] ?: return
+        e.players = list
+        for (o in observers.toList()) o.onPlayers(serverId, list)
+    }
+
+    fun remoteVitals(serverId: String, vitals: Vitals?) {
+        val e = entries[serverId] ?: return
+        e.vitals = vitals
+        for (o in observers.toList()) o.onVitals(serverId, vitals)
+    }
+
+    fun remoteMenu(serverId: String, menu: Menu?) {
+        val e = entries[serverId] ?: return
+        e.menu = menu
+        for (o in observers.toList()) o.onMenu(serverId, menu)
+        if (menu == null) {
+            e.notifiedMenuWindow = -1
+            if (::appContext.isInitialized) MenuNotifier.cancel(appContext, serverId)
+        }
+    }
+
+    fun remoteInventory(serverId: String, inventory: Inventory) {
+        val e = entries[serverId] ?: return
+        e.inventory = inventory
+        for (o in observers.toList()) o.onInventory(serverId, inventory)
+    }
+
+    fun remoteDeath(serverId: String, death: DeathInfo?) {
+        val e = entries[serverId] ?: return
+        if (e.lastDeath == death) return
+        e.lastDeath = death
+        for (o in observers.toList()) o.onDeath(serverId, death)
+    }
+
+    fun remoteTraffic(serverId: String, traffic: kr.jamsuham.core.Traffic?) {
+        val e = entries[serverId] ?: return
+        e.remoteTraffic = traffic
+        val r = traffic?.perHour
+        if (r == null) rates.remove(serverId) else rates[serverId] = r
+    }
+
+    /** 클라우드 세션이 받은 리소스팩 주소들 (순서대로). 그림 글자는 이 폰이 직접 받아 채팅에 그린다 */
+    fun remotePacks(serverId: String, packs: List<Pair<String, String>>) {
+        val e = entries[serverId] ?: return
+        if (!e.remote || !::appContext.isInitialized) return
+        val server = Store(appContext).server(serverId)
+        val urls = packs.map { it.first }.filter { it.startsWith("http") }
+        if (urls == e.packUrls && urls.all { e.packStates[it] != null }) return
+        // 새 접속에서 팩이 바뀌었으면 예전 팩 표시를 지운다
+        e.packUrls.retainAll(urls.toSet())
+        e.packStates.keys.retainAll(urls.toSet())
+        for ((url, hash) in packs) {
+            if (!url.startsWith("http")) continue
+            if (server?.packGlyphs == false) {
+                e.packStates[url] = PackState(url, null, skipped = true)
+                continue
+            }
+            // 이미 읽었거나 읽는 중이면 다시 받지 않는다 (실패했던 것만 다시 시도)
+            val st = e.packStates[url]
+            val known = url in e.packUrls && st != null && st.error == null && !st.skipped
+            if (url !in e.packUrls) e.packUrls.add(url)
+            e.packHashes[url] = hash
+            if (!known) loadPack(serverId, e, url, announce = false)
+        }
+        notifyGlyphs(serverId)
     }
 
     fun onNetworkAvailable() {

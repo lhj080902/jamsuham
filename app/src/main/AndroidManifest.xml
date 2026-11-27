@@ -25,6 +25,10 @@
         <meta-data
             android:name="kr.jamsuham.MS_CLIENT_ID"
             android:value="${msClientId}" />
+        <!-- 클라우드 잠수 서버의 기본 주소 (빌드할 때 JAMSUHAM_CLOUD_URL 로 채움, 비면 설정에서 입력) -->
+        <meta-data
+            android:name="kr.jamsuham.CLOUD_URL"
+            android:value="${cloudUrl}" />
 
         <activity
             android:name=".MainActivity"

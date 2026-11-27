@@ -50,6 +50,9 @@ class SettingsActivity : BaseActivity() {
         body.addView(accounts.listCard, ui.lp())
         body.addView(accounts.addCard, ui.gap(10))
 
+        // ---------------------------------------------------------------- 클라우드 잠수
+        body.addView(CloudSection(this, ui).card, ui.gap(10))
+
         // ---------------------------------------------------------------- 화면
         val look = ui.card()
         look.addView(ui.section(tr("화면", "Appearance")))

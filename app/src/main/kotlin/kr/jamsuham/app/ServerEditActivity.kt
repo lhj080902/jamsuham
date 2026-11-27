@@ -40,6 +40,7 @@ class ServerEditActivity : BaseActivity() {
     private lateinit var resumeOnBoot: Switch
     private lateinit var walkOnJoin: Switch
     private lateinit var packWifiOnly: Switch
+    private lateinit var cloudSwitch: Switch
 
     private val versionNames = ArrayList<String>()
     private var accountList: List<Account> = emptyList()
@@ -183,6 +184,19 @@ class ServerEditActivity : BaseActivity() {
             "If you see \"already connected to this proxy\", it waits until the server clears the old connection and then tries again.")))
         form.addView(optCard, ui.gap(10))
 
+        // 클라우드 잠수 (프리미엄)
+        val cloudCard = ui.card()
+        cloudCard.addView(ui.section(tr("클라우드 잠수 (프리미엄)", "Cloud AFK (premium)")))
+        cloudSwitch = ui.switch(tr("클라우드에서 잠수 (폰을 꺼도 유지)", "AFK in the cloud (stays on when the phone is off)")).apply { isChecked = s.cloud }
+        cloudCard.addView(cloudSwitch)
+        cloudCard.addView(ui.hint(tr(
+            "켜 두면 이 폰이 아니라 클라우드 서버가 대신 접속해 있습니다. 폰을 끄거나 앱을 지워도, 직접 끊거나 서버에서 내보내지 않는 한 계속 접속해 있고, 웹에서도 같은 화면을 볼 수 있습니다. " +
+                "이 계정을 먼저 설정 → 클라우드 잠수에서 연결해야 합니다. 클라우드 잠수에서는 아직 지도·이동·아이템 사용을 쓸 수 없습니다.",
+            "When on, the cloud server stays connected instead of this phone. It stays connected even if you turn off the phone or remove the app, until you disconnect or the server kicks you, and you can see the same screen on the web. " +
+                "Link this account first in Settings → Cloud AFK. Map, movement and item use aren't available for cloud AFK yet.",
+        )))
+        form.addView(cloudCard, ui.gap(10))
+
         // 리소스팩 그림 글자
         val packCard = ui.card()
         packCard.addView(ui.section(tr("리소스팩 그림 글자", "Resource pack glyphs")))
@@ -247,6 +261,16 @@ class ServerEditActivity : BaseActivity() {
             toast(tr("서버 주소를 입력해 주세요", "Please enter the server address"))
             return
         }
+        // 클라우드 잠수는 클라우드에 연결한 계정만 켤 수 있다
+        if (cloudSwitch.isChecked && !CloudHub.isLinked(pendingAccountId)) {
+            cloudSwitch.isChecked = false
+            AlertDialog.Builder(this)
+                .setTitle(tr("클라우드 연결이 필요합니다", "Cloud link required"))
+                .setMessage(tr("고른 계정이 클라우드에 연결되어 있지 않습니다. 설정 → 클라우드 잠수에서 계정을 연결한 뒤 다시 켜 주세요.", "The selected account isn't linked to the cloud. Link it in Settings → Cloud AFK, then turn this on again."))
+                .setPositiveButton(tr("확인", "OK"), null)
+                .show()
+            return
+        }
         val pos = versionSpinner.selectedItemPosition
         val entry = (original ?: ServerEntry(
             packGlyphs = AppSettings.defaultPackGlyphs,
@@ -267,8 +291,13 @@ class ServerEditActivity : BaseActivity() {
             resumeOnBoot = resumeOnBoot.isChecked,
             walkOnJoin = walkOnJoin.isChecked,
             packWifiOnly = packWifiOnly.isChecked,
+            cloud = cloudSwitch.isChecked,
         )
+        // 폰 잠수 ↔ 클라우드 잠수를 바꾸면 하던 잠수는 끊는다 (두 곳에서 같이 들어가 있지 않게)
+        val before = original
+        if (before != null && before.cloud != entry.cloud && SessionHub.isActive(entry.id)) AfkService.stop(this, entry.id)
         store.saveServer(entry)
+        CloudHub.entrySaved(this, before, entry)
         if (SessionHub.isActive(entry.id)) toast(tr("저장했습니다. 바뀐 설정은 다음 접속부터 적용됩니다", "Saved. Changes apply from the next connection")) else toast(tr("저장했습니다", "Saved"))
         finish()
     }
@@ -281,6 +310,7 @@ class ServerEditActivity : BaseActivity() {
             .setPositiveButton(tr("삭제", "Delete")) { _, _ ->
                 if (SessionHub.isActive(s.id)) AfkService.stop(this, s.id)
                 store.deleteServer(s.id)
+                CloudHub.entryDeleted(this, s)
                 ServerInfos.forget(this, s.id)
                 finish()
             }

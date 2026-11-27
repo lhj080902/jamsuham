@@ -509,7 +509,11 @@ class MapPanel(private val activity: Activity, private val ui: Ui, private val s
             if (conn == null) {
                 text.color = p.muted
                 text.textAlign = Paint.Align.CENTER
-                canvas.drawText(tr("접속하면 지도가 보입니다", "Connect to see the map"), w / 2, h / 2, text)
+                canvas.drawText(
+                    if (SessionHub.isRemote(serverId)) tr("클라우드 잠수에서는 아직 지도·이동을 쓸 수 없습니다", "Map and movement aren't available for cloud AFK yet")
+                    else tr("접속하면 지도가 보입니다", "Connect to see the map"),
+                    w / 2, h / 2, text,
+                )
                 coords.setTextIfChanged("")
                 postInvalidateDelayed(500)
                 return
