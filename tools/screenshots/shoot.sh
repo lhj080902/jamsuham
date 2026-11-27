@@ -4,6 +4,7 @@
 # 미리 필요한 것: JAMSUHAM_SCREENSHOTS=true 로 빌드한 Play 판 디버그 APK (Screenshots.kt 가 시험 계정·서버를 넣음),
 #                 PC 쪽에 시험 서버 3개 (25565 = showcase, 25566·25567 = 목록에 보일 서버), 메뉴를 여는 파일 경로 SHOWCASE_MENU_FILE
 # 결과: shots/<종류>/*.png (밝은 화면), *-dark.png (어두운 화면), log.txt (화면마다 보인 글자)
+#       찍은 뒤 tools/screenshots/finish.py 로 스토어에 올릴 모양으로 다듬는다 (투명도 없애기, 태블릿 아래 앱 줄 자르기)
 set -u
 KIND=${1:-phone}
 OUT=shots/$KIND
@@ -31,23 +32,19 @@ adb shell settings put system time_12_24 24
 adb shell settings put global auto_time 0
 adb shell "date $(TZ=Asia/Seoul date +%m%d)1930$(TZ=Asia/Seoul date +%Y).00" > /dev/null
 adb shell settings put secure show_ime_with_hard_keyboard 0
-# 제스처 내비게이션: 태블릿 아래쪽에 다른 앱 아이콘 줄(작업 표시줄)이 계속 보이지 않게
-adb shell cmd overlay enable com.android.internal.systemui.navbar.gestural > /dev/null
 adb install -r "$APK"
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS
 adb shell dumpsys deviceidle whitelist +$PKG > /dev/null
 
-# 상태 줄을 깔끔하게 (시계는 채팅 시간과 같게 기기 시간으로 고정)
-status_bar() {
-  adb shell settings put global sysui_demo_allowed 1
-  demo -e command enter
-  demo -e command clock -e hhmm "$(adb shell date +%H%M | tr -d '\r')"
-  demo -e command battery -e level 100 -e plugged false
-  demo -e command network -e wifi show -e level 4 -e fully true
-  demo -e command network -e mobile show -e datatype none -e level 4 -e fully true
-  demo -e command notifications -e visible false
-}
-status_bar
+# 상태 줄을 깔끔하게 (시계는 채팅 시간과 같게 기기 시간으로 고정). 와이파이 줄을 두 번 보내면 아이콘이 둘이 되므로 한 번만
+clock_now() { demo -e command clock -e hhmm "$(adb shell date +%H%M | tr -d '\r')"; }
+adb shell settings put global sysui_demo_allowed 1
+demo -e command enter
+clock_now
+demo -e command battery -e level 100 -e plugged false
+demo -e command network -e wifi show -e level 4 -e fully true
+demo -e command network -e mobile show -e datatype none -e level 4 -e fully true
+demo -e command notifications -e visible false
 
 tour() { # tour <파일 이름 뒤에 붙일 글자> — 채팅 화면이 보이는 상태에서 시작
   local s=$1
@@ -74,7 +71,7 @@ sleep 10 # 서버 목록의 서버 정보(이름·접속자 수) 받기
 shot "00-servers-before"
 tap "시작"
 sleep 5
-status_bar # 채팅에 찍히는 시간과 같은 분으로
+clock_now # 채팅에 찍히는 시간과 같은 분으로
 sleep 10 # 접속 + 채팅이 다 올라올 때까지
 tour ""
 if [ "$KIND" = phone ]; then

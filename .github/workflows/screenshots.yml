@@ -77,6 +77,12 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: bash tools/screenshots/shoot.sh ${{ matrix.kind }}
 
+      - name: Finish (스토어에 올릴 모양으로)
+        if: always()
+        run: |
+          pip install --quiet pillow
+          python3 tools/screenshots/finish.py shots
+
       - name: Server logs
         if: always()
         run: tail -n 60 /tmp/srv1.log || true

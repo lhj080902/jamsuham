@@ -19,9 +19,19 @@ def dump():
         start, end = out.find("<?xml"), out.rfind("</hierarchy>")
         if start >= 0 and end > start:
             try:
-                return ET.fromstring(out[start:end + len("</hierarchy>")])
+                root = ET.fromstring(out[start:end + len("</hierarchy>")])
             except ET.ParseError:
-                pass
+                root = None
+            if root is not None:
+                # 에뮬레이터가 느려 "앱이 응답하지 않음" 창이 뜨면 '대기'를 누르고 다시 읽는다
+                found = list(nodes(root))
+                if any("isn't responding" in t for t, _, _ in found):
+                    for t, x, y in found:
+                        if t == "Wait":
+                            subprocess.run(["adb", "shell", "input", "tap", str(x), str(y)])
+                    time.sleep(3)
+                    continue
+                return root
         time.sleep(1)
     return None
 
