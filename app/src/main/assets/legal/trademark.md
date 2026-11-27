@@ -28,4 +28,4 @@ GPL-3.0 은 **코드**에 대한 라이선스이며, 아래 항목의 사용권�
 잠수크래프트는 마인크래프트 공식 제품이 아니며, Mojang 또는 Microsoft 가 승인하거나 관련된 앱이 아닙니다. "Minecraft"는 Mojang Synergies AB 의 상표입니다.
 
 ## 6. 문의
-limhj080902@naver.com
+jamsucraft@naver.com

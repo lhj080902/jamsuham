@@ -85,7 +85,8 @@
 ## 7. 문의
 개인정보 관련 문의는 아래로 연락해 주세요.
 - 저장소 이슈: https://github.com/lhj080902/jamsuham/issues
-- 이메일: limhj080902@naver.com
+- 이메일: jamsucraft@naver.com
 
 ## 8. 방침 변경
 이 방침이 바뀌면 이 페이지에 시행일과 함께 알립니다.
+- 2026년 11월 28일: 문의·신고 이메일 주소를 jamsucraft@naver.com 으로 바꿨습니다.

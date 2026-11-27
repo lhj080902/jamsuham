@@ -24,7 +24,7 @@ object AppInfo {
     const val PRIVACY_URL = "https://github.com/lhj080902/jamsuham/blob/main/app/src/main/assets/legal/privacy-policy.md"
 
     /** 문의·신고를 받는 주소 (개인정보처리방침·이용 약관에 적힌 문의 주소와 같게 둘 것) */
-    const val CONTACT_EMAIL = "limhj080902@naver.com"
+    const val CONTACT_EMAIL = "jamsucraft@naver.com"
 
     /** 앱에 들어간 오픈소스: 이름, 라이선스, 라이선스 전문 파일 */
     private val LIBRARIES get() = listOf(

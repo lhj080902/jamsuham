@@ -43,7 +43,7 @@ When you send chat or commands with the app, you must not:
 - Nothing here excludes liability that cannot be excluded by law.
 
 ## 7. Contact
-- Email: limhj080902@naver.com
+- Email: jamsucraft@naver.com
 - Repository issues: https://github.com/lhj080902/jamsuham/issues
 
 ## 8. Changes

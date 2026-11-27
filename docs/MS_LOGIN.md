@@ -33,7 +33,7 @@ GitHub 배포에서는 동작하지만, Play 스토어에 올리려면 **우리 
   - 설명: 안드로이드용 마인크래프트 자바 에디션 채팅·잠수(AFK) 클라이언트. 사용자가 고른 서버에 정품 계정으로 접속하고 채팅을 주고받는다. 오픈소스(GPL-3.0).
   - 소스: https://github.com/lhj080902/jamsuham
   - 개인정보처리방침: https://github.com/lhj080902/jamsuham/blob/main/app/src/main/assets/legal/privacy-policy.md
-  - 연락 이메일: limhj080902@naver.com
+  - 연락 이메일: jamsucraft@naver.com (실제 신청은 2026-11-22 에 그때의 문의 주소로 했음 — Mojang 의 연락은 그 주소로 온다)
 - 승인까지 며칠~몇 주 걸릴 수 있다. 승인되면 메일이 온다.
 
 ## ③ 승인 후 GitHub 에 등록

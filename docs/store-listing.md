@@ -51,7 +51,7 @@ NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR 
 ```
 
 **카테고리**: 앱 → 도구 (또는 커뮤니케이션)
-**연락처 이메일**: limhj080902@naver.com
+**연락처 이메일**: jamsucraft@naver.com (문의·신고 전용. 앱의 신고 메일·개인정보처리방침·이용 약관과 같은 주소)
 **개인정보처리방침 URL**: `https://github.com/lhj080902/jamsuham/blob/main/app/src/main/assets/legal/privacy-policy.md`
 **이용 약관** (v2.3.0~, 앱 첫 실행 때 동의를 받음. 스토어에 따로 넣는 칸은 없고, 물어보면 이 주소): `https://github.com/lhj080902/jamsuham/blob/main/app/src/main/assets/legal/terms.md` (영어 `terms-en.md`)
 

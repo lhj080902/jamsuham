@@ -43,7 +43,7 @@
 - 관련 법령이 허용하지 않는 범위까지 책임을 면제하는 것은 아닙니다.
 
 ## 7. 문의
-- 이메일: limhj080902@naver.com
+- 이메일: jamsucraft@naver.com
 - 저장소 이슈: https://github.com/lhj080902/jamsuham/issues
 
 ## 8. 약관 변경
